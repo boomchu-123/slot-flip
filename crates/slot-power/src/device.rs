@@ -304,6 +304,30 @@ extern "C" {
     fn ioctl(fd: c_int, request: c_ulong, ...) -> c_int;
 }
 
+fn upload(node: &fs::File, id: i16) -> Option<i16> {
+    let mut effect = FfEffect {
+        kind: FF_RUMBLE,
+        id,
+        direction: 0,
+        trigger: FfTrigger::default(),
+        replay: FfReplay::default(),
+        _align: 0,
+        rumble: FfRumble {
+            strong: u16::MAX,
+            weak: u16::MAX,
+        },
+        _tail: [0; 28],
+    };
+    let rc = unsafe {
+        ioctl(
+            node.as_raw_fd(),
+            EVIOCSFF,
+            &mut effect as *mut FfEffect as *mut c_void,
+        )
+    };
+    (rc >= 0).then_some(effect.id)
+}
+
 impl Motor {
     fn open(sysfs: &Path) -> Option<Motor> {
         let name = rumble_node(sysfs)?;
@@ -313,39 +337,29 @@ impl Motor {
             .open(Path::new(DEV_INPUT).join(&name))
             .map_err(|e| eprintln!("slot: rumble {name}: {e}"))
             .ok()?;
-        let mut effect = FfEffect {
-            kind: FF_RUMBLE,
-            id: -1,
-            direction: 0,
-            trigger: FfTrigger::default(),
-            replay: FfReplay::default(),
-            _align: 0,
-            rumble: FfRumble {
-                strong: u16::MAX,
-                weak: u16::MAX,
-            },
-            _tail: [0; 28],
-        };
-        let rc = unsafe {
-            ioctl(
-                node.as_raw_fd(),
-                EVIOCSFF,
-                &mut effect as *mut FfEffect as *mut c_void,
-            )
-        };
-        if rc < 0 {
+        let Some(id) = upload(&node, -1) else {
             eprintln!("slot: rumble {name}: {}", std::io::Error::last_os_error());
             return None;
-        }
+        };
         Some(Motor {
             node,
             name,
-            id: effect.id,
+            id,
             running: false,
         })
     }
 
     fn play(&mut self, on: bool) {
+        if on {
+            match upload(&self.node, self.id).or_else(|| upload(&self.node, -1)) {
+                Some(id) => self.id = id,
+                None => eprintln!(
+                    "slot: rumble {}: {}",
+                    self.name,
+                    std::io::Error::last_os_error()
+                ),
+            }
+        }
         let ev = FfEvent {
             sec: 0,
             usec: 0,
@@ -412,6 +426,10 @@ fn headphones_in(gpio: &str) -> bool {
 impl Platform for DevicePlatform {
     fn headphones(&self) -> bool {
         fs::read_to_string(self.sysfs.join("kernel/debug/gpio")).is_ok_and(|g| headphones_in(&g))
+    }
+
+    fn card_read_only(&self) -> bool {
+        read_only(&self.root)
     }
 
     fn set_backlight(&mut self, step: u8) {
@@ -563,4 +581,26 @@ impl Platform for DevicePlatform {
             motor.play(on);
         }
     }
+}
+
+pub fn read_only(path: &Path) -> bool {
+    // Resolve symlinks first: MinUI passes the card as /mnt/SDCARD (a symlink
+    // to /mnt/sdcard), and /proc/mounts lists the real path. Without this the
+    // comparison falls through to / — a read-only squashfs — and alarms on
+    // every boot.
+    let real = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    fs::read_to_string("/proc/mounts").is_ok_and(|m| read_only_in(&m, &real))
+}
+
+pub fn read_only_in(mounts: &str, path: &Path) -> bool {
+    mounts
+        .lines()
+        .filter_map(|l| {
+            let mut f = l.split_whitespace();
+            let point = Path::new(f.nth(1)?);
+            let options = f.nth(1)?;
+            path.starts_with(point).then_some((point, options))
+        })
+        .max_by_key(|(point, _)| point.as_os_str().len())
+        .is_some_and(|(_, options)| options.split(',').any(|o| o == "ro"))
 }

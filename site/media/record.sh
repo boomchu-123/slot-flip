@@ -25,8 +25,13 @@ for f in os.listdir(sys.argv[2]):
 	fi
 	sed -i.bak "s|^cart=.*|cart=$cart|; s|^cart_platform=.*|cart_platform=$platform|" \
 		"$work/card/Config/slot.state"
+	sed -n 's/^# state: *//p' "$here/clips/$name.txt" | while IFS='=' read -r key value; do
+		grep -v "^$key=" "$work/card/Config/slot.state" > "$work/state" || true
+		echo "$key=$value" >> "$work/state"
+		mv "$work/state" "$work/card/Config/slot.state"
+	done
 	core=$(sed -n 's/^# core: *//p' "$here/clips/$name.txt")
-	[ -n "$core" ] && echo "$cart = $core" >> "$work/card/Config/selected_core.ini"
+	[ -n "$core" ] && echo "$cart = $core" >> "$work/card/Config/selected_core.txt"
 	clips=$(sed -n 's/^rec \([a-z0-9-]*\)$/\1/p' "$here/clips/$name.txt")
 	out="$here/$name.mp4"
 	[ -n "$clips" ] && out="$here"

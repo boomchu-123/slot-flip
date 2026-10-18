@@ -1,0 +1,5 @@
+cargo:rerun-if-changed=../../.git/HEAD
+cargo:rerun-if-changed=../../.git/logs/HEAD
+cargo:rustc-env=SLOT_GIT_HASH=d20c213
+cargo:rustc-env=SLOT_GIT_DIRTY=1
+cargo:rustc-env=SLOT_BUILD_DATE=2026-10-18

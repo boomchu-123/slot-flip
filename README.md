@@ -15,6 +15,11 @@ states.
 It keeps everything it owns in a single `Slot` folder and **never touches your
 MinUI Roms or Saves**.
 
+ROMs must be unzipped. slot does not read `.zip` or `.7z` files.
+
+Upstream's user guide is at [slot-cfw.fyi](https://slot-cfw.fyi). Release notes
+for this fork are in the [changelog](CHANGELOG.md).
+
 ## Device support
 
 | Device | MinUI platform | Pak folder | Status | Download |
@@ -237,7 +242,7 @@ launch once, and read `Slot/slot.log` — each press is logged with its code.
   - **Low battery (≤20%):** red
   - **Charging:** both green and red lit
 - **GBA core:** gpSP by default (it has an ARM64 dynarec; mGBA does not). Per-game
-  overrides live in `Slot/Config/selected_core.ini`.
+  overrides live in `Slot/Config/selected_core.txt`.
 
 ## Testing the experimental builds
 
@@ -318,7 +323,7 @@ in other emulators. Re-dump the cartridge or replace it with a known-good copy
 **A GBA game runs slow, or crashes on load.**
 gpSP is the default (it's fast on this chip). If a specific title misbehaves,
 force mGBA for just that game by adding a line to
-`Slot/Config/selected_core.ini`:
+`Slot/Config/selected_core.txt`:
 
 ```ini
 Pokemon Emerald = mgba
@@ -346,10 +351,24 @@ Everything Slot owns is under the `Slot` folder and the `Slot.pak` — deleting
 either is harmless to MinUI. If you auto-boot Slot, delete
 `<SD CARD>/.userdata/my355/auto.sh` to return to the normal MinUI menu.
 
-**Getting help.** This is a personal fork; for issues specific to it, open an
-issue on this fork's repository and include your `slot.log` (captured with the
-`DEBUG` file). For questions about the original frontend's look and behaviour,
-upstream's guide at [slot-cfw.fyi](https://slot-cfw.fyi) is the reference.
+**Getting help.** This is a personal fork; for issues specific to it,
+[open a bug report](https://github.com/boomchu-123/slot-flip/issues/new/choose)
+and include your `slot.log` (captured with the `DEBUG` file). For questions
+about the original frontend's look and behaviour, upstream's guide at
+[slot-cfw.fyi](https://slot-cfw.fyi) is the reference.
+
+---
+
+## Contributing & roadmap
+
+Contributions are welcome — bug reports, feature requests, docs, code, and
+especially **testing the experimental device builds**.
+
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — how to build, test, and submit
+  changes, plus the branch model.
+- **[ROADMAP.md](ROADMAP.md)** — what's planned, and how to request a feature.
+- **[Issues](https://github.com/boomchu-123/slot-flip/issues/new/choose)** —
+  bug reports, feature requests, and experimental device test reports.
 
 ---
 

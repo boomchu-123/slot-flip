@@ -89,6 +89,8 @@ struct Shared {
     state: AtomicU8,
     rewind: AtomicBool,
     rewind_fill: AtomicU8,
+    turbo: AtomicBool,
+    recording: AtomicBool,
     stop: AtomicBool,
     volume: AtomicU8,
     fast_steps: AtomicU32,
@@ -154,6 +156,8 @@ impl EmuHandle {
             state: AtomicU8::new(CoreState::Loading as u8),
             rewind: AtomicBool::new(false),
             rewind_fill: AtomicU8::new(0),
+            turbo: AtomicBool::new(true),
+            recording: AtomicBool::new(true),
             stop: AtomicBool::new(false),
             volume: AtomicU8::new(100),
             fast_steps: AtomicU32::new(FAST_STEPS),
@@ -348,6 +352,14 @@ impl EmuHandle {
         self.shared.rewind.store(on, Ordering::Relaxed);
     }
 
+    pub fn set_turbo(&self, on: bool) {
+        self.shared.turbo.store(on, Ordering::Relaxed);
+    }
+
+    pub fn set_rewind_recording(&self, on: bool) {
+        self.shared.recording.store(on, Ordering::Relaxed);
+    }
+
     pub fn rewind_fill(&self) -> u8 {
         self.shared.rewind_fill.load(Ordering::Relaxed)
     }
@@ -434,10 +446,12 @@ enum Wait {
 
 impl Drop for EmuHandle {
     fn drop(&mut self) {
+        eprintln!("slot: emu: stopping at {:.1} ms", crate::boot_time::ms());
         self.shared.stop.store(true, Ordering::Relaxed);
         if let Some(join) = self.join.take() {
             let _ = join.join();
         }
+        eprintln!("slot: emu: stopped at {:.1} ms", crate::boot_time::ms());
     }
 }
 
@@ -471,7 +485,11 @@ impl Worker {
         resume: Option<Vec<u8>>,
         link: Link,
     ) {
-        eprintln!("slot: emu: loading rom {}", rom.display());
+        eprintln!(
+            "slot: emu: loading {} at {:.1} ms",
+            rom.display(),
+            crate::boot_time::ms()
+        );
         if let Err(e) = core.load(&rom) {
             eprintln!("slot: {e}");
             self.shared
@@ -479,14 +497,23 @@ impl Worker {
                 .store(CoreState::Failed as u8, Ordering::Release);
             return;
         }
-        eprintln!("slot: emu: rom loaded");
         if let Some(sav) = sav {
+            eprintln!(
+                "slot: emu: save ram, {} bytes, at {:.1} ms",
+                sav.len(),
+                crate::boot_time::ms()
+            );
             if let Err(e) = core.load_save_ram(&sav) {
                 eprintln!("slot: save ram: {e}");
                 self.shared.sav_refused.store(true, Ordering::Release);
             }
         }
         if let Some(resume) = resume {
+            eprintln!(
+                "slot: emu: resume state, {} bytes, at {:.1} ms",
+                resume.len(),
+                crate::boot_time::ms()
+            );
             if let Err(e) = core.unserialize(&self.for_core(resume)) {
                 eprintln!("slot: resume: {e}");
                 self.shared.resume_refused.store(true, Ordering::Release);
@@ -510,6 +537,7 @@ impl Worker {
         self.shared
             .state
             .store(CoreState::Ready as u8, Ordering::Release);
+        eprintln!("slot: emu: ready at {:.1} ms", crate::boot_time::ms());
 
         let mut out = Vec::new();
         let mut gated = (false, false);
@@ -640,7 +668,10 @@ impl Worker {
                 loop {
                     ran += 1;
                     let last = ran >= ceiling || cost.last(began.elapsed(), budget);
-                    let input = input.turbo(turbo_frame);
+                    let input = match self.shared.turbo.load(Ordering::Relaxed) {
+                        true => input.turbo(turbo_frame),
+                        false => input.without_turbo(),
+                    };
                     turbo_frame = turbo_frame.wrapping_add(1);
                     core.set_frame_skip(!last);
                     let frame_began = Instant::now();
@@ -740,7 +771,10 @@ impl Worker {
                 self.frame_done(served);
 
                 since_snapshot += 1;
-                if cable.is_some() || speed == Speed::Fast {
+                if cable.is_some()
+                    || speed == Speed::Fast
+                    || !self.shared.recording.load(Ordering::Relaxed)
+                {
                     since_snapshot = 0;
                 }
                 if since_snapshot >= SNAPSHOT_EVERY {

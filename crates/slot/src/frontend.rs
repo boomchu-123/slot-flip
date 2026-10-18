@@ -1,22 +1,30 @@
 use std::time::{Duration, Instant};
 
-use slot_gfx::{Compositor, Draw, TexId, OUT_H, OUT_W};
+use slot_gfx::{Compositor, Draw, ScreenEffect, TexId, OUT_H, OUT_W};
+
+const PAPER: &[u8] = include_bytes!("../assets/paper.png");
 use slot_input::{InputSource, Millis};
 use slot_power::{Platform, Power};
 use slot_store::format_stamp;
 use slot_ui::{
-    arrows_hint_face, badge_face, cart_face, cart_shadow, chip_face, chip_shadow_face,
+    arrows_hint_face, badge_face, cart_shadow, chip_face, chip_shadow_face,
     date_time_text, gb_cart_shadow, hhmm, hint_face, icon_face, menu_face, photo_face,
-    quick_caret_face, quick_label_face, quick_legend_faces, quick_value_face, set_clock_hint_face,
-    buttons_face, socket_face, sticker_face, title_face, toast_face, wallpaper_face, word_face,
-    GbShell, Icon,
-    LinkBadge, PowerChoice, QuickMenuFaces, QuickRow, QuickValue, StickerFields, Toast, UndoFace,
-    ALERT_PX, BOLT_PX, HUD_ICON_PX, HUD_INK, LEGEND,
+    quick_caret_face, quick_label_face, quick_legend_faces, quick_value_face, rebuild_count_face,
+    rebuild_title_face, set_clock_hint_face, buttons_face, socket_face, sticker_face, title_face,
+    toast_face, wallpaper_face, word_face, CartFace, GbShell, Icon, LinkBadge, PowerChoice,
+    QuickMenuFaces,
+    QuickRow, QuickValue, RebuildScreen, StickerFields, Toast, UndoFace, ALERT_PX, BOLT_PX,
+    HUD_ICON_PX, HUD_INK, LEGEND,
 };
+
+#[cfg(not(feature = "flip"))]
+use slot_ui::bezel_face;
 
 use crate::app::{App, LinkRow, Phase};
 use crate::build_info::Build;
+use crate::cart_faces::CartFaces;
 use crate::face_builder::FaceBuilder;
+use crate::label_cache::{self, Rebuild};
 use crate::link_art_builder::LinkArtBuilder;
 use crate::link_screen::{LinkSprites, Sprite};
 use crate::link_start::{LinkFail, LinkStep};
@@ -35,6 +43,11 @@ pub struct Frontend {
     polaroid_texes: Vec<TexId>,
     title_tex: Option<TexId>,
     faces: FaceBuilder,
+    cart_faces: CartFaces,
+    rebuild: Option<Rebuild>,
+    stale_check: Option<std::sync::mpsc::Receiver<Vec<slot_store::Cart>>>,
+    ui_faces: Option<std::sync::mpsc::Receiver<UiFaces>>,
+    rebuild_faces: RebuildFaces,
     link_art: LinkArtBuilder,
     link_art_done: bool,
     core_asked: Option<String>,
@@ -47,6 +60,14 @@ pub struct Frontend {
     about: AboutFace,
     buttons: ButtonsFace,
     quick_clock: QuickClock,
+}
+
+#[derive(Default)]
+struct RebuildFaces {
+    title: Option<(TexId, u32, u32)>,
+    count: Option<TexId>,
+    count_size: (u32, u32),
+    shown: Option<usize>,
 }
 
 #[derive(Default)]
@@ -89,8 +110,16 @@ struct Switcher {
 
 impl Frontend {
     pub fn boot(platform: Box<dyn Platform>) -> Self {
+        Self::boot_with(platform, crate::audio::opened_sink())
+    }
+
+    pub fn boot_with(platform: Box<dyn Platform>, sink: Box<dyn crate::audio::AudioSink>) -> Self {
         let now = Instant::now();
-        let mut session = Session::boot(platform.root().to_path_buf());
+        let cart_faces = CartFaces::spawn(platform.root().to_path_buf());
+        let mut session = Session::boot_with(platform.root().to_path_buf(), sink);
+        crate::boot_time::mark("session");
+        let stale_check =
+            Self::check_labels(platform.root(), session.app().carts().cloned().collect());
         session
             .app_mut()
             .set_power(Power::new(platform, DOZE_TIMEOUT));
@@ -102,6 +131,11 @@ impl Frontend {
             polaroid_texes: Vec::new(),
             title_tex: None,
             faces: FaceBuilder::spawn(),
+            cart_faces,
+            rebuild: None,
+            stale_check,
+            ui_faces: None,
+            rebuild_faces: RebuildFaces::default(),
             link_art: LinkArtBuilder::spawn(),
             link_art_done: false,
             core_asked: None,
@@ -117,17 +151,46 @@ impl Frontend {
         }
     }
 
+    fn upload_paper(compositor: &mut Compositor) {
+        let mut dec = png::Decoder::new(std::io::Cursor::new(PAPER));
+        dec.set_transformations(png::Transformations::normalize_to_color8());
+        let Ok(mut reader) = dec.read_info() else {
+            return;
+        };
+        let mut buf = vec![0u8; reader.output_buffer_size()];
+        let Ok(info) = reader.next_frame(&mut buf) else {
+            return;
+        };
+        if info.color_type != png::ColorType::Grayscale || info.width != info.height {
+            return;
+        }
+        compositor.set_paper(info.width, &buf[..info.buffer_size()]);
+    }
+
     pub fn upload_faces(&mut self, compositor: &mut Compositor) {
-        let faces = self
-            .session
-            .app()
-            .carts()
-            .map(|c| {
-                let f = cart_face(c);
-                compositor.create_texture(f.w, f.h, &f.rgba)
-            })
-            .collect();
-        self.session.app_mut().set_faces(faces);
+        self.upload_boot_faces(compositor);
+        if let Some(faces) = self.ui_faces.take().and_then(|rx| rx.recv().ok()) {
+            self.place_ui_faces(compositor, faces);
+        }
+    }
+
+    pub fn upload_boot_faces(&mut self, compositor: &mut Compositor) {
+        Self::upload_paper(compositor);
+        crate::boot_time::mark("paper");
+        if self.rebuild.is_none() {
+            self.cart_faces.sync(self.session.app_mut(), compositor);
+        }
+        crate::boot_time::mark("cart faces");
+        let (tx, rx) = std::sync::mpsc::channel();
+        let spawned = std::thread::Builder::new()
+            .name("slot-ui-faces".into())
+            .spawn(move || {
+                let _ = tx.send(UiFaces::build());
+            });
+        match spawned {
+            Ok(_) => self.ui_faces = Some(rx),
+            Err(_) => self.place_ui_faces(compositor, UiFaces::build()),
+        }
         let icons = Icon::ALL
             .iter()
             .map(|i| {
@@ -136,120 +199,9 @@ impl Frontend {
             })
             .collect();
         self.session.app_mut().set_icon_faces(icons);
-        let link_badges = LinkBadge::FACES
-            .iter()
-            .map(|b| {
-                let (badge, ink) = (
-                    b.badge().expect("a face has a glyph"),
-                    b.colour().expect("and a colour"),
-                );
-                let f = badge_face(badge, HUD_ICON_PX, ink);
-                compositor.create_texture(f.w, f.h, &f.rgba)
-            })
-            .collect();
-        self.session.app_mut().set_link_badge_faces(link_badges);
         let alert = icon_face(Icon::Alert, ALERT_PX, ALERT_INK);
         let alert = compositor.create_texture(alert.w, alert.h, &alert.rgba);
         self.session.app_mut().set_alert_face(alert);
-        let lines = PowerChoice::ALL
-            .iter()
-            .map(|c| {
-                let f = menu_face(match c {
-                    PowerChoice::Restart => "Restarting",
-                    PowerChoice::PowerOff => "Powering Down",
-                });
-                (compositor.create_texture(f.w, f.h, &f.rgba), f.w, f.h)
-            })
-            .collect();
-        self.session.app_mut().set_shutdown_faces(lines);
-        let menu = PowerChoice::ALL
-            .iter()
-            .map(|c| {
-                let f = menu_face(c.text());
-                (compositor.create_texture(f.w, f.h, &f.rgba), f.w, f.h)
-            })
-            .collect();
-        self.session.app_mut().set_power_menu_faces(menu);
-        let mut up = |f: UndoFace| (compositor.create_texture(f.w, f.h, &f.rgba), f.w, f.h);
-        let labels = QuickRow::ALL
-            .iter()
-            .map(|r| up(quick_label_face(*r)))
-            .collect();
-        let values = QuickValue::ALL
-            .iter()
-            .map(|v| [false, true].map(|lit| up(quick_value_face(v.text(), lit))))
-            .collect();
-        let carets = [false, true].map(|right| up(quick_caret_face(right)));
-        let legend = quick_legend_faces().map(|f| {
-            let (tex, w, _) = up(f);
-            (tex, w)
-        });
-        self.session.app_mut().set_quick_menu_faces(QuickMenuFaces {
-            labels,
-            values,
-            carets,
-            legend,
-        });
-        let sockets = slot_store::Core::ALL
-            .iter()
-            .map(|c| {
-                let f = socket_face(*c);
-                compositor.create_texture(f.w, f.h, &f.rgba)
-            })
-            .collect();
-        let chips = slot_store::Core::ALL
-            .iter()
-            .map(|c| {
-                let f = chip_face(Some(*c));
-                compositor.create_texture(f.w, f.h, &f.rgba)
-            })
-            .collect();
-        let blank = chip_face(None);
-        let blank = compositor.create_texture(blank.w, blank.h, &blank.rgba);
-        let shadow = chip_shadow_face();
-        let shadow = compositor.create_texture(shadow.w, shadow.h, &shadow.rgba);
-        self.session
-            .app_mut()
-            .set_core_part_faces(sockets, chips, blank, shadow);
-        let legend = [
-            hint_face("B", "Cancel"),
-            arrows_hint_face("Swap"),
-            hint_face("A", "Choose"),
-        ]
-        .into_iter()
-        .map(|f| (compositor.create_texture(f.w, f.h, &f.rgba), f.w))
-        .collect();
-        self.session.app_mut().set_core_legend_faces(legend);
-        let roles = menu_faces(compositor, LinkRow::ALL.iter().map(|r| r.text()));
-        self.session.app_mut().set_link_menu_faces(roles);
-        if let Some(linked) = menu_faces(compositor, ["Linked"].into_iter()).pop() {
-            self.session.app_mut().set_link_linked_face(linked);
-        }
-        let legend = [
-            hint_face("B", "Cancel"),
-            hint_face("SELECT", "Mode"),
-            arrows_hint_face("Swap"),
-            hint_face("A", "Link"),
-            hint_face("A", "OK"),
-            hint_face("B", "Back"),
-            hint_face("A", "End Link"),
-        ]
-        .into_iter()
-        .map(|f| (compositor.create_texture(f.w, f.h, &f.rgba), f.w))
-        .collect();
-        self.session.app_mut().set_link_legend_faces(legend);
-        let steps = menu_faces(compositor, LinkStep::ALL.iter().map(|s| s.line()));
-        self.session.app_mut().set_link_step_faces(steps);
-        let fails = menu_faces(compositor, LinkFail::SHOWN.iter().map(|f| f.line()));
-        self.session.app_mut().set_link_fail_faces(fails);
-        let toasts = Toast::ALL
-            .iter()
-            .map(|t| {
-                let f = toast_face(*t);
-                compositor.create_texture(f.w, f.h, &f.rgba)
-            })
-            .collect();
-        self.session.app_mut().set_toast_faces(toasts);
         let legend = legend_faces(compositor, &LEGEND);
         self.session.app_mut().set_legend_faces(legend);
         let hint = set_clock_hint_face();
@@ -265,7 +217,85 @@ impl Frontend {
         let bolt = icon_face(Icon::Charging, BOLT_PX, HUD_INK);
         let bolt_id = compositor.create_texture(bolt.w, bolt.h, &bolt.rgba);
         self.session.app_mut().set_bolt_face(bolt_id);
+        crate::boot_time::mark("shelf faces");
         self.upload_wallpaper(compositor);
+    }
+
+    fn poll_ui_faces(&mut self, compositor: &mut Compositor) {
+        let Some(rx) = &self.ui_faces else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(faces) => {
+                self.ui_faces = None;
+                self.place_ui_faces(compositor, faces);
+                crate::boot_time::mark("ui faces");
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => self.ui_faces = None,
+        }
+    }
+
+    fn place_ui_faces(&mut self, compositor: &mut Compositor, faces: UiFaces) {
+        let mut cart = |f: CartFace| compositor.create_texture(f.w, f.h, &f.rgba);
+        let link_badges = faces.link_badges.into_iter().map(&mut cart).collect();
+        let toasts = faces.toasts.into_iter().map(&mut cart).collect();
+        let sockets = faces.sockets.into_iter().map(&mut cart).collect();
+        let chips = faces.chips.into_iter().map(&mut cart).collect();
+        let blank = cart(faces.blank_chip);
+        let shadow = cart(faces.chip_shadow);
+        let mut up = |f: UndoFace| (compositor.create_texture(f.w, f.h, &f.rgba), f.w, f.h);
+        let lines = faces.shutdown.into_iter().map(&mut up).collect();
+        let menu = faces.power_menu.into_iter().map(&mut up).collect();
+        let labels = faces.quick_labels.into_iter().map(&mut up).collect();
+        let values = faces
+            .quick_values
+            .into_iter()
+            .map(|v| v.map(&mut up))
+            .collect();
+        let carets = faces.quick_carets.map(&mut up);
+        let legend = faces.quick_legend.map(|f| {
+            let (tex, w, _) = up(f);
+            (tex, w)
+        });
+        let core_legend = faces
+            .core_legend
+            .into_iter()
+            .map(|f| {
+                let (tex, w, _) = up(f);
+                (tex, w)
+            })
+            .collect();
+        let roles = faces.link_roles.into_iter().map(&mut up).collect();
+        let linked = up(faces.linked);
+        let link_legend = faces
+            .link_legend
+            .into_iter()
+            .map(|f| {
+                let (tex, w, _) = up(f);
+                (tex, w)
+            })
+            .collect();
+        let steps = faces.link_steps.into_iter().map(&mut up).collect();
+        let fails = faces.link_fails.into_iter().map(&mut up).collect();
+        let app = self.session.app_mut();
+        app.set_link_badge_faces(link_badges);
+        app.set_shutdown_faces(lines);
+        app.set_power_menu_faces(menu);
+        app.set_quick_menu_faces(QuickMenuFaces {
+            labels,
+            values,
+            carets,
+            legend,
+        });
+        app.set_core_part_faces(sockets, chips, blank, shadow);
+        app.set_core_legend_faces(core_legend);
+        app.set_link_menu_faces(roles);
+        app.set_link_linked_face(linked);
+        app.set_link_legend_faces(link_legend);
+        app.set_link_step_faces(steps);
+        app.set_link_fail_faces(fails);
+        app.set_toast_faces(toasts);
     }
 
     fn upload_wallpaper(&mut self, compositor: &mut Compositor) {
@@ -282,21 +312,63 @@ impl Frontend {
         self.session.app_mut().set_wallpaper(id);
     }
 
+    /// The Flip has its own physical bezel, and this fork keeps the tested 3:2
+    /// shelf layout instead of stretching to the 4:3 panel, so there is nothing
+    /// to upload there. Upstream's 4:3 fill + bezel art is for the Anbernic SP
+    /// family.
+    #[cfg(feature = "flip")]
+    pub fn upload_bezel(&mut self, _compositor: &mut Compositor, _panel: (u32, u32)) {}
+
+    #[cfg(not(feature = "flip"))]
+    pub fn upload_bezel(&mut self, compositor: &mut Compositor, panel: (u32, u32)) {
+        if !slot_gfx::framed(panel) {
+            return;
+        }
+        slot_ui::set_shelf_slack((OUT_W * panel.1 / panel.0).saturating_sub(OUT_H) as f32);
+        let Some(path) = self
+            .session
+            .app()
+            .root()
+            .and_then(|root| crate::bezel::pick(root, panel))
+        else {
+            return;
+        };
+        if let Some(rgba) = bezel_face(&path, panel.0, panel.1) {
+            compositor.set_bezel(panel.0, panel.1, &rgba);
+            eprintln!("slot: bezel {}", path.display());
+        }
+    }
+
     pub fn render(&mut self, compositor: &mut Compositor, window: (u32, u32)) {
+        compositor.fit(window);
         self.compose(compositor);
         compositor.end_frame(window);
     }
 
     pub fn compose(&mut self, compositor: &mut Compositor) {
         compositor.set_blue_light(self.session.app().blue_light());
+        compositor.set_picture(self.session.app().picture_rect());
+        compositor.set_screen_effect(match self.session.app().screen_shader() {
+            slot_store::Shader::Off => ScreenEffect::None,
+            slot_store::Shader::Lcd3x => ScreenEffect::Lcd3x,
+            slot_store::Shader::Grid => ScreenEffect::Grid,
+            slot_store::Shader::Dot => ScreenEffect::Dot,
+            slot_store::Shader::Simpletex => ScreenEffect::Simpletex,
+        });
         compositor.set_shake(self.session.app().screen_shake());
         compositor.set_screen_power(self.session.app().screen_power());
+        compositor.set_frame_lift(self.session.app().frame_lift());
+        compositor.set_frame_split(self.session.app().frame_split());
         compositor.set_game_source_rect(self.session.app().source_rect());
         compositor.begin_frame();
+        if self.draw_rebuild(compositor) {
+            return;
+        }
         if let Some(frame) = self.session.frame() {
             compositor.upload_game(&frame);
             crate::latency::taken();
         }
+        self.cart_faces.sync(self.session.app_mut(), compositor);
         sync_clock(self.session.app_mut(), compositor, &mut self.clocks);
         sync_about(self.session.app_mut(), compositor, &mut self.about);
         sync_buttons(self.session.app_mut(), compositor, &mut self.buttons);
@@ -363,9 +435,86 @@ impl Frontend {
         self.session.step_emulator(present, timeout)
     }
 
+    pub fn rebuilding_labels(&self) -> bool {
+        self.rebuild.is_some()
+    }
+
+    fn check_labels(
+        root: &std::path::Path,
+        carts: Vec<slot_store::Cart>,
+    ) -> Option<std::sync::mpsc::Receiver<Vec<slot_store::Cart>>> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let root = root.to_path_buf();
+        std::thread::Builder::new()
+            .name("slot-label-check".into())
+            .spawn(move || {
+                let _ = tx.send(label_cache::stale(&root, carts.iter()));
+            })
+            .ok()
+            .map(|_| rx)
+    }
+
+    fn poll_label_check(&mut self) {
+        let Some(rx) = &self.stale_check else {
+            return;
+        };
+        let stale = match rx.try_recv() {
+            Ok(stale) => stale,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Vec::new(),
+        };
+        self.stale_check = None;
+        let Some(root) = self.session.app().root().map(|r| r.to_path_buf()) else {
+            return;
+        };
+        if !stale.is_empty() {
+            eprintln!("slot: label cache: {} new labels", stale.len());
+            self.rebuild = Some(Rebuild::start(&root, stale));
+        }
+    }
+
+    fn draw_rebuild(&mut self, compositor: &mut Compositor) -> bool {
+        self.poll_label_check();
+        self.poll_ui_faces(compositor);
+        let Some(rebuild) = &self.rebuild else {
+            return false;
+        };
+        if rebuild.finished() {
+            self.rebuild = None;
+            self.last = Instant::now();
+            return false;
+        }
+        let faces = &mut self.rebuild_faces;
+        let title = *faces.title.get_or_insert_with(|| {
+            let f = rebuild_title_face("Caching New Labels");
+            (compositor.create_texture(f.w, f.h, &f.rgba), f.w, f.h)
+        });
+        let done = rebuild.done();
+        if faces.shown != Some(done) {
+            let f = rebuild_count_face(&format!("{done} / {}", rebuild.total()));
+            faces.count_size = (f.w, f.h);
+            upload(compositor, &mut faces.count, f);
+            faces.shown = Some(done);
+        }
+        let screen = RebuildScreen {
+            title: Some(title),
+            count: faces
+                .count
+                .map(|tex| (tex, faces.count_size.0, faces.count_size.1)),
+            fraction: done as f32 / rebuild.total().max(1) as f32,
+        };
+        self.draws.clear();
+        screen.draw(&mut self.draws);
+        compositor.draw_list(&self.draws);
+        true
+    }
+
     pub fn advance(&mut self, input: &mut dyn InputSource) {
         let now = self.now();
         let events = input.poll(now);
+        if self.rebuild.is_some() {
+            return;
+        }
         self.session.feed(events, now);
         let dt = self.last.elapsed().as_secs_f32();
         self.last = Instant::now();
@@ -415,18 +564,6 @@ impl Frontend {
     }
 }
 
-fn menu_faces<'a>(
-    compositor: &mut Compositor,
-    labels: impl Iterator<Item = &'a str>,
-) -> Vec<(TexId, u32, u32)> {
-    labels
-        .map(|label| {
-            let f = menu_face(label);
-            (compositor.create_texture(f.w, f.h, &f.rgba), f.w, f.h)
-        })
-        .collect()
-}
-
 fn legend_faces(compositor: &mut Compositor, legend: &[(&str, &str)]) -> Vec<TexId> {
     legend
         .iter()
@@ -435,6 +572,96 @@ fn legend_faces(compositor: &mut Compositor, legend: &[(&str, &str)]) -> Vec<Tex
             compositor.create_texture(f.w, f.h, &f.rgba)
         })
         .collect()
+}
+
+struct UiFaces {
+    link_badges: Vec<CartFace>,
+    shutdown: Vec<UndoFace>,
+    power_menu: Vec<UndoFace>,
+    quick_labels: Vec<UndoFace>,
+    quick_values: Vec<[UndoFace; 2]>,
+    quick_carets: [UndoFace; 2],
+    quick_legend: [UndoFace; 3],
+    sockets: Vec<CartFace>,
+    chips: Vec<CartFace>,
+    blank_chip: CartFace,
+    chip_shadow: CartFace,
+    core_legend: Vec<UndoFace>,
+    link_roles: Vec<UndoFace>,
+    linked: UndoFace,
+    link_legend: Vec<UndoFace>,
+    link_steps: Vec<UndoFace>,
+    link_fails: Vec<UndoFace>,
+    toasts: Vec<CartFace>,
+}
+
+impl UiFaces {
+    fn build() -> Self {
+        UiFaces {
+            link_badges: LinkBadge::FACES
+                .iter()
+                .map(|b| {
+                    let (badge, ink) = (
+                        b.badge().expect("a face has a glyph"),
+                        b.colour().expect("and a colour"),
+                    );
+                    badge_face(badge, HUD_ICON_PX, ink)
+                })
+                .collect(),
+            shutdown: PowerChoice::ALL
+                .iter()
+                .map(|c| {
+                    menu_face(match c {
+                        PowerChoice::Restart => "Restarting",
+                        PowerChoice::PowerOff => "Powering Down",
+                    })
+                })
+                .collect(),
+            power_menu: PowerChoice::ALL
+                .iter()
+                .map(|c| menu_face(c.text()))
+                .collect(),
+            quick_labels: QuickRow::ALL.iter().map(|r| quick_label_face(*r)).collect(),
+            quick_values: QuickValue::ALL
+                .iter()
+                .map(|v| [false, true].map(|lit| quick_value_face(v.text(), lit)))
+                .collect(),
+            quick_carets: [false, true].map(quick_caret_face),
+            quick_legend: quick_legend_faces(),
+            sockets: slot_store::Core::ALL
+                .iter()
+                .map(|c| socket_face(*c))
+                .collect(),
+            chips: slot_store::Core::ALL
+                .iter()
+                .map(|c| chip_face(Some(*c)))
+                .collect(),
+            blank_chip: chip_face(None),
+            chip_shadow: chip_shadow_face(),
+            core_legend: vec![
+                hint_face("B", "Cancel"),
+                arrows_hint_face("Swap"),
+                hint_face("A", "Choose"),
+            ],
+            link_roles: LinkRow::ALL.iter().map(|r| menu_face(r.text())).collect(),
+            linked: menu_face("Linked"),
+            link_legend: vec![
+                hint_face("B", "Cancel"),
+                hint_face("SELECT", "Mode"),
+                arrows_hint_face("Swap"),
+                hint_face("A", "Link"),
+                hint_face("A", "OK"),
+                hint_face("B", "Back"),
+                hint_face("A", "End Link"),
+            ],
+            link_steps: LinkStep::ALL.iter().map(|s| menu_face(s.line())).collect(),
+            link_fails: LinkFail::SHOWN
+                .iter()
+                .map(|f| menu_face(f.line()))
+                .collect(),
+            toasts: Toast::all().into_iter().map(toast_face).collect(),
+        }
+    }
 }
 
 struct Faces<'a> {

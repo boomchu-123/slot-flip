@@ -66,25 +66,31 @@ fn background_honours_a_named_file() {
 }
 
 #[test]
-fn background_random_is_seed_stable_and_covers_the_set() {
+fn background_random_deals_every_wallpaper_before_repeating() {
     let d = empty_root();
     for name in ["a.png", "b.png", "c.png"] {
         write_png(d.path(), name);
     }
     std::fs::write(d.path().join("Config/slot.ini"), "background = random\n").unwrap();
-    // Sorted order is a,b,c; the seed indexes into it deterministically.
-    assert_eq!(
-        wallpaper::pick(d.path(), 0).unwrap().file_name().unwrap(),
-        "a.png"
-    );
-    assert_eq!(
-        wallpaper::pick(d.path(), 1).unwrap().file_name().unwrap(),
-        "b.png"
-    );
-    assert_eq!(
-        wallpaper::pick(d.path(), 5).unwrap().file_name().unwrap(),
-        "c.png"
-    );
+
+    // Upstream v1.6 deals a shuffled deck, so every wallpaper is shown once
+    // before any repeats.
+    let mut seen: Vec<String> = Vec::new();
+    for _ in 0..3 {
+        let name = wallpaper::pick(d.path(), 0)
+            .expect("a background")
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert!(!seen.contains(&name), "{name} repeated before the deck ran out");
+        seen.push(name);
+    }
+    seen.sort();
+    assert_eq!(seen, ["a.png", "b.png", "c.png"]);
+
+    // The deck refills once it is empty, so a fourth pick still works.
+    assert!(wallpaper::pick(d.path(), 0).is_some());
 }
 
 #[test]

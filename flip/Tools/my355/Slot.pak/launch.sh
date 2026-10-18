@@ -27,10 +27,12 @@ fi
 [ -f "$DIR/SILENT" ]  && export SLOT_SILENT=1
 [ -f "$DIR/TEXTEST" ] && export SLOT_TEXTEST=1
 
-# Seed the emulator cores into Slot/System on first run.
+# Keep the emulator cores in Slot/System in step with the ones shipped in this
+# pak: seeded on first run, and refreshed whenever an update changes a core, so
+# core fixes actually reach people who already have Slot installed.
 mkdir -p "$SLOT_ROOT/System"
 for c in mgba_libretro.so gpsp_libretro.so; do
-	if [ ! -f "$SLOT_ROOT/System/$c" ] && [ -f "$DIR/System/$c" ]; then
+	if [ -f "$DIR/System/$c" ] && ! cmp -s "$DIR/System/$c" "$SLOT_ROOT/System/$c"; then
 		cp "$DIR/System/$c" "$SLOT_ROOT/System/$c"
 	fi
 done

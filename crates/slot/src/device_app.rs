@@ -79,13 +79,23 @@ impl Pacer {
 }
 
 pub fn run() {
+    slot::boot_time::mark("start");
+    let _ = std::thread::Builder::new()
+        .name("slot-fonts".into())
+        .spawn(slot_ui::warm_fonts);
+    // Opened on its own thread so it overlaps the display setup. The Mini Plus
+    // build exits before it would ever need audio.
+    #[cfg(not(feature = "miyoomini"))]
+    let audio = std::thread::Builder::new()
+        .name("slot-audio-open".into())
+        .spawn(slot::audio::opened_sink);
     let root = std::env::var_os("SLOT_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(CARD));
     #[cfg(feature = "miyoomini")]
     run_miyoomini(&root);
     #[cfg(not(feature = "miyoomini"))]
-    run_gles(root);
+    run_gles(root, audio);
 }
 
 // The Miyoo Mini Plus has no GPU, so the GLES renderer cannot run. Probe its
@@ -110,7 +120,10 @@ fn run_miyoomini(root: &std::path::Path) {
 }
 
 #[cfg(not(feature = "miyoomini"))]
-fn run_gles(root: PathBuf) {
+fn run_gles(
+    root: PathBuf,
+    audio: std::io::Result<std::thread::JoinHandle<Box<dyn slot::audio::AudioSink>>>,
+) {
     #[cfg(not(feature = "flip"))]
     let surface_result = FbdevSurface::new();
     #[cfg(feature = "flip")]
@@ -122,6 +135,7 @@ fn run_gles(root: PathBuf) {
             return;
         }
     };
+    slot::boot_time::mark("surface");
     let mut compositor = match Compositor::new(&surface) {
         Ok(c) => c,
         Err(e) => {
@@ -129,14 +143,42 @@ fn run_gles(root: PathBuf) {
             return;
         }
     };
+    slot::boot_time::mark("compositor");
+    let panel = surface.window_size();
+    let turned = panel.0 < panel.1;
+    let window = if turned { (panel.1, panel.0) } else { panel };
+    let ccw = std::env::var("SLOT_ROTATE")
+        .map(|v| v.trim().eq_ignore_ascii_case("ccw"))
+        .unwrap_or(false);
+    eprintln!(
+        "slot: panel {}x{}, canvas {}x{}, turned {turned}, ccw {ccw}",
+        panel.0, panel.1, window.0, window.1
+    );
+    if turned {
+        if let Err(e) = compositor.set_panel_turn(panel, ccw) {
+            eprintln!("slot: {e}");
+            return;
+        }
+    }
     let platform = DevicePlatform::new(root.clone());
     eprintln!("slot: {}", platform.report());
     platform.trace_boot();
-    let mut frontend = Frontend::boot(Box::new(platform));
-    frontend.upload_faces(&mut compositor);
+    slot::boot_time::mark("platform");
+    let sink = match audio.map(|h| h.join()) {
+        Ok(Ok(sink)) => sink,
+        _ => slot::audio::opened_sink(),
+    };
+    slot::boot_time::mark("audio");
     // Load any user button remap before input threads start reading events.
     slot::input::keymap::load(&root);
+    let mut frontend = Frontend::boot_with(Box::new(platform), sink);
+    slot::boot_time::mark("frontend");
+    frontend.upload_boot_faces(&mut compositor);
+    slot::boot_time::mark("faces");
+    frontend.upload_bezel(&mut compositor, window);
+    slot::boot_time::mark("bezel");
     let mut input = DeviceInput::open(&root);
+    slot::boot_time::mark("input");
     let card = root.clone();
     let _ = std::thread::Builder::new()
         .name("slot-bootlogo".into())
@@ -159,7 +201,7 @@ fn run_gles(root: PathBuf) {
             return;
         }
         frontend.step_emulator(pacer.period, STEP_TIMEOUT);
-        frontend.render(&mut compositor, surface.window_size());
+        frontend.render(&mut compositor, window);
         let swap = Instant::now();
         let work = swap - began;
         if let Err(e) = surface.swap() {
@@ -202,6 +244,7 @@ fn run_gles(root: PathBuf) {
         }
         if !drawn {
             drawn = true;
+            slot::boot_time::mark("first frame");
             trace_first_frame();
         }
         if let Some(left) = MIN_FRAME.checked_sub(began.elapsed()) {

@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.6.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.6.0)
+
+- Runs on the RG28XX: its panel is mounted portrait, so slot turns the picture onto it. (#35)
+- Pokémon Pinball: Ruby & Sapphire rumble. mGBA now sees the game's Game Boy Player check. You still need to turn rumble on in game settings. (#25)
+- A red alarm shows when the SD card turns read-only or a save fails to write.
+- A new shortcut for mute: SELECT + VOL+ / VOL-. The 34XX has a fake volume wheel so VOL+ + VOL- isn't possible. (#39)
+- Game Boy cartridge clocks are kept in the .sav. (#22)
+- The GBA cartridge clock keeps running on gpSP while the game is off.
+- Large libraries now should boot faster, and the first frame shows sooner.
+- Games start faster: resting on a cart reads its ROM ahead, so big ROMs no longer wait on the SD card when you insert them.
+- Wallpapers are dealt from a shuffled deck, so none repeats until all have shown.
+- PNG art is turned the way its EXIF orientation tag says.
+- When slot crashes it logs where, and keeps that run's log in `crash/` to attach to a bug report.
+- The BaseOS startup sound no longer leaves slot silent. (#20)
+- A user defined `Config/bootlogo.bmp` will take precedence over the shipped one. (#30)
+- Cart shell, core and video mode files are now `.txt` instead of `.ini`, so Chrome on Windows opens them. slot renames them on first boot. (#15)
+- The grid shader's lines stay even on the RG34XX and at fractional scales, and the dot shader no longer darkens a white screen as much. (#26, #36)
+
+## [1.5.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.5.0)
+
+- Rumble regression fixed.
+- The boot logo is built to the size of the one BaseOS installed, so it fits every panel instead of only 720x480.
+- Runs on the RG35XXSP: the picture fills the 4:3 screen's width and a GBA SP bezel sits underneath while a game plays.
+- Screen shaders chosen per platform: Off, LCD3x, Grid or Dot for GBA, and Off, Grid or Simpletex for Game Boy and Game Boy Color.
+- SELECT + B / A in game steps back and forth through the screen shaders. A game's own soft reset that holds SELECT with A or B no longer reaches it; hold A on the carousel to start a game fresh instead.
+- New settings: auto save on eject, turbo buttons and rewind can each be switched off.
+- Settings are grouped into Screen and Gameplay pages, and every value wraps from the last choice to the first.
+- Label art is cached on the card, so the shelf no longer stutters building cart faces. New labels are cached once at boot behind a Caching New Labels screen.
+- Named palettes for Game Boy games: turn on GB Palettes in the Screen settings, then SELECT + L2 / R2 in game steps back and forth through mGBA's 48 palettes.
+- The speaker no longer buzzes while nothing is playing. slot lets go of the audio device after 3 seconds of silence and takes it back when sound starts. Thanks to flo333 for finding it.
+
 ## [1.4.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.4.0)
 
 - The volume bar shows a headphones icon while they are plugged in.
@@ -40,7 +71,7 @@
 - Game Boy and Game Boy Color, each on its own shelf. L1 and R1 switch shelves, and carts are drawn at their own size in their own plastics.
 - Two cores, mGBA and gpSP. Press START on a cart to open it and swap the chip.
 - Link play between two RG SPs over WiFi: the link cable and the Wireless Adapter for Pokémon trades and Advance Wars, mGBA's link mode for Mario Kart, and Game Boy link for Tetris.
-- A quick menu on the shelf for fast forward speed and sound, rumble, colour correction, the date and time, and About.
+- A quick menu on the shelf for fast forward speed and sound, rumble, color correction, the date and time, and About.
 - Game Boy games stretch to fill the screen with L1 and go back with R1.
 - The real BIOS boot animation plays when the card has one.
 - Per-cart shell colors, set in `cart_shell.ini`.

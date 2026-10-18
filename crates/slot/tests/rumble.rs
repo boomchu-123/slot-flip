@@ -146,3 +146,93 @@ fn the_power_menu_takes_the_motor_down() {
         "the cart kept buzzing under the power menu"
     );
 }
+
+#[test]
+fn a_short_tap_runs_the_motor_long_enough_to_feel() {
+    let d = tmp_root_with_real_carts(&["Advance Wars", "Emerald"]);
+    let (mut s, motor) = session_with_platform(d.path());
+    let mut now = 0;
+    play(&mut s, &mut now);
+    let core = s.core_rumble().expect("a seated cart has a core").clone();
+    core.set(0, STRONG, 20_000);
+    step(&mut s, &mut now);
+    let start = s.app().now();
+    assert_eq!(motor.last(), 20_000);
+
+    core.set(0, STRONG, 0);
+    while s.app().now() + 2 * FRAME_MS < start + slot::session::RUMBLE_MIN_MS {
+        step(&mut s, &mut now);
+        let held = s.app().now() - start;
+        assert_eq!(
+            motor.last(),
+            20_000,
+            "a tap stopped the motor after {held} ms"
+        );
+    }
+    core.set(0, STRONG, 9_000);
+    step(&mut s, &mut now);
+    assert_eq!(motor.last(), 9_000, "the next pulse did not take over");
+
+    core.set(0, STRONG, 0);
+    step(&mut s, &mut now);
+    assert_eq!(
+        motor.last(),
+        0,
+        "the motor kept running after the game stopped asking"
+    );
+}
+
+#[test]
+fn a_long_pulse_stops_the_frame_the_game_stops_asking() {
+    let d = tmp_root_with_real_carts(&["Advance Wars", "Emerald"]);
+    let (mut s, motor) = session_with_platform(d.path());
+    let mut now = 0;
+    play(&mut s, &mut now);
+    let core = s.core_rumble().expect("a seated cart has a core").clone();
+    core.set(0, STRONG, u16::MAX);
+    step(&mut s, &mut now);
+    let start = s.app().now();
+    while s.app().now() < start + slot::session::RUMBLE_MIN_MS + FRAME_MS {
+        step(&mut s, &mut now);
+        assert_eq!(motor.last(), u16::MAX);
+    }
+
+    core.set(0, STRONG, 0);
+    step(&mut s, &mut now);
+    assert_eq!(
+        motor.last(),
+        0,
+        "a buzz ran on past the game's own, so every Pinball hit feels too long"
+    );
+}
+
+#[test]
+fn a_buzz_is_cut_off_at_the_longest_the_motor_runs() {
+    let d = tmp_root_with_real_carts(&["Advance Wars", "Emerald"]);
+    let (mut s, motor) = session_with_platform(d.path());
+    let mut now = 0;
+    play(&mut s, &mut now);
+    let core = s.core_rumble().expect("a seated cart has a core").clone();
+    core.set(0, STRONG, u16::MAX);
+    step(&mut s, &mut now);
+    let start = s.app().now();
+    while s.app().now() + FRAME_MS < start + slot::session::RUMBLE_MAX_MS {
+        step(&mut s, &mut now);
+        assert_eq!(motor.last(), u16::MAX, "the buzz was cut short");
+    }
+    while s.app().now() < start + 2 * slot::session::RUMBLE_MAX_MS {
+        step(&mut s, &mut now);
+        let held = s.app().now() - start;
+        assert_eq!(
+            motor.last(),
+            0,
+            "Pinball's GameCube-length pulse still ran {held} ms on the SP's motor"
+        );
+    }
+
+    core.set(0, STRONG, 0);
+    step(&mut s, &mut now);
+    core.set(0, STRONG, u16::MAX);
+    step(&mut s, &mut now);
+    assert_eq!(motor.last(), u16::MAX, "the next hit never buzzed");
+}

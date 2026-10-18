@@ -77,22 +77,51 @@ fn the_fast_forward_row_offers_the_four_ceilings_the_card_can_hold() {
 
 #[test]
 fn the_rows_run_in_the_order_the_user_chose() {
-    let labels = QuickRow::ALL.map(QuickRow::label);
     assert_eq!(
-        labels,
+        QuickRow::MAIN.map(QuickRow::label),
+        ["Screen", "Gameplay", "Buttons", "Date & Time", "About"]
+    );
+    assert_eq!(
+        QuickRow::SCREEN.map(QuickRow::label),
+        [
+            "GBA Shader",
+            "GB / GBC Shader",
+            "Color Correction",
+            "GB Palettes"
+        ]
+    );
+    assert_eq!(
+        QuickRow::GAME.map(QuickRow::label),
         [
             "Fast Forward",
             "Fast Forward Sound",
-            "Colour Correction",
+            "Rewind",
+            "Turbo Buttons",
             "Rumble",
-            "Sleep Timeout",
-            "Buttons",
-            "Date & Time",
-            "About"
+            "Auto Save on Eject",
+            "Sleep Timeout"
         ]
     );
     let opens: Vec<QuickRow> = QuickRow::ALL.into_iter().filter(|r| r.opens()).collect();
-    assert_eq!(opens, [QuickRow::Buttons, QuickRow::DateTime, QuickRow::About]);
+    assert_eq!(
+        opens,
+        [
+            QuickRow::Screen,
+            QuickRow::DateTime,
+            QuickRow::About,
+            QuickRow::Game,
+            QuickRow::Buttons
+        ]
+    );
+    for page in [
+        &QuickRow::MAIN[..],
+        &QuickRow::SCREEN[..],
+        &QuickRow::GAME[..],
+    ] {
+        for &row in page {
+            assert_eq!(row.page(), page, "{row:?}");
+        }
+    }
 }
 
 #[test]
@@ -100,7 +129,21 @@ fn the_values_read_as_the_menu_prints_them() {
     assert_eq!(
         QuickValue::ALL.map(QuickValue::text),
         [
-            "2×", "3×", "4×", "6×", "On", "Off", "1 min", "3 min", "5 min", "10 min", "30 min"
+            "2×",
+            "3×",
+            "4×",
+            "6×",
+            "On",
+            "Off",
+            "LCD3x",
+            "Grid",
+            "Dot",
+            "Simpletex",
+            "1 min",
+            "3 min",
+            "5 min",
+            "10 min",
+            "30 min"
         ]
     );
     assert_eq!(QuickValue::flag(true), QuickValue::On);
@@ -151,4 +194,13 @@ fn the_arrows_are_faces_the_height_of_a_value() {
         );
         assert_eq!(caret.h, quick_value_face("On", true).h);
     }
+}
+
+#[test]
+fn the_two_carets_point_different_ways() {
+    assert_ne!(
+        slot_ui::quick_caret_face(false).rgba,
+        slot_ui::quick_caret_face(true).rgba,
+        "a caret glyph is missing from the symbols font"
+    );
 }

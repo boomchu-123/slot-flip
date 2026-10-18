@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use slot_gfx::{OUT_H, OUT_W};
 use slot_input::{Action, Btn, MUTE_CHORD_MS};
 use slot_power::{Battery, Charge, LedState, LidPolicy, Power};
 use slot_retro::LinkChannel;
 use slot_store::{
-    format_stamp, read_slot_state, scan, write_slot_state, Cart, Core, Platform, SlotState,
-    StateEntry, StateRing, Theme, BLUE_LIGHT_MAX, BRIGHTNESS_MAX, FF_SPEEDS, RING_MAX,
+    format_stamp, read_slot_state, scan, write_slot_state, Cart, Core, GbPalette, Platform, Shader,
+    SlotState, StateEntry, StateRing, Theme, BLUE_LIGHT_MAX, BRIGHTNESS_MAX, FF_SPEEDS, RING_MAX,
     SLEEP_TIMEOUTS_MIN, VOLUME_MAX,
 };
 use slot_ui::{
@@ -45,6 +47,7 @@ const POWER_OFF_S: f32 = 0.16;
 const VOLUME_STEP: u8 = 5;
 
 const AUTOSAVE_MS: Millis = 60_000;
+const CARD_CHECK_MS: Millis = 2_000;
 
 const BATTERY_CRITICAL: u8 = 5;
 
@@ -301,6 +304,8 @@ pub struct App {
     snapshot: Option<Box<dyn Snapshot>>,
     core: Core,
     colour_pending: Option<bool>,
+    palette_live: bool,
+    palette_pending: Option<GbPalette>,
     link_player: Option<u8>,
     platform: Platform,
     named_core: bool,
@@ -326,6 +331,7 @@ pub struct App {
     shelf_clock: slot_ui::Printed,
     hud: Hud,
     screen: f32,
+    lift: f32,
     game_ready: bool,
     clock: f64,
     power: Option<Power>,
@@ -333,6 +339,9 @@ pub struct App {
     woke_on_press: bool,
     autosave_at: Millis,
     pending_save: Option<std::thread::JoinHandle<()>>,
+    card_failing: Arc<AtomicBool>,
+    card_read_only: bool,
+    card_check_at: Millis,
     battery_at: Millis,
     charge_at: Millis,
     headphones: bool,
@@ -341,6 +350,17 @@ pub struct App {
     last_led: Option<LedState>,
     powering_off: bool,
     radio: Box<dyn RadioJobs>,
+    state_writer: crate::state_writer::StateWriter,
+}
+
+const FACE_AHEAD: i32 = 8;
+const FACE_KEEP: i32 = 12;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FaceWant {
+    pub shelf: usize,
+    pub index: usize,
+    pub on_screen: bool,
 }
 
 fn shelves_of(carts: Vec<Cart>) -> Vec<(Platform, Shelf)> {
@@ -363,8 +383,11 @@ impl App {
             .iter()
             .position(|(_, s)| !s.carts.is_empty())
             .unwrap_or(0);
+        let state_writer = crate::state_writer::StateWriter::spawn();
+        let card_failing = state_writer.card_failing();
         App {
             radio: radio_jobs(),
+            state_writer,
             phase: Phase::Shelf,
             shelves,
             shelf_at,
@@ -407,6 +430,8 @@ impl App {
             snapshot: None,
             core: Core::default(),
             colour_pending: None,
+            palette_live: false,
+            palette_pending: None,
             link_player: None,
             platform: Platform::default(),
             named_core: false,
@@ -432,6 +457,7 @@ impl App {
             shelf_clock: slot_ui::Printed::default(),
             hud: Hud::new(),
             screen: 0.0,
+            lift: 1.0,
             game_ready: false,
             clock: 0.0,
             power: None,
@@ -439,6 +465,9 @@ impl App {
             woke_on_press: false,
             autosave_at: AUTOSAVE_MS,
             pending_save: None,
+            card_failing,
+            card_read_only: false,
+            card_check_at: 0,
             battery_at: BATTERY_POLL_MS,
             charge_at: CHARGE_POLL_MS,
             headphones: false,
@@ -452,7 +481,10 @@ impl App {
     pub fn boot(root: &Path) -> Self {
         crate::root::ensure(root);
         slot_ui::set_theme(Theme::read(root));
-        let mut app = App::new(scan(root).unwrap_or_default());
+        crate::boot_time::mark("root and theme");
+        let carts = scan(root).unwrap_or_default();
+        crate::boot_time::mark("scan");
+        let mut app = App::new(carts);
         app.root = Some(root.to_path_buf());
         app.state = read_slot_state(root);
         if app.state.clock_set {
@@ -625,9 +657,19 @@ impl App {
             QuickRow::FastForward => QuickValue::speed(self.state.ff_speed),
             QuickRow::FastForwardSound => Some(QuickValue::flag(self.state.ff_sound)),
             QuickRow::ColourCorrection => Some(QuickValue::flag(self.state.colour_correction)),
+            QuickRow::GbPalettes => Some(QuickValue::flag(self.state.gb_palettes)),
+            QuickRow::GbaShader => Some(shader_value(self.state.shader_gba)),
+            QuickRow::GbShader => Some(shader_value(self.state.shader_gb)),
             QuickRow::Rumble => Some(QuickValue::flag(self.state.rumble)),
+            QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
+            QuickRow::Turbo => Some(QuickValue::flag(self.state.turbo)),
+            QuickRow::Rewind => Some(QuickValue::flag(self.state.rewind)),
             QuickRow::SleepTimeout => Some(QuickValue::sleep(self.state.sleep_timeout_min)),
-            QuickRow::Buttons | QuickRow::DateTime | QuickRow::About => None,
+            QuickRow::Buttons
+            | QuickRow::DateTime
+            | QuickRow::About
+            | QuickRow::Screen
+            | QuickRow::Game => None,
         }
     }
 
@@ -734,6 +776,70 @@ impl App {
         }
     }
 
+    pub fn face_wants(&self) -> Vec<FaceWant> {
+        let here = self.shelf();
+        let screen = here.on_screen();
+        let mut wants: Vec<(usize, usize)> = screen.iter().map(|i| (self.shelf_at, *i)).collect();
+        for at in self.neighbour_shelves() {
+            wants.extend(self.shelves[at].1.on_screen().into_iter().map(|i| (at, i)));
+        }
+        wants.extend(
+            here.around(FACE_AHEAD)
+                .into_iter()
+                .filter(|i| !screen.contains(i))
+                .map(|i| (self.shelf_at, i)),
+        );
+        wants
+            .into_iter()
+            .filter(|(at, i)| self.shelves[*at].1.face(*i).is_none())
+            .map(|(shelf, index)| FaceWant {
+                shelf,
+                index,
+                on_screen: shelf == self.shelf_at && screen.contains(&index),
+            })
+            .collect()
+    }
+
+    pub fn face_cart(&self, shelf: usize, index: usize) -> Option<&Cart> {
+        self.shelves.get(shelf)?.1.carts.get(index)
+    }
+
+    pub fn set_cart_face(&mut self, shelf: usize, index: usize, tex: TexId) -> Option<TexId> {
+        self.shelves.get_mut(shelf)?.1.set_face(index, tex)
+    }
+
+    pub fn shed_faces(&mut self) -> Vec<TexId> {
+        let neighbours = self.neighbour_shelves();
+        let mut shed = Vec::new();
+        for (at, (_, shelf)) in self.shelves.iter_mut().enumerate() {
+            let keep = if at == self.shelf_at {
+                shelf.around(FACE_KEEP)
+            } else if neighbours.contains(&at) {
+                shelf.on_screen()
+            } else {
+                Vec::new()
+            };
+            for i in 0..shelf.carts.len() {
+                if !keep.contains(&i) {
+                    shed.extend(shelf.take_face(i));
+                }
+            }
+        }
+        shed
+    }
+
+    fn neighbour_shelves(&self) -> Vec<usize> {
+        let mut out = Vec::new();
+        for by in [1, -1] {
+            if let Some(at) = self.next_shelf(by) {
+                if !out.contains(&at) {
+                    out.push(at);
+                }
+            }
+        }
+        out
+    }
+
     pub fn set_snapshot(&mut self, snapshot: Box<dyn Snapshot>) {
         self.snapshot = Some(snapshot);
     }
@@ -785,9 +891,11 @@ impl App {
         let (Some(root), Phase::Playing { cart }) = (self.root.clone(), &self.phase) else {
             return;
         };
-        if let Err(e) = video_mode::write_video_mode(&root, cart, mode) {
-            eprintln!("slot: video: could not write video_mode.ini: {e}");
+        let written = video_mode::write_video_mode(&root, cart, mode);
+        if let Err(e) = &written {
+            eprintln!("slot: video: could not write video_mode.txt: {e}");
         }
+        self.card_failing.store(written.is_err(), Ordering::Relaxed);
     }
 
     pub fn set_link_loaded(&mut self, serial: &'static str) {
@@ -819,7 +927,22 @@ impl App {
     }
 
     pub fn may_rewind(&self) -> bool {
-        !self.link_active()
+        self.state.rewind && !self.link_active()
+    }
+
+    pub fn turbo(&self) -> bool {
+        self.state.turbo
+    }
+
+    pub fn records_rewind(&self) -> bool {
+        self.state.rewind
+    }
+
+    pub fn picture_rect(&self) -> [f32; 4] {
+        let (w, h) = self.platform.picture();
+        let (sw, sh) = (slot_gfx::SRC_W as f32, slot_gfx::SRC_H as f32);
+        let (x, y) = ((sw - w as f32) / 2.0, (sh - h as f32) / 2.0);
+        [x / sw, y / sh, (x + w as f32) / sw, (y + h as f32) / sh]
     }
 
     pub fn may_load_state(&self) -> bool {
@@ -940,6 +1063,13 @@ impl App {
         self.state.ff_sound
     }
 
+    pub fn screen_shader(&self) -> Shader {
+        match self.platform {
+            Platform::Gba => self.state.shader_gba,
+            Platform::Gb | Platform::Gbc => self.state.shader_gb,
+        }
+    }
+
     pub fn colour_correction(&self) -> bool {
         self.state.colour_correction
     }
@@ -1005,6 +1135,22 @@ impl App {
 
     pub fn take_colour_correction(&mut self) -> Option<bool> {
         self.colour_pending.take()
+    }
+
+    pub fn gb_palette(&self) -> Option<GbPalette> {
+        self.state.gb_palettes.then_some(self.state.gb_palette)
+    }
+
+    pub fn set_palette_live(&mut self, live: bool) {
+        self.palette_live = live;
+    }
+
+    pub fn palette_live(&self) -> bool {
+        self.palette_live
+    }
+
+    pub fn take_gb_palette(&mut self) -> Option<GbPalette> {
+        self.palette_pending.take()
     }
 
     pub fn core(&self) -> Core {
@@ -1140,10 +1286,10 @@ impl App {
                 Action::GbaDown(Btn::A) => self.play_held = Some(now),
                 Action::GbaUp(Btn::A) => {
                     if self.play_held.take().is_some() {
-                        self.insert(false);
+                        self.insert(!self.state.eject_save);
                     }
                 }
-                Action::Insert => self.insert(false),
+                Action::Insert => self.insert(!self.state.eject_save),
                 Action::GbaDown(Btn::L1) => self.switch_shelf(-1),
                 Action::GbaDown(Btn::R1) => self.switch_shelf(1),
                 _ => {}
@@ -1191,7 +1337,7 @@ impl App {
 
     fn open_quick_menu(&mut self) {
         self.phase = Phase::QuickMenu {
-            row: QuickRow::ALL[0],
+            row: QuickRow::MAIN[0],
         };
     }
 
@@ -1203,7 +1349,10 @@ impl App {
             Action::GbaDown(Btn::Right) => return self.change_setting(row, true),
             Action::GbaDown(Btn::A) => return self.open_quick_row(row),
             Action::GbaDown(Btn::B) | Action::QuickMenu => {
-                self.phase = Phase::Shelf;
+                self.phase = match row.parent() {
+                    Some(row) => Phase::QuickMenu { row },
+                    None => Phase::Shelf,
+                };
                 return;
             }
             _ => return,
@@ -1218,9 +1367,20 @@ impl App {
             }
             QuickRow::About => self.phase = Phase::About,
             QuickRow::Buttons => self.phase = Phase::Buttons,
-            QuickRow::FastForward
+            QuickRow::Screen | QuickRow::Game => {
+                if let Some(row) = row.child() {
+                    self.phase = Phase::QuickMenu { row };
+                }
+            }
+            QuickRow::EjectSave
+            | QuickRow::Turbo
+            | QuickRow::Rewind
+            | QuickRow::FastForward
             | QuickRow::FastForwardSound
             | QuickRow::ColourCorrection
+            | QuickRow::GbaShader
+            | QuickRow::GbShader
+            | QuickRow::GbPalettes
             | QuickRow::Rumble
             | QuickRow::SleepTimeout => {}
         }
@@ -1241,7 +1401,25 @@ impl App {
                 s.colour_correction = !s.colour_correction;
                 self.colour_pending = Some(s.colour_correction);
             }
+            QuickRow::GbaShader => {
+                let to = s.shader_gba.step(&Shader::GBA, right);
+                if to == s.shader_gba {
+                    return;
+                }
+                s.shader_gba = to;
+            }
+            QuickRow::GbShader => {
+                let to = s.shader_gb.step(&Shader::GB, right);
+                if to == s.shader_gb {
+                    return;
+                }
+                s.shader_gb = to;
+            }
             QuickRow::Rumble => s.rumble = !s.rumble,
+            QuickRow::EjectSave => s.eject_save = !s.eject_save,
+            QuickRow::Turbo => s.turbo = !s.turbo,
+            QuickRow::Rewind => s.rewind = !s.rewind,
+            QuickRow::GbPalettes => s.gb_palettes = !s.gb_palettes,
             QuickRow::SleepTimeout => {
                 let to = sleep_next(s.sleep_timeout_min, right);
                 if to == s.sleep_timeout_min {
@@ -1252,7 +1430,11 @@ impl App {
                     power.set_timeout(sleep_timeout_duration(to));
                 }
             }
-            QuickRow::Buttons | QuickRow::DateTime | QuickRow::About => return,
+            QuickRow::Buttons
+            | QuickRow::DateTime
+            | QuickRow::About
+            | QuickRow::Screen
+            | QuickRow::Game => return,
         }
         self.persist();
     }
@@ -1262,9 +1444,46 @@ impl App {
         self.apply(action);
     }
 
+    fn step_shader(&mut self, right: bool) {
+        if !matches!(self.phase, Phase::Inserting { .. } | Phase::Playing { .. }) {
+            return;
+        }
+        let (shader, choices) = match self.platform {
+            Platform::Gba => (&mut self.state.shader_gba, &Shader::GBA[..]),
+            Platform::Gb | Platform::Gbc => (&mut self.state.shader_gb, &Shader::GB[..]),
+        };
+        *shader = shader.step(choices, right);
+        let said = match *shader {
+            Shader::Off => Toast::ShaderOff,
+            Shader::Lcd3x => Toast::ShaderLcd3x,
+            Shader::Grid => Toast::ShaderGrid,
+            Shader::Dot => Toast::ShaderDot,
+            Shader::Simpletex => Toast::ShaderSimpletex,
+        };
+        self.persist();
+        self.hud.toast(said, self.now());
+    }
+
     fn adjust(&mut self, action: Action) -> bool {
         if action == Action::MuteToggle {
             self.mute_toggle();
+            return true;
+        }
+        if let Action::ShaderNext | Action::ShaderPrev = action {
+            self.step_shader(action == Action::ShaderNext);
+            return true;
+        }
+        if let Action::PaletteNext | Action::PalettePrev = action {
+            if self.palette_live && matches!(self.phase, Phase::Playing { .. }) {
+                let to = match action {
+                    Action::PalettePrev => self.state.gb_palette.prev(),
+                    _ => self.state.gb_palette.next(),
+                };
+                self.state.gb_palette = to;
+                self.palette_pending = Some(to);
+                self.persist();
+                self.hud.toast(Toast::Palette(to), self.now());
+            }
             return true;
         }
         if action == Action::ColourCorrectionToggle {
@@ -1305,7 +1524,7 @@ impl App {
             power.set_backlight(value);
         }
         if moved || unmuted {
-            self.persist();
+            self.persist_soon();
         }
         true
     }
@@ -1334,7 +1553,7 @@ impl App {
         *self.muted_mut() = muted;
         self.hud
             .show(HudKind::Volume, self.output_volume(), muted, now);
-        self.persist();
+        self.persist_soon();
     }
 
     fn hud_value(&self, kind: HudKind, value: u8) -> u8 {
@@ -1511,6 +1730,35 @@ impl App {
             -dt / POWER_OFF_S
         };
         self.screen = (self.screen + step).clamp(0.0, 1.0);
+        let docked = self.power_menu.is_none()
+            && matches!(
+                self.phase,
+                Phase::Shelf | Phase::Inserting { .. } | Phase::Ejecting { .. }
+            );
+        let sliding = self.power_menu.is_none()
+            && matches!(
+                self.phase,
+                Phase::Inserting { .. }
+                    | Phase::Playing { .. }
+                    | Phase::Polaroids { .. }
+                    | Phase::Ejecting { .. }
+            );
+        let reach = if sliding { dt / POWER_ON_S } else { 1.0 };
+        self.lift = match docked {
+            true => (self.lift - reach).max(0.0),
+            false => (self.lift + reach).min(1.0),
+        };
+    }
+
+    pub fn frame_split(&self) -> Option<f32> {
+        match (&self.phase, self.power_menu) {
+            (Phase::QuickMenu { .. }, None) => Some(slot_ui::QUICK_SPLIT),
+            _ => None,
+        }
+    }
+
+    pub fn frame_lift(&self) -> f32 {
+        self.lift
     }
 
     pub fn screen_power(&self) -> f32 {
@@ -1519,6 +1767,10 @@ impl App {
 
     pub fn set_game_ready(&mut self, ready: bool) {
         self.game_ready = ready;
+    }
+
+    pub fn game_ready(&self) -> bool {
+        self.game_ready
     }
 
     pub fn game_visible(&self) -> bool {
@@ -1542,6 +1794,19 @@ impl App {
         if self.now() >= self.autosave_at {
             self.autosave();
         }
+        if self.now() >= self.card_check_at {
+            self.card_check_at = self.now() + CARD_CHECK_MS;
+            self.card_read_only = self.power.as_ref().is_some_and(|p| p.card_read_only());
+        }
+        let failing = self.card_failing.load(Ordering::Relaxed) || self.card_read_only;
+        if failing != self.hud.alarmed() {
+            eprintln!(
+                "slot: card: alarm {} (read-only {})",
+                if failing { "on" } else { "off" },
+                self.card_read_only
+            );
+        }
+        self.hud.set_alarm(failing, self.now());
         if self.now() >= self.battery_at {
             self.battery_at = self.now() + BATTERY_POLL_MS;
             self.battery = self.power.as_ref().and_then(|p| p.battery());
@@ -1629,9 +1894,22 @@ impl App {
         let Some(root) = &self.root else {
             return;
         };
-        if let Err(e) = write_slot_state(root, &self.state) {
+        self.state_writer.flush();
+        let written = write_slot_state(root, &self.state);
+        if let Err(e) = &written {
             eprintln!("slot: slot.state: {e}");
         }
+        self.card_failing.store(written.is_err(), Ordering::Relaxed);
+    }
+
+    fn persist_soon(&self) {
+        if let Some(root) = &self.root {
+            self.state_writer.save(root, &self.state);
+        }
+    }
+
+    pub fn flush_state(&self) {
+        self.state_writer.flush();
     }
 
     pub fn on_core_ready(&mut self) {
@@ -2207,18 +2485,29 @@ impl App {
         matches!(self.phase, Phase::Shelf)
     }
 
+    pub fn browsed_rom(&self) -> Option<&std::path::Path> {
+        if !self.on_shelf() {
+            return None;
+        }
+        let shelf = self.shelf();
+        shelf.carts.get(shelf.index).map(|c| c.rom.as_path())
+    }
+
     fn insert(&mut self, clean: bool) {
         if !self.on_shelf() {
             return;
         }
-        let Some(cart) = self
-            .shelf()
-            .carts
-            .get(self.shelf().index)
-            .map(|c| c.stem.clone())
-        else {
+        let at = self.shelf().index;
+        let Some(cart) = self.shelf_mut().carts.get_mut(at).map(|c| {
+            c.read_header();
+            c.stem.clone()
+        }) else {
             return;
         };
+        eprintln!(
+            "slot: launch: insert {cart} at {:.1} ms",
+            crate::boot_time::ms()
+        );
         self.play_held = None;
         self.refusal = None;
         self.refused_from = None;
@@ -2278,6 +2567,7 @@ impl App {
             return;
         };
         let (state, sav) = trusted_write(snapshot.as_ref(), state, "eject");
+        let state = state.filter(|_| self.state.eject_save);
         match persist::eject(
             root,
             self.platform,
@@ -2289,8 +2579,12 @@ impl App {
             Ok(()) => {
                 self.state.cart = None;
                 self.state.cart_platform = None;
+                self.card_failing.store(false, Ordering::Relaxed);
             }
-            Err(e) => eprintln!("slot: eject: {e}"),
+            Err(e) => {
+                eprintln!("slot: eject: {e}");
+                self.card_failing.store(true, Ordering::Relaxed);
+            }
         }
     }
 
@@ -2303,6 +2597,7 @@ impl App {
         if matches!(self.phase, Phase::Doze { .. }) {
             return;
         }
+        self.state_writer.flush();
         self.flush_resume();
         let cart = match &mut self.phase {
             Phase::Playing { cart } | Phase::Polaroids { cart } => Some(std::mem::take(cart)),
@@ -2734,7 +3029,7 @@ impl App {
             return;
         };
         if let Err(e) = slot_store::write_selected_core(&root, &cart.stem, core) {
-            eprintln!("slot: core: could not write selected_core.ini: {e}");
+            eprintln!("slot: core: could not write selected_core.txt: {e}");
         }
     }
 
@@ -2778,6 +3073,7 @@ impl App {
     }
 
     pub fn settle_saves(&mut self) {
+        self.state_writer.flush();
         if let Some(h) = self.pending_save.take() {
             let _ = h.join();
         }
@@ -2797,17 +3093,20 @@ impl App {
         let (state, sav) = trusted_write(snapshot.as_ref(), state, "autosave");
         let (root, platform, core, cart) =
             (root.clone(), self.platform, self.core, cart.to_owned());
+        let failing = self.card_failing.clone();
         let write = move || {
-            if let Err(e) = persist::flush(
+            let written = persist::flush(
                 &root,
                 platform,
                 core,
                 &cart,
                 state.as_deref(),
                 sav.as_deref(),
-            ) {
+            );
+            if let Err(e) = &written {
                 eprintln!("slot: autosave: {e}");
             }
+            failing.store(written.is_err(), Ordering::Relaxed);
         };
         match std::thread::Builder::new()
             .name("slot-autosave".into())
@@ -2830,16 +3129,18 @@ impl App {
             return;
         };
         let (state, sav) = trusted_write(snapshot.as_ref(), state, "flush");
-        if let Err(e) = persist::flush(
+        let written = persist::flush(
             root,
             self.platform,
             self.core,
             cart,
             state.as_deref(),
             sav.as_deref(),
-        ) {
+        );
+        if let Err(e) = &written {
             eprintln!("slot: flush: {e}");
         }
+        self.card_failing.store(written.is_err(), Ordering::Relaxed);
     }
 
     fn ring(&self) -> Option<StateRing> {
@@ -3032,6 +3333,10 @@ impl App {
         self.hud.said(self.now())
     }
 
+    pub fn card_alarm(&self) -> bool {
+        self.hud.alarmed()
+    }
+
     pub fn undo(&mut self, now: Millis) {
         if !self.undo_available(now) {
             self.pending = None;
@@ -3134,10 +3439,24 @@ fn up(level: u8, step: u8, max: u8) -> u8 {
     level.saturating_add(step).min(max)
 }
 
+fn shader_value(shader: Shader) -> QuickValue {
+    match shader {
+        Shader::Off => QuickValue::Off,
+        Shader::Lcd3x => QuickValue::Lcd3x,
+        Shader::Grid => QuickValue::Grid,
+        Shader::Dot => QuickValue::Dot,
+        Shader::Simpletex => QuickValue::Simpletex,
+    }
+}
+
 fn ff_next(from: u8, right: bool) -> u8 {
+    let n = FF_SPEEDS.len();
     let at = FF_SPEEDS.iter().position(|&v| v == from).unwrap_or(0);
-    let to = if right { at + 1 } else { at.saturating_sub(1) };
-    FF_SPEEDS[to.min(FF_SPEEDS.len() - 1)]
+    FF_SPEEDS[if right {
+        (at + 1) % n
+    } else {
+        (at + n - 1) % n
+    }]
 }
 
 fn sleep_next(from: u16, right: bool) -> u16 {

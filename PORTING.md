@@ -71,8 +71,8 @@ current status of both.
 | `Slot/Config/slot.ini` | General settings. Currently `background = <file|random>`. |
 | `Slot/Config/buttons.ini` | Per-code button remap. |
 | `Slot/Config/theme.txt` | Housing / recess / opening / edge colours (hex). |
-| `Slot/Config/video_mode.ini` | Per-game aspect (set in-app). |
-| `Slot/Config/selected_core.ini` | Per-game core override. |
+| `Slot/Config/video_mode.txt` | Per-game aspect (set in-app). |
+| `Slot/Config/selected_core.txt` | Per-game core override. |
 
 Starter `slot.ini` and `buttons.ini` are written on first run by
 `crates/slot/src/root.rs` (`ensure` → `write_starter`). They are only created
