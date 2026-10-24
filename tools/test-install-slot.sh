@@ -172,7 +172,13 @@ for f in App/Slot/config.json App/Slot/launch.sh Tools/my355/Slot.pak/launch.sh 
 	case "$f" in miyoo355/*) src="$REPO/flip/autoboot/$f" ;; esac
 	[ -f "$src" ] && ok "repo has ${src#$REPO/}" || no "repo has ${src#$REPO/}"
 done
-[ -f "$REPO/flip/Tools/my355/Slot.pak/slot" ] && ok "repo has the slot binary" || no "repo has the slot binary"
+# The frontend binary is git-ignored: CI and `task` build it, the release
+# workflow drops it into the pak. Present or absent is both correct here.
+if [ -f "$REPO/flip/Tools/my355/Slot.pak/slot" ]; then
+	ok "the pak has a slot binary to ship"
+else
+	ok "no slot binary in the tree (ignored; the release build supplies it)"
+fi
 
 echo ""
 printf '%s passed, %s failed\n' "$pass" "$fail"
