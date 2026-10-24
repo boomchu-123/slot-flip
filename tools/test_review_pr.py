@@ -130,6 +130,14 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(rules(findings, rp.BLOCK) | rules(findings, rp.REVIEW), set())
         self.assertEqual(rp.render(findings, ctx, 6)[1], 0)
 
+    def test_an_empty_diff_is_never_reported_as_clean(self):
+        findings, ctx = self.r.review()
+        self.assertIn("empty-diff", rules(findings, rp.REVIEW))
+        text, code = rp.render(findings, ctx, 6)
+        self.assertEqual(code, 1)
+        self.assertIn("NOTHING WAS REVIEWED", text)
+        self.assertNotIn("NO AUTOMATED FINDINGS", text)
+
     def test_hostile_workflow(self):
         bad = BASE_WORKFLOW.replace("on: [push]", "on: [pull_request_target]").replace(
             "contents: read", "write-all"

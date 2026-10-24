@@ -646,7 +646,8 @@ def render(findings, ctx, cap):
     findings = sorted(findings, key=lambda x: (order[x.sev], x.rule, x.path, x.line))
     nb = sum(1 for x in findings if x.sev == BLOCK)
     nr = sum(1 for x in findings if x.sev == REVIEW)
-    verdict = ("BLOCK: do not merge until the blocking findings are explained" if nb else
+    verdict = ("NOTHING WAS REVIEWED: the diff is empty" if any(x.rule == "empty-diff" for x in findings) else
+               "BLOCK: do not merge until the blocking findings are explained" if nb else
                "NEEDS A HUMAN LOOK: read the files listed below" if nr else
                "NO AUTOMATED FINDINGS (this is not proof of safety; still read the diff)")
     o = [f"# PR review: {ctx['title']}", ""]
