@@ -53,7 +53,7 @@ one-for-one patch cadence the fork does not have.
 | `v0.10.0` | v1.8.0 (fork work only: Sega Mega Drive / Genesis, Master System and Game Gear on Genesis Plus GX) |
 | `v0.10.1` | v1.8.0 (fork work only: label scans keep their shape on the NES, SNES and Sega carts) |
 | `v0.11.0` | v1.8.0 (fork work only: PlayStation memory cards are saved, discs can be changed, analog sticks as a DualShock behind a setting) |
-| `v0.12.0` | v1.9.0 (upstream sync: screenshots and undo save/load on the shared pages, durable writes, core timeouts, label-cache stall; fork work unchanged) |
+| `v0.12.0` | v1.9.0 (upstream sync: screenshots and undo save/load on the shared pages, durable writes, core timeouts, label-cache stall; the stick clicks are L3/R3 on PlayStation; otherwise fork work unchanged) |
 | `exp-v0.3.0` | v1.6.0 |
 
 ---
