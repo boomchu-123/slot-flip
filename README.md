@@ -136,22 +136,21 @@ devices):
 
 ## Install
 
-The Flip's own launcher and MinUI are both supported, from one download. You need
-the device, its SD card, a computer with a card reader, and about two minutes.
+Slot is built for the **Flip's own firmware**. You need the device, its SD card, a
+computer with a card reader, and about two minutes. Nothing on the device is
+changed, nothing is reformatted, and you do not need MinUI.
 
-1. **Download** the latest `Slot-my355.zip` from this repo's
+### The easy way: drag and drop
+
+1. **Download** `Slot-my355.zip` from this repo's
    [Releases](https://github.com/boomchu-123/slot-flip/releases/latest).
-2. **Power off** the device and move the SD card to your computer.
-3. **Unzip it at the root of the card** — the folder that already holds `Roms/` and
-   `Saves/`, the one the device sees as `/mnt/sdcard`. You should end up with
-   `App/Slot` and `Tools/my355/Slot.pak` on the card, not a folder inside a folder.
-4. Put the card back and boot the device. Slot is in the **App** list of the
-   Flip's own launcher, and under **Tools → Slot** in MinUI. Both entries run the
-   same program; use whichever launcher the device starts in.
-5. On first launch Slot creates a `Slot` folder at the root of the card and writes
-   starter settings.
-6. Power off, put the card back in your computer, and drop your **legally-dumped**
-   ROMs into the matching folder:
+2. **Power off** the device and put the SD card in your computer.
+3. **Unzip it at the root of the card** — the folder that holds `Roms/`, the one
+   the device sees as `/mnt/sdcard`. You should end up with `App`, `Tools` and
+   `miyoo355` on the card, not a folder inside a folder.
+4. Put the card back and switch the device on. It starts straight into Slot.
+   Eject a game with **MENU** to get back to the shelf.
+5. Your games go in `Slot/Games/`:
 
    ```
    <SD CARD>/Slot/Games/GBA    (.gba)
@@ -159,43 +158,41 @@ the device, its SD card, a computer with a card reader, and about two minutes.
    <SD CARD>/Slot/Games/GBC    (.gbc)
    ```
 
-   PlayStation, NES, Super Nintendo and the Sega systems get their own folder
+   PlayStation, NES, Super Nintendo and the Sega systems have their own folder
    names; the [systems list](#compatibility) above has them.
 
-7. Boot the device and open Slot — your carts appear on the shelf.
+### The easy way, for the rest of us: run the installer
 
-Nothing else on the card changes, and your launcher, its Roms and its Saves are
-untouched. `Slot.pak-my355.zip` is the pak on its own, for a MinUI card where you
-copy it to `Tools/my355/` by hand.
-
-> **Don't have MinUI, and don't want it?** You don't need it. The Flip's own
-> firmware runs Slot from step 1. MinUI is optional, and Slot does not change
-> anything on the device either way.
-
-### Boot straight into Slot (optional)
-
-**On the Flip's own firmware**, unzip `Slot-autoboot-my355.zip` at the card root as
-well. It adds `miyoo355/app/MainUI`, a small script the firmware runs in place of
-its launcher, which starts Slot and the two firmware daemons Slot needs (`keymon`
-and `miyoo_inputd`) and then hands over. Nothing on the device is changed.
-
-To get the stock menu back, create an empty file `Slot/Config/boot-menu` on the
-card and reboot; delete it to boot straight into Slot again. Removing
-`miyoo355/app/MainUI` does the same thing. It is a separate download because it
-replaces the card's copy of the launcher entry, and a device that starts in one app
-is not what everyone wants.
-
-**On MinUI**, create `<SD CARD>/.userdata/my355/auto.sh` with:
+The zip also contains `install.sh`. Unzip it anywhere, then:
 
 ```sh
-#!/bin/sh
-/mnt/SDCARD/Tools/my355/Slot.pak/launch.sh
+./install.sh            # finds the card, checks it, asks, copies
+./install.sh --check    # only looks, changes nothing
+./install.sh --dry-run  # says what it would do, changes nothing
 ```
 
-MinUI runs this before its menu, so the device boots into Slot; quitting Slot
-drops you back to MinUI. Delete `auto.sh` to undo it.
+It finds the card on macOS and Linux, checks it is FAT32 with room on it, copies
+what is needed, verifies the copies, and puts back anything it replaced — backing
+those files up to `~/slot-flip-backups/` on your computer first. It never formats,
+partitions or deletes, and it never writes to a raw device. `--stock-menu` installs
+it so the device starts in the stock menu instead of Slot.
 
----
+Windows is not supported by the script yet; use the drag and drop steps above.
+
+### Getting back to the stock menu
+
+Slot starts by default, because that is what most people want from a device that
+plays one thing well. To reach the stock menu, create an empty file
+`Slot/Config/boot-menu` on the card and reboot. Delete it to start in Slot again.
+Removing the `miyoo355` folder does the same thing.
+
+### Using MinUI instead
+
+MinUI is supported but no longer the main path: the same zip installs into
+`Tools/my355/Slot.pak`, so **Tools → Slot** works as it always did, and MinUI's own
+`.userdata/my355/auto.sh` can boot straight in. Release checks are done on the
+Flip's own firmware; the MinUI entry is built and unchanged, but is not tested on
+hardware for every release.
 
 ## The Slot folder
 

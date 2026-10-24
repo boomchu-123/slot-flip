@@ -26,6 +26,9 @@ jobs:
       - name: Test the PR review tool
         run: python3 tools/test_review_pr.py
 
+      - name: Test the installer
+        run: sh tools/test-install-slot.sh
+
       - name: Install build deps
         run: |
           set -eu

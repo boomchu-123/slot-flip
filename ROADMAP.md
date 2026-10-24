@@ -37,20 +37,22 @@ first, PlayStation done properly, and no other device promised until 2.0.
 **Install first, on the stock firmware.** A Flip out of the box works; Slot
 should too. That was proven on hardware in October 2026: booted on the Flip's own
 OS, Slot started from the stock launcher's **App** list, with input, sound, lid
-sleep, brightness and re-entering games all working. So the main install becomes
-**copy two folders onto a FAT32 card**, and MinUI becomes the second way in, not a
-requirement.
+sleep, brightness and re-entering games all working. So the install is **one zip
+unzipped onto a FAT32 card**, which also makes the device start straight in Slot,
+and MinUI is a second entry that keeps working rather than a requirement.
 
 That has three consequences worth stating:
 
 - **No MinUI needed.** MinUI was archived in November 2025 and has no licence
-  file, so it was a poor thing to depend on. It stays supported for the people
-  who already use it, and its `Tools/my355/Slot.pak` keeps working unchanged.
+  file, so it was a poor thing to depend on. The `Tools/my355/Slot.pak` entry stays
+  for the people who use it, but it is no longer tested for each release and no
+  longer part of the gate.
 - **Nothing on the device changes.** Installing MinUI rewrites the Flip's internal
-  system image; the stock route writes only to the SD card, so uninstalling is
-  deleting a folder.
+  system image; this writes only to the SD card, so uninstalling is deleting a
+  folder.
 - **A card that is already good stays good.** No reformatting, no firmware zip, no
   launcher to install first.
+
 
 The one thing the stock route needs is a line MinUI used to provide for us: stock
 leaves the pad switched off (`joy_type` `-1`) where MinUI sets it, and Slot had
@@ -66,11 +68,11 @@ that has to be merged twice.
   GBA, GB, GBC, PS1, NES, SNES, MD, SMS, GG.
 - **PlayStation to the end:** a game actually asking for its second disc, a timed
   heavy 3D game, save integrity across reboots, and the analog/clicks test.
-- **An install a stranger can follow**: an `App/Slot` entry and the pak in one
-  zip, unzipped onto the card root; a `--check` that says what is wrong with a
-  card and what is missing; a first-run log that names the launcher it found; and
-  an install guide with screenshots. MinUI users get the same zip, unpacked into
-  `Tools/my355/`.
+- **An install a stranger can follow**: one zip unzipped at the card root, which
+  also makes the device start in Slot; `install.sh` inside it for anyone who would
+  rather not move folders by hand, with `--check` and `--dry-run`; and an install
+  guide with screenshots. The Flip's own firmware is the target; the MinUI entry
+  keeps working but is not part of the release check.
 - **Compatibility is the bar, not system count**: [COMPATIBILITY.md](COMPATIBILITY.md)
   lists what has been played, what is known broken, and which BIOS is needed.
   🚧 Started: 38 titles across all nine systems were cold-booted on a Flip, 37 reach
@@ -78,9 +80,11 @@ that has to be merged twice.
   through": playing games through, sound, speed and in-game saves are still open.
 - **1.0 criteria:** all nine systems pass their games; PlayStation has no known
   failure; unzipping the release onto a fresh FAT32 card gives a running Slot on
-  the Flip's stock firmware **and** on MinUI, both checked on hardware; the
-  download passes `tools/check-pak-licences.sh`; the README table matches
-  reality; and the release has been installed and run on the Flip.
+  the Flip's stock firmware, **and** `install.sh` does the same from a blank card,
+  both checked on hardware; the download passes `tools/check-pak-licences.sh`; the
+  README table matches reality; and the release has been installed and run on the
+  Flip.
+
 - **Stay free and open source.** No plans to sell. Donations never unlock
   anything. Non-commercial cores are bundled knowingly in the one free download
   (snes9x2005, Genesis Plus GX, and PicoDrive if it is added), with their notices.
@@ -215,14 +219,16 @@ a time; the fork's own work is the Flip port itself and a few small additions.
   headphones and a factory-fresh Flip are still unverified, and the notes say so.
 
 **Next — finishing the 1.0 install**
-- 📋 **`--check`**: a small script that reads a card and says what is wrong or
-  missing (no `Slot.pak`, wrong folder, a core absent, an extension that system
-  does not read, a card that is full or read-only). Changes nothing.
-- 📋 **Rewrite `INSTALL.md`** around "unzip onto your card", with MinUI as the
-  alternative and screenshots.
+- 📋 **Use `install.sh` on a real card end to end**: it has been run on a FAT32
+  volume made on a computer, and the files verified; what is not yet proven is the
+  whole path from the *release zip* through the script to a Flip that boots.
+- 📋 **A Windows installer**: the script needs a `sh`, so Windows gets its own
+  version. Until then, Windows users drag and drop.
+- 📋 **Rewrite `INSTALL.md`** around "unzip onto your card", with screenshots.
 - 💡 **Factory-fresh Flip**: this is the one install path never tested on a Flip
   that has never had MinUI's boot hook in its flash. It should be the same stock
   script, but it is not proven. One more tester settles it.
+
 - 💡 **Card repair on MinUI.** Upstream's SELECT + START repair is switched off
   on the Flip (its script is written for upstream's own devices and unmounts the
   card, which the launcher owns). A safe, tested version for the Flip needs its own

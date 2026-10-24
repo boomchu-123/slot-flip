@@ -21,6 +21,18 @@ Tool**, and carries experimental ports to other Miyoo devices.
 | `flip` (default) | Stable Miyoo Flip build | `v*` tags, normal releases |
 | `experimental` | Unverified device ports (`my282` A30, `miyoomini` Mini Plus) | `exp-v*` tags, **pre-releases** |
 
+**The Flip's own firmware is the target.** Slot installs as an app in its launcher
+(or as the thing it boots into), and that is what releases are checked on. MinUI is
+still supported — the pak in `Tools/my355/` is built and shipped — but it is not
+tested for each release and must not gate one. Do not spend cycles verifying MinUI
+unless someone reports a regression.
+
+**One download.** A release is exactly one zip, `Slot-my355.zip`: `App/Slot`,
+`Tools/my355/Slot.pak`, `miyoo355/app/MainUI` and `install.sh`. No pak-only or
+autoboot-only variants; the autoboot is the default and the escape is
+`Slot/Config/boot-menu`.
+
+
 `experimental` is always `flip` plus port work. Stable must never regress
 because of experimental work, so ports are not merged into `flip` until they are
 verified on real hardware.
@@ -357,6 +369,10 @@ Conventions that have proven useful:
   labels are asserted in `slot-ui/tests/quick_menu.rs`,
   `slot/tests/quick_menu.rs` and `slot/tests/render_quick_menu.rs`. They fail
   loudly when a row is added; update them to the new intended layout.
+- **Shell scripts have their own tests where it matters.** `sh
+  tools/test-install-slot.sh` exercises the installer over throwaway card folders
+  (fresh, update, refused, dry run) and `pr-checks` runs it. Anything that copies
+  files onto someone's card needs a case proving what it must *not* touch.
 - **Tests for persisted state** live in `slot-store/tests/durability.rs`. Adding
   a `SlotState` field means touching the struct, `Default`, the write format
   string and its arguments, the parser, and the constructor, and extending the
