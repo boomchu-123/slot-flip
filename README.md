@@ -1,9 +1,14 @@
 # slot. — Miyoo Flip fork
 
 A cartridge-style Game Boy / Game Boy Color / Game Boy Advance frontend for the
-**Miyoo Flip (my355)**, installed as a **MinUI Tool**. Browse your games as
-cartridges on a shelf, slot one in, and play — with sound, saves, and save
-states.
+**Miyoo Flip (my355)**. Browse your games as cartridges on a shelf, slot one in,
+and play — with sound, saves, and save states.
+
+It runs on the **Flip's own firmware** as an app, and on **MinUI** as a Tool. The
+stock-firmware install ships with the next release; today's download installs into
+MinUI. Either way it keeps everything it owns in a single `Slot` folder and
+**never touches your Roms or Saves**.
+
 
 > **This is a fork of [slot](https://slot-cfw.fyi) by Brandon T. Kowalski**,
 > which was originally built for the Anbernic RG SP. This fork ports it to the
@@ -14,7 +19,6 @@ states.
 
 It keeps everything it owns in a single `Slot` folder and **never touches your
 MinUI Roms or Saves**.
-
 ROMs must be unzipped. slot does not read `.zip` or `.7z` files.
 
 Upstream's user guide is at [slot-cfw.fyi](https://slot-cfw.fyi). Release notes
@@ -24,10 +28,15 @@ for this fork are in the [changelog](CHANGELOG.md).
 
 | Device | MinUI platform | Pak folder | Status | Download |
 | --- | --- | --- | --- | --- |
-| **Miyoo Flip** | `my355` | `Tools/my355/Slot.pak` | ✅ **Supported** (stable) | [Latest release](https://github.com/boomchu-123/slot-flip/releases/latest) |
+| **Miyoo Flip** | `my355` | `Tools/my355/Slot.pak` (MinUI) or `App/Slot` (stock firmware) | ✅ **Supported** (stable) | [Latest release](https://github.com/boomchu-123/slot-flip/releases/latest) |
 | **Miyoo A30** | `my282` | `Tools/my282/Slot.pak` | 🧪 **Experimental** — has a GPU, may work; unverified | [Pre-releases](https://github.com/boomchu-123/slot-flip/releases) |
 | **Miyoo Mini Plus** | `miyoomini` | `Tools/miyoomini/Slot.pak` | 🧪 **Experimental — not working yet** (no GPU) | [Pre-releases](https://github.com/boomchu-123/slot-flip/releases) |
 | Any other MinUI device | — | — | ❌ Not supported | — |
+
+The Flip's stock firmware is supported too: Slot was booted on it and run from the
+launcher's **App** list, with input, sound, lid sleep, brightness and re-entering
+games working. That install path ships in the next release (see the
+[roadmap](ROADMAP.md)); until then, use the MinUI path below.
 
 **Why not other devices?** Each MinUI device loads tools only from its own
 `Tools/<platform>/` folder and has different hardware (CPU architecture,
