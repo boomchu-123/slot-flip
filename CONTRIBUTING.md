@@ -95,19 +95,25 @@ The binary lands in `target-flip/release/slot`.
 ### Experimental targets (32-bit armhf)
 
 Both the A30 and the Mini Plus are 32-bit ARM (Cortex-A7), so they build for
-`armv7-unknown-linux-gnueabihf` — **not** aarch64:
+`armv7-unknown-linux-gnueabihf` — **not** aarch64. The Mini Plus firmware uses
+glibc 2.28, so its build must use the matching Buster sysroot:
 
 ```sh
-docker run --rm -v "$PWD":/src -w /src rust:1-bullseye sh -c '
-  apt-get update && apt-get install -y gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
+docker run --rm -v "$PWD":/src -w /src rust:1-buster sh -c '
+  sed -i -e "s|deb.debian.org/debian buster|archive.debian.org/debian buster|g" \
+    -e "s|deb.debian.org/debian-security|archive.debian.org/debian-security|g" \
+    -e "s|security.debian.org/debian-security|archive.debian.org/debian-security|g" \
+    /etc/apt/sources.list
+  apt-get -o Acquire::Check-Valid-Until=false update
+  apt-get install -y gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
   rustup target add armv7-unknown-linux-gnueabihf
   CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc \
     cargo build --release -p slot --no-default-features --features miyoomini \
     --target armv7-unknown-linux-gnueabihf --target-dir target-mini'
 ```
 
-Swap `miyoomini` for `my282` for the A30. `libc6-dev-armhf-cross` is required —
-without it the link fails with `cannot find Scrt1.o`.
+For the A30, use `rust:1-bullseye` and `--features my282`. `libc6-dev-armhf-cross`
+is required for both — without it the link fails with `cannot find Scrt1.o`.
 
 ### Host build (for iterating on UI/logic)
 
