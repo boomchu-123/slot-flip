@@ -209,19 +209,17 @@ a time; the fork's own work is the Flip port itself and a few small additions.
 - ✅ **Released v0.12.0** (upstream v1.9.0): durable card writes, core timeouts, label-cache
   stall, undo save/load, screenshots, bezels from the card, and the PlayStation stick
   clicks as L3/R3. Checked on a Flip; the notes list what was not
+- ✅ **Released v0.13.0**: the Flip's own firmware as the main install (`App/Slot` in
+  `Slot-my355.zip`), an optional boot-straight-into-slot zip, and the pad fix
+  (`joy_type`) moved into the pak's `launch.sh`. Both launchers checked on hardware;
+  headphones and a factory-fresh Flip are still unverified, and the notes say so.
 
-**Next — the 1.0 install work, in order**
-- 📋 **Stock firmware as the main install**: ship an `App/Slot` entry
-  (`config.json`, icons, `launch.sh`) in the release zip beside
-  `Tools/my355/Slot.pak`, and move the pad fix (`joy_type`) into the pak's
-  `launch.sh` so it holds on both launchers. Then check **both** routes on a Flip
-  before the release.
+**Next — finishing the 1.0 install**
 - 📋 **`--check`**: a small script that reads a card and says what is wrong or
   missing (no `Slot.pak`, wrong folder, a core absent, an extension that system
   does not read, a card that is full or read-only). Changes nothing.
 - 📋 **Rewrite `INSTALL.md`** around "unzip onto your card", with MinUI as the
   alternative and screenshots.
-- 📋 **Release v0.13.0** with notes that say exactly what was and was not checked.
 - 💡 **Factory-fresh Flip**: this is the one install path never tested on a Flip
   that has never had MinUI's boot hook in its flash. It should be the same stock
   script, but it is not proven. One more tester settles it.
