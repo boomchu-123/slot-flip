@@ -118,6 +118,8 @@ devices):
   (`.sfc`, `.smc`; see [Super Nintendo games](#super-nintendo-games)), and the Sega
   Mega Drive / Genesis (`.md`, `.gen`, `.smd`, `.bin`), Master System (`.sms`) and
   Game Gear (`.gg`) (see [Sega games](#sega-games)).
+- **Which games work:** see **[COMPATIBILITY.md](COMPATIBILITY.md)**. It lists what
+  has been run on a Flip, what only boots, and what nobody has checked yet.
 - Other MinUI devices can be supported with small changes — see
   [INSTALL.md](INSTALL.md).
 

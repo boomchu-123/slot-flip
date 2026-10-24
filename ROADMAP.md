@@ -45,8 +45,11 @@ that has to be merged twice.
   heavy 3D game, save integrity across reboots, and the analog/clicks test.
 - **An install a stranger can follow**: MinUI detection, a macOS/Linux installer,
   first-run checks, and an install guide with screenshots.
-- **Compatibility is the bar, not system count**: `COMPATIBILITY.md` lists what
-  has been played, what is known broken, and which BIOS is needed.
+- **Compatibility is the bar, not system count**: [COMPATIBILITY.md](COMPATIBILITY.md)
+  lists what has been played, what is known broken, and which BIOS is needed.
+  🚧 Started: 38 titles across all nine systems were cold-booted on a Flip, 37 reach
+  their own intro and one (Fire Emblem, GBA) draws nothing. "Boots" is not "plays
+  through": playing games through, sound, speed and in-game saves are still open.
 - **1.0 criteria:** all nine systems pass their games; PlayStation has no known
   failure; the installer takes a blank card to a running Slot on the Flip; the
   download passes `tools/check-pak-licences.sh`; the README table matches
