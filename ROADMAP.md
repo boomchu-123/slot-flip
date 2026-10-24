@@ -171,9 +171,9 @@ a time; the fork's own work is the Flip port itself and a few small additions.
 - ✅ **Released v0.10.1**: label scans keep their own shape on the NES, SNES and Sega carts ([#30](https://github.com/boomchu-123/slot-flip/issues/30))
 
 - ✅ **Released v0.11.0**: PlayStation memory cards are kept with the other saves, a multi-disc game can change disc from the in-game menu, and the sticks can be passed to a game as a DualShock's (off by default)
-- ✅ **Upstream v1.9.0 merged**: durable card writes, core timeouts, label-cache
-  stall, undo save/load, screenshots, bezels from the card. The 1.0 system work
-  resumes on this base
+- ✅ **Released v0.12.0** (upstream v1.9.0): durable card writes, core timeouts, label-cache
+  stall, undo save/load, screenshots, bezels from the card, and the PlayStation stick
+  clicks as L3/R3. Checked on a Flip; the notes list what was not
 
 **Next**
 - 💡 **Card repair on MinUI.** Upstream's SELECT + START repair is switched off
