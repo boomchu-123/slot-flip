@@ -23,6 +23,9 @@ jobs:
       - name: Check the pak ships only cleared emulator cores
         run: sh tools/check-pak-licences.sh flip/Tools/my355/Slot.pak
 
+      - name: Test the PR review tool
+        run: python3 tools/test_review_pr.py
+
       - name: Install build deps
         run: |
           set -eu
