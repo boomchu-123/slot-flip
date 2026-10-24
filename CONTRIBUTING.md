@@ -101,6 +101,7 @@ glibc 2.28, so its build must use the matching Buster sysroot:
 ```sh
 docker run --rm -v "$PWD":/src -w /src rust:1-buster sh -c '
   sed -i -e "s|deb.debian.org/debian buster|archive.debian.org/debian buster|g" \
+    -e "s|deb.debian.org/debian-security|archive.debian.org/debian-security|g" \
     -e "s|security.debian.org/debian-security|archive.debian.org/debian-security|g" \
     /etc/apt/sources.list
   apt-get -o Acquire::Check-Valid-Until=false update
