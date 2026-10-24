@@ -10,6 +10,49 @@ knows the answer. macOS and Linux first; Windows later.
 **The rule that outranks the goal:** the installer must never lose anyone's data. A
 slightly harder install is better than one that can damage a card.
 
+## Spike result: Slot runs on the stock OS, without MinUI
+
+Tested on one Flip (stock firmware build 20241212101434) by booting its own OS
+instead of MinUI and launching Slot from the stock launcher's **App** list. It
+worked, so MinUI is optional, not required.
+
+**How it works.** The Flip's flash holds a complete fallback OS (`/usr/miyoo/bin/MainUI`
+plus its `keymon` and `miyoo_inputd`). MinUI's hook only diverts boot when the card
+has `.tmp_update/updater`; with no such file the stock launcher starts, and it lists
+every `App/<name>/config.json` on the card (`label`, `icon`, `iconsel`, `launch`,
+`description`). A card needs no stock firmware zip for this.
+
+**What was seen working (by a person, on a real Flip):** Slot starts from the App
+list; the d-pad, face buttons and SELECT + D-pad brightness work; games run with
+sound; exiting and re-entering games works; the lid sleeps and wakes; plain volume
+shows Slot's own bar.
+
+**What it needed.** One line. MinUI sets `joy_type` to `0` (the pad as a gamepad)
+before anything runs, and Slot silently relied on that. Stock leaves it at `-1`
+(none), so every button was dead until the launch script set it. The script sets it
+for Slot and puts stock's value back on exit, so the stock menu keeps working.
+
+**Differences from MinUI, none blocking:**
+
+- MENU + volume only changes the volume, with no bar. It was MinUI's brightness
+  chord; Slot's own brightness shortcut is SELECT + D-pad Up/Down, which works.
+- Stock's `keymon` also acts on the volume buttons next to Slot, so the two overlap.
+  Nothing wrong was seen, but it has not been measured.
+
+**Not verified:**
+
+- A Flip that never had MinUI's hook in its flash. The hook falls back to the same
+  stock script a factory Flip runs, so it should behave the same, but this was the
+  only device tried.
+- Any other stock firmware build.
+- Power-button behaviour, headphones, and long sessions on the stock path.
+
+**What it changes for the installer.** The stock route needs no MinUI, no change to
+the Flip's internal system image, and no consent step: it is two folders copied onto
+a card. That is a much easier install than anything below, and it also suits Windows
+(drag and drop). The design below stays for people who use MinUI; which route leads
+is a decision for the maintainer.
+
 ## What was checked
 
 These are facts read from the real files, not assumptions.
