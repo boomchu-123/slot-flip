@@ -17,7 +17,7 @@ Four stages, on purpose:
 
 | Milestone | What it means |
 | --- | --- |
-| **1.0** | The nine systems that ship today, PlayStation working end to end, and an install a stranger can follow. One device, done properly, on the current upstream base. |
+| **1.0** | The nine systems that ship today, PlayStation working end to end, and an install a stranger can follow **on the launcher they already have**. One device, done properly, on the current upstream base. |
 | **1.x** | More systems, one at a time, after 1.0. They are additive and never block the 1.0 gate. |
 | **2.0** | The platform layer: input, audio, power and display behind one seam per device, so slot runs on other Linux handhelds. Ports stop being a fork of the frontend, and the fork becomes easy to rebase onto upstream. |
 | **after 2.0** | More devices, one at a time. Device count only grows once the platform layer exists and the second device is verified on hardware. |
@@ -31,8 +31,31 @@ would keep re-shipping half-finished ports.
 
 Set by the maintainer: the systems already supported must be solid, PlayStation
 must work end to end, and installing it must not need a guide written by
-someone who already knows the answer. This is the MinUI-on-Miyoo niche: the Flip
+someone who already knows the answer. This is the "slot on Miyoo" niche: the Flip
 first, PlayStation done properly, and no other device promised until 2.0.
+
+**Install first, on the stock firmware.** A Flip out of the box works; Slot
+should too. That was proven on hardware in October 2026: booted on the Flip's own
+OS, Slot started from the stock launcher's **App** list, with input, sound, lid
+sleep, brightness and re-entering games all working. So the main install becomes
+**copy two folders onto a FAT32 card**, and MinUI becomes the second way in, not a
+requirement.
+
+That has three consequences worth stating:
+
+- **No MinUI needed.** MinUI was archived in November 2025 and has no licence
+  file, so it was a poor thing to depend on. It stays supported for the people
+  who already use it, and its `Tools/my355/Slot.pak` keeps working unchanged.
+- **Nothing on the device changes.** Installing MinUI rewrites the Flip's internal
+  system image; the stock route writes only to the SD card, so uninstalling is
+  deleting a folder.
+- **A card that is already good stays good.** No reformatting, no firmware zip, no
+  launcher to install first.
+
+The one thing the stock route needs is a line MinUI used to provide for us: stock
+leaves the pad switched off (`joy_type` `-1`) where MinUI sets it, and Slot had
+silently relied on that. The pak sets it for itself and puts stock's value back on
+exit.
 
 **Upstream base first.** Ship on upstream slot's current release (v1.9.0 at the
 time of writing), so 1.0 carries the fixes for card writes, a core that stops
@@ -43,18 +66,21 @@ that has to be merged twice.
   GBA, GB, GBC, PS1, NES, SNES, MD, SMS, GG.
 - **PlayStation to the end:** a game actually asking for its second disc, a timed
   heavy 3D game, save integrity across reboots, and the analog/clicks test.
-- **An install a stranger can follow**: MinUI detection, a macOS/Linux installer,
-  first-run checks, and an install guide with screenshots. 📋 Design written, not
-  built: **[INSTALLER.md](INSTALLER.md)**.
+- **An install a stranger can follow**: an `App/Slot` entry and the pak in one
+  zip, unzipped onto the card root; a `--check` that says what is wrong with a
+  card and what is missing; a first-run log that names the launcher it found; and
+  an install guide with screenshots. MinUI users get the same zip, unpacked into
+  `Tools/my355/`.
 - **Compatibility is the bar, not system count**: [COMPATIBILITY.md](COMPATIBILITY.md)
   lists what has been played, what is known broken, and which BIOS is needed.
   🚧 Started: 38 titles across all nine systems were cold-booted on a Flip, 37 reach
   their own intro and one (Fire Emblem, GBA) draws nothing. "Boots" is not "plays
   through": playing games through, sound, speed and in-game saves are still open.
 - **1.0 criteria:** all nine systems pass their games; PlayStation has no known
-  failure; the installer takes a blank card to a running Slot on the Flip; the
+  failure; unzipping the release onto a fresh FAT32 card gives a running Slot on
+  the Flip's stock firmware **and** on MinUI, both checked on hardware; the
   download passes `tools/check-pak-licences.sh`; the README table matches
-  reality; and the release has been run on the Flip.
+  reality; and the release has been installed and run on the Flip.
 - **Stay free and open source.** No plans to sell. Donations never unlock
   anything. Non-commercial cores are bundled knowingly in the one free download
   (snes9x2005, Genesis Plus GX, and PicoDrive if it is added), with their notices.
@@ -113,6 +139,11 @@ The second half of "run on as many handhelds as realistic", deliberately after 1
 - **The second device: Miyoo Mini Plus** (`miyoomini`). Same Miyoo family, no GPU,
   the largest audience of the Miyoo handhelds; it needs a CPU compositor, which is
   exactly the kind of seam 2.0 is for.
+- **Credit the ports that came before.** Other community ports of slot to Miyoo
+  hardware exist, and where one has already solved part of a port (a CPU renderer,
+  an audio sink, a battery readout) the right move is to read it, credit it and
+  check its licence, not to start again. Anything taken in arrives through review
+  like any outside code.
 - **2.0 criteria:** the platform layer is in place, the Mini Plus is verified on
   hardware, the Flip still passes its own checks, and no `cfg(feature = ...)` for a
   device is left in shared code.
@@ -179,10 +210,24 @@ a time; the fork's own work is the Flip port itself and a few small additions.
   stall, undo save/load, screenshots, bezels from the card, and the PlayStation stick
   clicks as L3/R3. Checked on a Flip; the notes list what was not
 
-**Next**
+**Next — the 1.0 install work, in order**
+- 📋 **Stock firmware as the main install**: ship an `App/Slot` entry
+  (`config.json`, icons, `launch.sh`) in the release zip beside
+  `Tools/my355/Slot.pak`, and move the pad fix (`joy_type`) into the pak's
+  `launch.sh` so it holds on both launchers. Then check **both** routes on a Flip
+  before the release.
+- 📋 **`--check`**: a small script that reads a card and says what is wrong or
+  missing (no `Slot.pak`, wrong folder, a core absent, an extension that system
+  does not read, a card that is full or read-only). Changes nothing.
+- 📋 **Rewrite `INSTALL.md`** around "unzip onto your card", with MinUI as the
+  alternative and screenshots.
+- 📋 **Release v0.13.0** with notes that say exactly what was and was not checked.
+- 💡 **Factory-fresh Flip**: this is the one install path never tested on a Flip
+  that has never had MinUI's boot hook in its flash. It should be the same stock
+  script, but it is not proven. One more tester settles it.
 - 💡 **Card repair on MinUI.** Upstream's SELECT + START repair is switched off
   on the Flip (its script is written for upstream's own devices and unmounts the
-  card, which MinUI owns). A safe, tested version for the Flip needs its own
+  card, which the launcher owns). A safe, tested version for the Flip needs its own
   design; for now a read-only card is repaired from a computer. See
   [#17](https://github.com/boomchu-123/slot-flip/issues/17)
 - 💡 Cartridge-label artwork: fetch real label images automatically (blocked
@@ -211,9 +256,9 @@ These are the start of **2.0**, and stay on the `experimental` branch as `exp-v*
 **pre-releases** until verified on hardware. The stable `flip` branch keeps
 shipping 1.x system work in the meantime; nothing here blocks 1.0.
 
-> **Status:** `experimental` is still on upstream **v1.6**, behind the stable
-> branch. It needs the v1.8 sync, the Key Map, and the armhf builds re-checked
-> before testers get any of it. Until then, treat these ports as stale.
+> **Status:** `experimental` is on upstream **v1.6** only for the device ports, and
+> behind `flip`; it needs a sync and its armhf builds re-checked before testers get
+> any of it. Until then, treat these ports as stale.
 
 ### Miyoo A30 (`my282`)
 
@@ -231,7 +276,10 @@ No GPU, so it needs a software renderer.
 
 - ✅ armhf build, pak, launch script, hardware/framebuffer probe
 - 🚧 **Software compositor** — CPU rasteriser that consumes the same `Draw`
-  list as the GLES pipeline and blits to `/dev/fb0` (RGB565)
+  list as the GLES pipeline and blits to `/dev/fb0` (RGB565). Before writing one
+  from scratch, check the community ports of slot for Miyoo hardware and credit
+  what is reused.
+
 - 📋 Wire the renderer into the frontend and verify the shelf draws
 - 📋 Bundle armhf emulator cores
 - 📋 Confirm the button map from `input-trace.log`
@@ -262,8 +310,10 @@ forward or volunteer.
 
 To set expectations:
 
-- ❌ **Non-MinUI installs** (OnionOS, stock Miyoo firmware, ArkOS…). Slot is a
-  MinUI Tool; other launchers need their own integration.
+- ❌ **Non-MinUI launchers other than the Flip's own firmware** (OnionOS, Allium,
+  ArkOS…). On the Flip, the stock launcher and MinUI are both supported, because
+  both were run on hardware. Another launcher needs its own integration and
+  someone to test it; the stock launcher is the one that ships on the device.
 - ❌ **Bundling or sourcing ROMs/BIOS.** Bring your own legally dumped files.
 - ❌ **Non-Miyoo hardware with no GPU** (framebuffer-only) beyond the Mini Plus
   case, unless someone wants to own the port.

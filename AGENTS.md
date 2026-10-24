@@ -644,6 +644,17 @@ keep shaders off by default); the Mini Plus has **no GPU**, so its renderer is a
 CPU compositor that does not exist yet and that build only probes `/dev/fb0`.
 Both are 32-bit armhf.
 
+- **The pad is off on the stock launcher.** `/sys/class/miyooio_chr_dev/joy_type`
+  is `-1` (none) when the Flip's own OS boots, `0` (miyoo gamepad) when MinUI does
+  it, and the event nodes look identical either way. With `-1`, every button is
+  dead in slot and nothing in the log says so. The pak's `launch.sh` sets `0` for
+  itself and restores the old value on exit. If input ever "works under MinUI but
+  not on stock", check this first.
+- **The stock launcher lists `App/<name>/config.json`** (`label`, `icon`,
+  `iconsel`, `launch`, `description`) and runs `launch.sh` through
+  `/tmp/cmd_to_run.sh`. That is how Slot is offered without MinUI.
+
+
 ---
 
 ## 13. Accommodating other devices
