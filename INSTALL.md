@@ -1,134 +1,156 @@
-# Installing Slot on MinUI
+# Installing Slot on a Miyoo Flip
 
-Slot is a cartridge-style front-end for Game Boy, Game Boy Color, and Game Boy
-Advance. This fork runs as a **MinUI Tool**: you drop one folder onto your SD
-card and launch it from MinUI's Tools menu. It keeps all of its own data in a
-single `Slot` folder and never touches your MinUI Roms or Saves.
+Two ways: unzip a folder onto the card, or run the installer that does it for you.
+Both do the same thing, and neither needs MinUI, a firmware download, or a
+reformatted card.
 
-## Quick install (Miyoo Flip / my355)
+What you need: the Flip, its SD card (FAT32), a computer with a card reader, and
+about two minutes.
 
-1. Power off your device and take out the SD card. Put it in your computer.
-2. Copy the `Slot.pak` folder from this release into:
+---
 
-   ```
-   <SD CARD>/Tools/my355/Slot.pak
-   ```
+## The quick way: drag and drop
 
-   (The whole folder, with `launch.sh`, `slot`, and `System/` inside it.)
-3. Put the card back and boot the device into MinUI.
-4. Open **Tools → Slot**. On first launch Slot creates its `Slot` folder at the
-   root of the card and fills in the starter config.
-5. Power off, put the card back in your computer, and drop your legally-dumped
-   ROMs into the matching folder:
+1. **Download** `Slot-my355.zip` from
+   [Releases](https://github.com/boomchu-123/slot-flip/releases/latest).
+2. **Switch the Flip off** and move the SD card to your computer.
+3. **Unzip the zip at the root of the card.** The root is the folder that already
+   holds `Roms/` — the one the device sees as `/mnt/sdcard`. You should end up
+   with `App`, `Tools` and `miyoo355` sitting there:
 
    ```
-   <SD CARD>/Slot/Games/GBA   (.gba)
-   <SD CARD>/Slot/Games/GB    (.gb)
-   <SD CARD>/Slot/Games/GBC   (.gbc)
+   <SD CARD>/App/Slot/
+   <SD CARD>/Tools/my355/Slot.pak/
+   <SD CARD>/miyoo355/app/MainUI
    ```
 
-6. Boot back into MinUI, launch Slot, and your carts appear in the carousel.
+   Not a folder inside a folder: if you see `Slot-my355/` on the card with
+   `App` inside it, unzip again one level up.
+4. **Put the card back and switch the Flip on.** It starts straight into Slot.
+5. **Eject a game with MENU** to get back to the shelf.
 
-That's it. Nothing else on the card changes.
+That's the whole install. Your Roms, Saves and anything else on the card are
+untouched, and nothing in the device is modified.
 
-## The Slot folder
+## The script way
 
-Everything Slot owns lives under `<SD CARD>/Slot`:
+If you would rather not move folders around, the zip contains `install.sh`:
+
+```sh
+unzip Slot-my355.zip -d slot
+cd slot
+./install.sh
+```
+
+It finds your card, tells you what it is about to do, and asks before doing it. It
+also:
+
+```sh
+./install.sh --check        # look at the card and report; change nothing
+./install.sh --dry-run      # say what it would do; change nothing
+./install.sh --stock-menu   # start in the stock menu instead of into Slot
+```
+
+It refuses a card that is not FAT32, has no room, or is read-only, and it copies
+anything it replaces to `~/slot-flip-backups/` on your computer first. It never
+formats, partitions or deletes, never asks for `sudo`, and never uses the network.
+Windows has no shell for it yet: use the drag and drop steps.
+
+---
+
+## Where things go
+
+Everything Slot owns lives in one folder, `Slot/`, which it creates on first
+launch:
 
 ```
 Slot/
-  Games/   GBA GB GBC      your ROMs, one folder per system
-  Saves/   GBA GB GBC      battery saves
-  States/  GBA GB GBC      save states
-  Labels/  GBA GB GBC      cart artwork, named <rom-name>.png
-  Wallpapers/              background images (PNG)
-  Config/                  slot.ini, buttons.ini, and other settings
-  System/                  emulator cores
-  BIOS/                    optional GBA BIOS (gba_bios.bin)
+  Games/   GBA GB GBC PS1 NES SNES MD SMS GG   your games, one folder per system
+  Saves/   the same folders                    battery saves and memory cards
+  States/  the same folders                    save states
+  Labels/  cart and disc artwork, <game-name>.png
+  BIOS/    optional: gba_bios.bin
+  Config/  settings, the button map, boot-menu
+  System/  the emulator cores
+  slot.log the last run's log
 ```
 
-## Backgrounds (configurable)
+Games must be **unzipped** (`.zip` and `.7z` are not read).
 
-1. Put one or more PNG files in `Slot/Wallpapers/`.
-2. Open `Slot/Config/slot.ini` and set which one to use:
+| System | Folder | Files |
+| --- | --- | --- |
+| Game Boy Advance | `Slot/Games/GBA` | `.gba` |
+| Game Boy | `Slot/Games/GB` | `.gb` |
+| Game Boy Color | `Slot/Games/GBC` | `.gbc` |
+| PlayStation | `Slot/Games/PS1` | `.cue` + `.bin`, `.chd`, `.m3u`, `.pbp` |
+| NES | `Slot/Games/NES` | `.nes`, `.fds`, `.unf`, `.unif` |
+| Super Nintendo | `Slot/Games/SNES` | `.sfc`, `.smc`, `.swc`, `.fig` |
+| Mega Drive / Genesis | `Slot/Games/MD` | `.md`, `.gen`, `.smd`, `.bin` |
+| Master System | `Slot/Games/SMS` | `.sms` |
+| Game Gear | `Slot/Games/GG` | `.gg` |
 
-   ```ini
-   background = mybackground.png
-   ```
+**BIOS** is optional. No system needs one to run; a GBA BIOS at
+`Slot/BIOS/gba_bios.bin` only adds the real boot animation on Game Boy Advance.
 
-   Use `background = random` (the default) to shuffle through every wallpaper
-   on each boot. If the named file is missing, Slot falls back to a random one.
+**A multi-disc PlayStation game** goes in one `.m3u` playlist so it shows once on
+the shelf; see the README's [PlayStation discs](../README.md#playstation-discs)
+section.
 
-## Sleep & auto power-off
+## The buttons you need on day one
 
-Closing the lid puts the device to sleep **immediately**. While asleep, it
-powers itself off after a timeout you choose in the quick menu:
+| Press | Does |
+| --- | --- |
+| **MENU** (tap) | the in-game menu: states, screen, settings |
+| **MENU** (hold) | eject the cart, back to the shelf |
+| **SELECT + X** | screenshot |
+| **SELECT + D-pad Up/Down** | brightness |
+| Volume keys | Slot's volume bar |
+| Close the lid | sleep; powers off after the time set under **General > Lid Power Off** |
 
-- Open the menu and set **General > Lid Power Off** to `1`, `3`, `5`, `10`, `15`
-  or `30` minutes.
+Everything else can be changed inside Slot under **Controls**, including
+**Controls > Key Map**, which decides which physical key is which button and saves
+to `Slot/Config/buttons.ini`.
 
-The choice is saved and survives reboots.
+## Getting the stock menu back
 
-## Power LED
+Slot starts by default. To start in the stock menu instead, create an empty file
+`Slot/Config/boot-menu` on the card and reboot. Delete it to start in Slot again.
+Removing the `miyoo355` folder does the same thing.
 
-The green power light is on while running and fully charged. At **low battery
-(≤20%)** the red light comes on; while **charging**, both the green and red
-lights are lit.
+To remove Slot completely, delete `App/Slot`, `Tools/my355/Slot.pak` and
+`miyoo355/app/MainUI`. Your `Slot` folder (games, saves, states) is separate; keep
+it if you might come back.
 
-## Remapping buttons (menu with mappable buttons)
+## If you already use MinUI
 
-Slot ships with a sensible map for each device it knows about, but any MinUI
-handheld can be remapped without a rebuild.
+The same zip installs the pak into `Tools/my355/Slot.pak`, so **Tools → Slot**
+works as before, and your MinUI `auto.sh` can still boot straight in. On a MinUI
+card the device boots MinUI, so the "starts in Slot" part of this page does not
+apply there. Slot's own folder and files are the same either way.
 
-- In Slot, open the quick menu and choose **Controls > Key Map**, then the group
-  of controls (D-pad, Face Buttons, Shoulders, Start & Select). Pick a button,
-  press **A**, then press the key you want for it. It is applied and saved at
-  once, and a key that was already in use swaps with it. **Reset Key Map** undoes
-  everything.
-- Or edit `Slot/Config/buttons.ini` by hand (the screen writes the same file).
-  Each line is:
+## When something is wrong
 
-  ```ini
-  # <kernel-key-code> = <button>
-  109 = r1
-  104 = l2
-  ```
+Slot writes `Slot/slot.log` on every run, and the autoboot script writes
+`slot-launch.log` at the card root. Read those first; they say what it was doing
+when it stopped.
 
-  Codes may be decimal (`109`) or hex (`0x135`). Button names are:
-  `up down left right  a b x y  l1 r1 l2 r2  start select menu  volup voldown`.
-  Any code you don't list keeps its built-in mapping, so you only change what
-  you need.
+| What you see | What it usually is |
+| --- | --- |
+| No Slot in the App list | the folders are one level too deep, or the card is not FAT32 |
+| It boots to the stock menu | `Slot/Config/boot-menu` exists, or `miyoo355` is missing |
+| It boots to a black screen | the card's `Tools/my355/Slot.pak` is incomplete; re-unzip, or run `./install.sh` again |
+| Buttons do nothing at all | the pad is switched off: check `slot.log` for `pad joy_type`; the installer's files handle this, a hand-copied pak older than v0.13.0 does not |
+| A game shows a black screen but slot is running | usually a bad dump; try a known-good copy of the same game |
+| Nothing happens on a PlayStation game | it needs the `.cue` with its `.bin` files, or a `.chd`; check `slot.log` for `core refused` |
 
-To find your device's key codes, drop an empty file named `DEBUG` next to
-`launch.sh`, launch once, and read `Slot/slot.log` — each button press is
-logged with its code.
+Which games have actually been run is in
+[COMPATIBILITY.md](../COMPATIBILITY.md); "boots" and "plays through" are tracked
+separately there.
 
-## Auto-booting Slot (optional)
+## Other devices
 
-To boot straight into Slot and skip the MinUI menu, create
-`<SD CARD>/.userdata/<platform>/auto.sh` containing:
-
-```sh
-#!/bin/sh
-/mnt/SDCARD/Tools/<platform>/Slot.pak/launch.sh
-```
-
-Replace `<platform>` with your device (e.g. `my355`). MinUI runs this before
-its menu loop, so the device boots into Slot; quitting Slot drops you back to
-MinUI. Delete `auto.sh` to undo it.
-
-## Installing on other MinUI devices
-
-Slot's data folder and config are device-independent. To bring it to another
-MinUI handheld:
-
-1. Copy `Slot.pak` into that device's `Tools/<platform>/` folder (the
-   `<platform>` is the same name MinUI uses for that device, e.g. `tg5040`).
-2. Launch it once to generate the `Slot` folder.
-3. If the buttons are wrong, fix them in Slot under **Controls > Key Map** (press
-   **A** on a button, then the key you want). Nothing needs editing by hand, and the screen
-   works on any device whose buttons Slot can read.
-
-The display and audio use SDL2, which MinUI provides on its supported devices.
-LED and backlight paths in `launch.sh` are device-specific — see `PORTING.md`
-for what to adjust when bringing Slot to a new device.
+Slot's data folder and settings are device-independent, but the Flip is the only
+device this fork supports. What a port needs is in
+[PORTING.md](../PORTING.md), and the devices that could come next are in
+[SYSTEMS.md](../SYSTEMS.md). The A30 and Mini Plus builds are experimental
+pre-releases on the `experimental` branch.
