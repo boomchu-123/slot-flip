@@ -59,18 +59,35 @@ jobs:
         id: package
         run: |
           set -eu
+          # Two shapes from one tree:
+          #   Slot-my355.zip     unzip at the card root: App/Slot for the stock
+          #                      launcher and Tools/my355/Slot.pak for MinUI.
+          #   Slot.pak-my355.zip the pak alone, for people who already copy it
+          #                      into Tools/my355 by hand.
           stage="$(mktemp -d)"
-          cp -R flip/Tools/my355/Slot.pak "$stage/Slot.pak"
-          ( cd "$stage" && zip -qry "$GITHUB_WORKSPACE/Slot.pak-my355.zip" Slot.pak )
+          mkdir -p "$stage/Tools/my355"
+          cp -R flip/Tools/my355/Slot.pak "$stage/Tools/my355/Slot.pak"
+          cp -R flip/App "$stage/App"
+          ( cd "$stage" && zip -qry "$GITHUB_WORKSPACE/Slot-my355.zip" App Tools )
+          unzip -l Slot-my355.zip | grep -q "App/Slot/config.json"
+          unzip -l Slot-my355.zip | grep -q "Tools/my355/Slot.pak/launch.sh"
+          unzip -l Slot-my355.zip | grep -q "snes9x2005_plus_libretro.so"
+          unzip -l Slot-my355.zip | grep -q "NOTICE-NONCOMMERCIAL.txt"
+
+          stage2="$(mktemp -d)"
+          cp -R flip/Tools/my355/Slot.pak "$stage2/Slot.pak"
+          ( cd "$stage2" && zip -qry "$GITHUB_WORKSPACE/Slot.pak-my355.zip" Slot.pak )
           unzip -l Slot.pak-my355.zip | grep -q snes9x2005_plus_libretro.so
           unzip -l Slot.pak-my355.zip | grep -q genesis_plus_gx_libretro.so
           unzip -l Slot.pak-my355.zip | grep -q NOTICE-NONCOMMERCIAL.txt
-          echo "zip=Slot.pak-my355.zip" >> "$GITHUB_OUTPUT"
+          echo "zip=Slot-my355.zip" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.package.outputs.zip }}
-          path: ${{ steps.package.outputs.zip }}
+          path: |
+            Slot-my355.zip
+            Slot.pak-my355.zip
           if-no-files-found: error
 
   publish:
@@ -83,7 +100,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: Slot.pak-my355.zip
+          name: Slot-my355.zip
 
       - name: Create the release
         env:
@@ -91,11 +108,15 @@ jobs:
         run: |
           set -eu
           cat > notes.md <<'NOTES'
-          Miyoo Flip (my355) build of slot. for MinUI.
+          Miyoo Flip (my355) build of slot.
 
-          **Install:** unzip and copy the `Slot.pak` folder to
-          `<SD CARD>/Tools/my355/Slot.pak`, then boot MinUI and open
-          **Tools -> Slot**. Full guide in the README.
+          **Install:** unzip `Slot-my355.zip` at the **root of your SD card**. It
+          puts `App/Slot` (the Flip's own launcher, App list) and
+          `Tools/my355/Slot.pak` (MinUI's Tools menu) in place, so whichever
+          launcher you use finds it. Full guide in the README.
+
+          `Slot.pak-my355.zip` is the pak on its own, for people who already copy
+          it into `Tools/my355/` by hand.
 
           Emulation by mGBA (MPL-2.0), gpSP, PCSX-ReARMed and fceumm (GPL-2.0)
           snes9x2005 and Genesis Plus GX (both non-commercial: this download is
@@ -106,7 +127,7 @@ jobs:
           affiliated with the upstream author or Nintendo. Use your own
           legally-dumped ROMs.
           NOTES
-          gh release create "$GITHUB_REF_NAME" Slot.pak-my355.zip \
+          gh release create "$GITHUB_REF_NAME" Slot-my355.zip Slot.pak-my355.zip \
             --repo "$GITHUB_REPOSITORY" \
             --title "slot-flip $GITHUB_REF_NAME (Miyoo Flip)" \
             --notes-file notes.md
