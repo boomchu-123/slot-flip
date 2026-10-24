@@ -67,6 +67,7 @@ one-for-one patch cadence the fork does not have.
 | `v0.11.0` | v1.8.0 (fork work only: PlayStation memory cards are saved, discs can be changed, analog sticks as a DualShock behind a setting) |
 | `v0.12.0` | v1.9.0 (upstream sync: screenshots and undo save/load on the shared pages, durable writes, core timeouts, label-cache stall; the stick clicks are L3/R3 on PlayStation; otherwise fork work unchanged) |
 | `v0.13.0` | v1.9.0 (fork work only: runs on the Flip's own firmware from `App/Slot`, an optional boot-straight-into-slot zip, and the pak turns the pad on itself) |
+| `v0.14.0` | v1.9.0 (fork work only: one zip that autoboots, plus `install.sh` for the card; stock firmware is the target and MinUI stops gating releases) |
 | `exp-v0.3.0` | v1.6.0 |
 
 ---

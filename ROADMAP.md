@@ -219,9 +219,10 @@ a time; the fork's own work is the Flip port itself and a few small additions.
   headphones and a factory-fresh Flip are still unverified, and the notes say so.
 
 **Next — finishing the 1.0 install**
-- 📋 **Use `install.sh` on a real card end to end**: it has been run on a FAT32
-  volume made on a computer, and the files verified; what is not yet proven is the
-  whole path from the *release zip* through the script to a Flip that boots.
+- ✅ **Released v0.14.0**: one zip that installs and autoboots, plus `install.sh`
+  (`--check`, `--dry-run`, `--stock-menu`). Checked on hardware: the installer's
+  output on a real FAT32 card is byte-identical to the zip, and a Flip boots from
+  it straight into Slot.
 - 📋 **A Windows installer**: the script needs a `sh`, so Windows gets its own
   version. Until then, Windows users drag and drop.
 - 📋 **Rewrite `INSTALL.md`** around "unzip onto your card", with screenshots.
