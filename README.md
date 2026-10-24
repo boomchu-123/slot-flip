@@ -174,10 +174,18 @@ copy it to `Tools/my355/` by hand.
 
 ### Boot straight into Slot (optional)
 
-On the Flip's own firmware, Slot is one App in the launcher's list; there is no
-supported way to boot straight into it yet, and the launcher's own settings are the
-place to look. Under MinUI, skip its menu and land in Slot on boot by creating
-`<SD CARD>/.userdata/my355/auto.sh` with:
+**On the Flip's own firmware**, unzip `Slot-autoboot-my355.zip` at the card root as
+well. It adds `miyoo355/app/MainUI`, a small script the firmware runs in place of
+its launcher, which starts Slot and the two firmware daemons Slot needs (`keymon`
+and `miyoo_inputd`) and then hands over. Nothing on the device is changed.
+
+To get the stock menu back, create an empty file `Slot/Config/boot-menu` on the
+card and reboot; delete it to boot straight into Slot again. Removing
+`miyoo355/app/MainUI` does the same thing. It is a separate download because it
+replaces the card's copy of the launcher entry, and a device that starts in one app
+is not what everyone wants.
+
+**On MinUI**, create `<SD CARD>/.userdata/my355/auto.sh` with:
 
 ```sh
 #!/bin/sh

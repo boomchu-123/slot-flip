@@ -80,6 +80,15 @@ jobs:
           unzip -l Slot.pak-my355.zip | grep -q snes9x2005_plus_libretro.so
           unzip -l Slot.pak-my355.zip | grep -q genesis_plus_gx_libretro.so
           unzip -l Slot.pak-my355.zip | grep -q NOTICE-NONCOMMERCIAL.txt
+
+          # Optional: boot straight into Slot on the Flip's own firmware. Separate
+          # because it replaces the card's copy of the launcher entry, and not
+          # everyone wants a device that starts in one app.
+          stage3="$(mktemp -d)"
+          cp -R flip/autoboot/miyoo355 "$stage3/miyoo355"
+          ( cd "$stage3" && zip -qry "$GITHUB_WORKSPACE/Slot-autoboot-my355.zip" miyoo355 )
+          unzip -l Slot-autoboot-my355.zip | grep -q "miyoo355/app/MainUI"
+
           echo "zip=Slot-my355.zip" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v7
@@ -88,6 +97,7 @@ jobs:
           path: |
             Slot-my355.zip
             Slot.pak-my355.zip
+            Slot-autoboot-my355.zip
           if-no-files-found: error
 
   publish:
@@ -118,6 +128,10 @@ jobs:
           `Slot.pak-my355.zip` is the pak on its own, for people who already copy
           it into `Tools/my355/` by hand.
 
+          `Slot-autoboot-my355.zip` is optional: unzip it too and the Flip boots
+          straight into Slot instead of a menu (stock firmware). To get the menu
+          back, create an empty file `Slot/Config/boot-menu` and reboot.
+
           Emulation by mGBA (MPL-2.0), gpSP, PCSX-ReARMed and fceumm (GPL-2.0)
           snes9x2005 and Genesis Plus GX (both non-commercial: this download is
           free and must not be sold). Their licences, patches and source are in
@@ -128,6 +142,7 @@ jobs:
           legally-dumped ROMs.
           NOTES
           gh release create "$GITHUB_REF_NAME" Slot-my355.zip Slot.pak-my355.zip \
+            Slot-autoboot-my355.zip \
             --repo "$GITHUB_REPOSITORY" \
             --title "slot-flip $GITHUB_REF_NAME (Miyoo Flip)" \
             --notes-file notes.md

@@ -122,6 +122,8 @@ flip/Tools/<platform>/Slot.pak/   the shippable pak: launch.sh + System/ cores
                  (platform = my355 | my282 | miyoomini)
 flip/App/Slot/   the same pak offered to the Flip's own launcher (App list);
                  a two-line wrapper, no second copy of the frontend
+flip/autoboot/miyoo355/app/MainUI   optional: boots straight into slot on the
+                 stock firmware (own zip; replaces the card's launcher entry)
 card/, taskfile.yml, site/, CNAME   inherited from upstream (RG SP workflow,
                  upstream's website). Not part of the Flip release. Do not
                  publish the site or reuse the CNAME.
@@ -655,6 +657,17 @@ Both are 32-bit armhf.
 - **The stock launcher lists `App/<name>/config.json`** (`label`, `icon`,
   `iconsel`, `launch`, `description`) and runs `launch.sh` through
   `/tmp/cmd_to_run.sh`. That is how Slot is offered without MinUI.
+- **Slot does not route audio, and does not need to under either launcher.**
+  `keymon` (MinUI's start, or the firmware's own `/usr/miyoo/bin/keymon`) sets the
+  codec's `Playback Path` to `SPK`/`HP`. With no `keymon` running it stays `OFF`:
+  ALSA accepts every sample, the log looks perfect, and the game is silent. Stock
+  starts `keymon` and `miyoo_inputd` before its launcher, so any boot path that
+  replaces the launcher (see `flip/autoboot/`) must start them too.
+- **A card can replace the launcher**: if `<card>/miyoo355/` exists,
+  `runmiyoo-original.sh` runs `<card>/miyoo355/app/MainUI` instead of the built-in
+  one, and falls back to the built-in one if it exits non-zero. That is the
+  card-only autoboot, and it is not the same mechanism as MinUI's
+  `.tmp_update/updater`.
 
 
 ---
