@@ -20,24 +20,35 @@ jobs:
   build:
     name: ${{ matrix.slug }} pak (experimental)
     runs-on: ubuntu-latest
-    container: rust:1-bullseye
+    container: rust:${{ matrix.rust_container }}
     strategy:
       fail-fast: false
       matrix:
         include:
           # Miyoo Mini Plus — no GPU, software renderer is TODO (probe only).
+          # Its firmware is based on glibc 2.28, so use the matching sysroot.
           - slug: miyoomini
             feature: miyoomini
+            rust_container: 1-buster
+            max_glibc: 2.28
           # Miyoo A30 — Mali-400 GPU, uses the existing GLES renderer.
           - slug: my282
             feature: my282
+            rust_container: 1-bullseye
+            max_glibc: 2.31
     steps:
       - uses: actions/checkout@v7
 
       - name: Install cross tools
+        env:
+          RUST_CONTAINER: ${{ matrix.rust_container }}
         run: |
           set -eu
-          sed -i '/bullseye-security/d' /etc/apt/sources.list || true
+          if [ "$RUST_CONTAINER" = 1-buster ]; then
+            sed -i -e 's|deb.debian.org/debian buster|archive.debian.org/debian buster|g' \
+              -e 's|security.debian.org/debian-security|archive.debian.org/debian-security|g' \
+              /etc/apt/sources.list
+          fi
           apt-get -o Acquire::Check-Valid-Until=false update
           # gcc-arm-linux-gnueabihf is the cross compiler; libc6-dev-armhf-cross
           # provides the target CRT objects (Scrt1.o, crti.o) and libc the linker
@@ -63,6 +74,18 @@ jobs:
           # Must be 32-bit ARM (Cortex-A7), not aarch64.
           file "$pak/slot" | grep -q "ELF 32-bit.*ARM"
           test -x "$pak/launch.sh"
+          # Reject a binary linked above the device's firmware glibc baseline.
+          max_glibc="${{ matrix.max_glibc }}"
+          required_glibc="$(readelf --version-info "$pak/slot" |
+            sed -n 's/.*GLIBC_\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' |
+            sort -Vu | tail -1)"
+          test -n "$required_glibc"
+          printf 'slot requires glibc %s (maximum %s)\n' "$required_glibc" "$max_glibc"
+          awk -v got="$required_glibc" -v max="$max_glibc" 'BEGIN {
+            split(got, g, ".")
+            split(max, m, ".")
+            exit !((g[1] < m[1]) || (g[1] == m[1] && g[2] <= m[2]))
+          }'
 
       - name: Package
         id: package
