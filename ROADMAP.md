@@ -44,7 +44,8 @@ that has to be merged twice.
 - **PlayStation to the end:** a game actually asking for its second disc, a timed
   heavy 3D game, save integrity across reboots, and the analog/clicks test.
 - **An install a stranger can follow**: MinUI detection, a macOS/Linux installer,
-  first-run checks, and an install guide with screenshots.
+  first-run checks, and an install guide with screenshots. 📋 Design written, not
+  built: **[INSTALLER.md](INSTALLER.md)**.
 - **Compatibility is the bar, not system count**: [COMPATIBILITY.md](COMPATIBILITY.md)
   lists what has been played, what is known broken, and which BIOS is needed.
   🚧 Started: 38 titles across all nine systems were cold-booted on a Flip, 37 reach
