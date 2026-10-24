@@ -1,0 +1,53 @@
+name: pr-review
+
+# A manual, read-only security review of one pull request, to run before merging it.
+# Start it from the Actions tab (or `gh workflow run pr-review.yml -f pr=44`).
+#
+# It never runs on its own and never runs the PR's code: the tools come from the
+# default branch (checked out below, not from the PR), and the PR is fetched as data
+# and read with git. The report lands in the job summary. Read tools/review-pr.py for
+# what it checks, and for what it cannot.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+        type: number
+      expect_head:
+        description: Optional. Abort unless the PR head starts with this SHA
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  review:
+    name: review PR
+    runs-on: ubuntu-latest
+    steps:
+      # Always the default branch, whatever ref this run was started from, so a
+      # branch can never supply its own reviewer.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Review the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+          EXPECT_HEAD: ${{ inputs.expect_head }}
+        run: |
+          set -eu
+          set --
+          if [ -n "${EXPECT_HEAD:-}" ]; then
+            set -- --expect-head "$EXPECT_HEAD"
+          fi
+          python3 tools/review-pr.py "$PR" --repo "$GITHUB_REPOSITORY" "$@" || code=$?
+          # 1 = needs a human look, 2 = blocking finding: the report is the result, so
+          # only a tool failure (3) fails the job.
+          [ "${code:-0}" -lt 3 ]

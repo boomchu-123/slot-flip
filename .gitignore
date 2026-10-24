@@ -64,3 +64,4 @@ id_ed25519*
 
 # Source photos for tools/fit_bitmaps.py (personal art, not redistributable).
 /art-src/
+__pycache__/
