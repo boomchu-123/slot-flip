@@ -75,11 +75,16 @@ impl DeviceInput {
 }
 
 /// The two stick clicks, which only the gamepad node reports.
-#[cfg(feature = "flip")]
+///
+/// The gamepad node also repeats START (0x13b), MENU (0x13c, BTN_MODE) and SELECT
+/// (0x13a). Those must stay unmapped here: the keyboard node already reports them,
+/// and a second button arriving with MENU held reads as a chord and cancels the tap
+/// and the hold that ejects.
+#[cfg_attr(not(feature = "flip"), allow(dead_code))]
 fn click(code: u16) -> Option<Btn> {
     Some(match code {
-        0x13b => Btn::L3, // BTN_THUMBL
-        0x13c => Btn::R3, // BTN_THUMBR
+        0x13d => Btn::L3, // BTN_THUMBL
+        0x13e => Btn::R3, // BTN_THUMBR
         _ => return None,
     })
 }
@@ -280,4 +285,20 @@ fn find_hall(psy: &Path) -> Option<PathBuf> {
         .into_iter()
         .map(|d| d.join("hallkey"))
         .find(|p| p.is_file())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_stick_clicks_are_read_from_the_gamepad_node() {
+        assert_eq!(click(0x13d), Some(Btn::L3));
+        assert_eq!(click(0x13e), Some(Btn::R3));
+        // SELECT, START and MENU (BTN_MODE) arrive here as well; mapping any of them
+        // would put a second button down while MENU is held.
+        for code in [0x13a, 0x13b, 0x13c] {
+            assert_eq!(click(code), None, "{code:#x} is not a stick click");
+        }
+    }
 }
