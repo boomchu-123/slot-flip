@@ -120,6 +120,8 @@ crates/
 cores/           patches + build.sh for mGBA, gpSP and PCSX-ReARMed (see section 9)
 flip/Tools/<platform>/Slot.pak/   the shippable pak: launch.sh + System/ cores
                  (platform = my355 | my282 | miyoomini)
+flip/App/Slot/   the same pak offered to the Flip's own launcher (App list);
+                 a two-line wrapper, no second copy of the frontend
 card/, taskfile.yml, site/, CNAME   inherited from upstream (RG SP workflow,
                  upstream's website). Not part of the Flip release. Do not
                  publish the site or reuse the CNAME.
