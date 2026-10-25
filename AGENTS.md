@@ -675,12 +675,36 @@ Both are 32-bit armhf.
 - **The stock launcher lists `App/<name>/config.json`** (`label`, `icon`,
   `iconsel`, `launch`, `description`) and runs `launch.sh` through
   `/tmp/cmd_to_run.sh`. That is how Slot is offered without MinUI.
-- **Slot does not route audio, and does not need to under either launcher.**
-  `keymon` (MinUI's start, or the firmware's own `/usr/miyoo/bin/keymon`) sets the
-  codec's `Playback Path` to `SPK`/`HP`. With no `keymon` running it stays `OFF`:
-  ALSA accepts every sample, the log looks perfect, and the game is silent. Stock
-  starts `keymon` and `miyoo_inputd` before its launcher, so any boot path that
-  replaces the launcher (see `flip/autoboot/`) must start them too.
+- **Slot routes its own audio.** The codec's `Playback Path` (`OFF`, `SPK`, `HP`, ...)
+  is an ALSA control separate from the volume. It used to be set by whichever launcher
+  ran (MinUI's `keymon`, or the firmware's), and with it at `OFF` ALSA accepts every
+  sample, the log looks perfect, and the game is silent. `audio::route` now sets `SPK`
+  or `HP` when the power handle is attached and whenever the jack changes, through
+  `amixer`. So the boot path starts **no** `keymon`: it switched the light off on lid
+  close and injected a phantom volume-down when the lid opened. It does start
+  `miyoo_inputd`, because that creates the gamepad node ("MIYOO Player1") that carries
+  the analog sticks and their clicks; without it there are no sticks at all. The stock
+  menu (`Slot/Config/boot-menu`) starts both, because it needs them.
+- **The power button is on its own node** (`rk805 pwrkey`), with KEY_POWER as its only
+  key, so it must be in the Flip's `WANTED` list or slot never opens it and a held power
+  button reaches nothing. MinUI's `keymon` used to catch it for us.
+- **A core's own option default never applies.** Slot answers "no value" for any option
+  it has not set, and the core keeps its zero, not its documented default. That has
+  broken PlayStation memory cards (v0.11), the analog toggle combo, and made the analog
+  bounds "square" (the core clips the sticks at 79% of travel). `core::pcsx_options()`
+  names every one that matters and a test fails if one goes missing.
+- **Left stick as a D-pad on the Flip** is `evdev::LeftStick`, on the gamepad node
+  (ABS_X/ABS_Y = 0/1). `Hat` does the same job with another device's axis codes (2/3),
+  and 3 is the Flip's right stick, so it never worked here until now. The Flip's sticks
+  rest off centre (about -5100 measured) and bounce off the gate, so a direction needs a
+  firm push (`DPAD_ON`) and a real release (`DPAD_OFF`).
+- **Stick tuning that is measured, not guessed** (`input/sticks.rs`): a firm push to the
+  gate reads 25000 to 31000 and wanders, so `EDGE` (26000) counts as all the way; a slam's
+  recoil can be a one-sample pulse, so `PEAKS` keeps the furthest value between reads and
+  `Hold` keeps a push for `HOLD_MS`; a real swing to the other side is never held back.
+  Analog steering in Gran Turismo 2 is still not perfect (see the README); the log line
+  `slot: analog: the core read the sticks N times, peaks ...` (under `DEBUG`) shows what
+  the core was handed.
 - **A card can replace the launcher**: if `<card>/miyoo355/` exists,
   `runmiyoo-original.sh` runs `<card>/miyoo355/app/MainUI` instead of the built-in
   one, and falls back to the built-in one if it exits non-zero. That is the

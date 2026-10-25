@@ -140,7 +140,9 @@ pub fn run() {
     let mut frontend = Frontend::boot_with(Box::new(platform), sink);
     slot::boot_time::mark("frontend");
     let target = slot::baseos::var("BASEOS_TARGET").unwrap_or_default();
-    frontend.set_left_stick(slot::input::evdev::has_left_stick(&target));
+    // The Flip has a left stick, but its target string is empty here, so the list of
+    // devices that have one never names it.
+    frontend.set_left_stick(cfg!(feature = "flip") || slot::input::evdev::has_left_stick(&target));
     frontend.upload_boot_faces(&mut compositor);
     slot::boot_time::mark("faces");
     frontend.upload_bezel(&mut compositor, window);
@@ -224,6 +226,14 @@ pub fn run() {
                     pacer.period.as_secs_f64() * 1e3,
                 );
                 heartbeat = (Instant::now(), 0, published);
+                // Only worth a line while sticks are the game's: how often the core
+                // asked for them and the furthest it was given.
+                let (reads, [lx, ly, rx, ry]) = slot_retro::analog_stats();
+                if reads > 0 {
+                    eprintln!(
+                        "slot: analog: the core read the sticks {reads} times, peaks lx {lx} ly {ly} rx {rx} ry {ry}"
+                    );
+                }
             }
         }
         if !drawn {

@@ -899,9 +899,14 @@ fn labels_leave_room_for_the_pointer_and_values_end_thirty_two_pixels_in() {
     open_at(&mut a, QuickRow::FastForward);
     let out = frame(&a);
     let right = OUT_W as f32 - QUICK_EDGE;
-    for row in QuickRow::FastForward.shown(&a.hidden_rows()) {
-        let lit = row == QuickRow::FastForward;
-        let [x, ..] = placed(&out, label(row, lit)).expect("a label was not drawn");
+    // Only the rows in the window are drawn: the page scrolls when it has more than
+    // fit, and with a GBA cart on the shelf it has seven.
+    let hidden = a.hidden_rows();
+    let shown = QuickRow::FastForward.shown(&hidden);
+    let (start, count) = slot_ui::quick_window(QuickRow::FastForward, &hidden);
+    for row in &shown[start..start + count] {
+        let lit = *row == QuickRow::FastForward;
+        let [x, ..] = placed(&out, label(*row, lit)).expect("a label was not drawn");
         assert_eq!(x + MENU_PAD as f32, QUICK_LABEL_X, "{row:?}'s label");
     }
     let [x, _, w, _] = placed(&out, value(QuickValue::On, false)).expect("rumble's value");

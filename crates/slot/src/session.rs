@@ -30,6 +30,7 @@ pub struct Session {
     captured: Vec<Btn>,
     pad: Pad,
     sent: u16,
+    stick_hold: crate::input::sticks::Hold,
     rewinding: bool,
     fast: bool,
     motor: u16,
@@ -56,6 +57,7 @@ impl Session {
             captured: Vec::new(),
             pad: Pad::default(),
             sent: 0,
+            stick_hold: crate::input::sticks::Hold::default(),
             rewinding: false,
             fast: false,
             motor: 0,
@@ -240,11 +242,16 @@ impl Session {
             let sticks = self.app.analog_sticks();
             let live = sticks && !self.overlaid();
             emu.set_dualshock(sticks);
-            emu.set_analog(if live {
-                crate::input::sticks::read()
+            // A push that springs back faster than a game looks is held for it; with
+            // the sticks not the game's, nothing is carried over.
+            let analog = if live {
+                self.stick_hold
+                    .filter(self.app.now(), crate::input::sticks::read())
             } else {
+                self.stick_hold.reset();
                 [0; 4]
-            });
+            };
+            emu.set_analog(analog);
             crate::input::sticks::set_taken(live);
         }
     }

@@ -128,6 +128,67 @@ impl Stick {
     }
 }
 
+// The Flip's left stick (ABS_X / ABS_Y on the gamepad node), as a D-pad, for games
+// that only read the pad. `Hat` does this for other devices but uses their axis
+// codes (2 and 3); on the Flip 3 is the right stick's X and the left stick is 0 and
+// 1, and its gamepad node is read by a branch that never reaches `Hat`, so the
+// Left Stick setting did nothing here. These sticks also rest well off centre (a
+// right stick at rest was measured at about -5100), so a direction needs a firm
+// push to start and a real release to end, not `STICK_DEADZONE`.
+#[cfg(feature = "flip")]
+pub const ABS_LX: u16 = 0x00;
+#[cfg(feature = "flip")]
+pub const ABS_LY: u16 = 0x01;
+#[cfg(feature = "flip")]
+const DPAD_ON: i32 = 14_000;
+#[cfg(feature = "flip")]
+const DPAD_OFF: i32 = 9_000;
+
+#[cfg(feature = "flip")]
+#[derive(Default)]
+pub struct LeftStick {
+    held: [i32; 2],
+}
+
+#[cfg(feature = "flip")]
+impl LeftStick {
+    /// `steering` is false when the setting is off, or when a game is reading the
+    /// sticks itself; then a held direction is let go rather than left pressed.
+    pub fn feed(&mut self, ev: Ev, steering: bool) -> Vec<RawEvent> {
+        let axis = match ev.code {
+            ABS_LX => 0,
+            ABS_LY => 1,
+            _ => return Vec::new(),
+        };
+        let was = self.held[axis];
+        let now = if steering {
+            match ev.value {
+                v if v >= DPAD_ON => 1,
+                v if v <= -DPAD_ON => -1,
+                v if was > 0 && v >= DPAD_OFF => 1,
+                v if was < 0 && v <= -DPAD_OFF => -1,
+                _ => 0,
+            }
+        } else {
+            0
+        };
+        if now == was {
+            return Vec::new();
+        }
+        self.held[axis] = now;
+        let ends = [[Btn::Left, Btn::Right], [Btn::Up, Btn::Down]][axis];
+        let btn = |v: i32| ends[usize::from(v > 0)];
+        let mut out = Vec::new();
+        if was != 0 {
+            out.push(RawEvent::Up(btn(was)));
+        }
+        if now != 0 {
+            out.push(RawEvent::Down(btn(now)));
+        }
+        out
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct Ev {
     pub kind: u16,
@@ -224,9 +285,12 @@ pub fn code_to_btn(code: u16) -> Option<Btn> {
     })
 }
 
+// 116 is the power key. On the Flip it is the only key on the pmic's own node
+// (`rk805 pwrkey`), so leaving it out meant slot never opened that node and a held
+// power button reached nothing: MinUI's keymon used to catch it instead.
 #[cfg(feature = "flip")]
-const WANTED: [u16; 16] = [
-    103, 108, 105, 106, 29, 57, 56, 42, 15, 104, 109, 97, 28, 1, 115, 114,
+const WANTED: [u16; 17] = [
+    103, 108, 105, 106, 29, 57, 56, 42, 15, 104, 109, 97, 28, 1, 115, 114, 116,
 ];
 
 pub use slot_power::has_bit;
@@ -286,4 +350,85 @@ pub fn device_name(sys: &Path, node: &Path) -> String {
         .and_then(|n| std::fs::read_to_string(sys.join(n).join("device/name")).ok())
         .map(|n| n.trim().to_string())
         .unwrap_or_else(|| node.display().to_string())
+}
+
+#[cfg(all(test, feature = "flip"))]
+mod flip_left_stick {
+    use super::*;
+
+    fn push(s: &mut LeftStick, code: u16, value: i32) -> Vec<RawEvent> {
+        s.feed(
+            Ev {
+                kind: EV_ABS,
+                code,
+                value,
+            },
+            true,
+        )
+    }
+
+    #[test]
+    fn a_firm_push_presses_the_direction_and_a_release_lets_it_go() {
+        let mut s = LeftStick::default();
+        assert_eq!(
+            push(&mut s, ABS_LX, 20_000),
+            vec![RawEvent::Down(Btn::Right)]
+        );
+        assert_eq!(push(&mut s, ABS_LX, 0), vec![RawEvent::Up(Btn::Right)]);
+        assert_eq!(push(&mut s, ABS_LY, -20_000), vec![RawEvent::Down(Btn::Up)]);
+        assert_eq!(
+            push(&mut s, ABS_LY, 30_000),
+            vec![RawEvent::Up(Btn::Up), RawEvent::Down(Btn::Down)]
+        );
+    }
+
+    #[test]
+    fn a_stick_resting_off_centre_presses_nothing() {
+        let mut s = LeftStick::default();
+        // What the Flip's sticks were measured doing at rest.
+        for v in [-5_100, 1_400, -4_400, 900, 5_000] {
+            assert!(push(&mut s, ABS_LX, v).is_empty(), "{v}");
+            assert!(push(&mut s, ABS_LY, v).is_empty(), "{v}");
+        }
+    }
+
+    #[test]
+    fn it_does_not_chatter_around_the_edge_of_a_press() {
+        let mut s = LeftStick::default();
+        assert_eq!(
+            push(&mut s, ABS_LX, 15_000),
+            vec![RawEvent::Down(Btn::Right)]
+        );
+        // Easing back, but not past the release point, keeps it held.
+        assert!(push(&mut s, ABS_LX, 11_000).is_empty());
+        assert!(push(&mut s, ABS_LX, 13_999).is_empty());
+        assert_eq!(push(&mut s, ABS_LX, 8_000), vec![RawEvent::Up(Btn::Right)]);
+    }
+
+    #[test]
+    fn the_right_stick_and_other_axes_are_not_the_dpad() {
+        let mut s = LeftStick::default();
+        assert!(
+            push(&mut s, ABS_RX, 32_000).is_empty(),
+            "right stick x is R2, not a direction"
+        );
+        assert!(push(&mut s, 0x04, 32_000).is_empty());
+        assert!(push(&mut s, 0x10, 1).is_empty());
+    }
+
+    #[test]
+    fn it_lets_go_when_steering_stops() {
+        let mut s = LeftStick::default();
+        push(&mut s, ABS_LX, 25_000);
+        // The setting was switched off, or a game took the sticks.
+        let out = s.feed(
+            Ev {
+                kind: EV_ABS,
+                code: ABS_LX,
+                value: 25_000,
+            },
+            false,
+        );
+        assert_eq!(out, vec![RawEvent::Up(Btn::Right)]);
+    }
 }

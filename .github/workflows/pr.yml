@@ -67,3 +67,16 @@ jobs:
           cargo test -p slot-store -p slot-power -p slot-ui --tests --target-dir target-test
           cargo test -p slot --test evdev --test input --test platform --target-dir target-test
           echo "::endgroup::"
+
+          # The Flip's own input code is behind the `flip` feature, which the suite
+          # above does not enable, so some of it was never tested: the Flip never
+          # opened its power button's node, and its left stick never drove the
+          # d-pad, and neither showed up anywhere. Run the unit tests with it on,
+          # plus the one integration test that names the power node. (The rest of
+          # the evdev integration suite assumes the generic map and does not pass
+          # under `flip`.)
+          echo "::group::flip"
+          cargo test -p slot --no-default-features --features flip --lib --target-dir target-test
+          cargo test -p slot --no-default-features --features flip --test evdev \
+            the_node_carrying_only_the_power_key_is_opened --target-dir target-test
+          echo "::endgroup::"

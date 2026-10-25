@@ -112,6 +112,14 @@ All three on Genesis Plus GX.
   dump of the same game to settle it. If you can run this title, please report
   what you see.
 
+- **Analog steering is rough at the extremes (PlayStation).** With Analog Sticks on, a
+  hard slam or a fast sweep from one end to the other is sometimes not registered by
+  the game. Seen in Gran Turismo 2, where the car then does nothing. The core was
+  logged reading the sticks every frame and being handed full deflection in both
+  directions, so Slot is delivering the value; why the game ignores it is **not known**,
+  and it was not tried in a second analog game. Gentle and moderate steering works.
+  Leave Analog Sticks off to use the left stick as a D-pad instead.
+
 ## Checked on the device, beyond booting
 
 These were run on a Flip with the build that became v0.12.0, on the games named.
@@ -123,6 +131,11 @@ These were run on a Flip with the build that became v0.12.0, on the games named.
   results in the tables above were gathered with them.
 - **Save state, then Undo Save** removes the state, on GBA and PlayStation.
 - **PlayStation memory card:** Crash Bandicoot opens its 128 KiB card.
+- **The left stick as a D-pad** (Analog Sticks off) walks Crash Bandicoot. The
+  Flip never did this before this release: it was not registered as having a left
+  stick, and the code used another device's axis numbers.
+- **Hold POWER** powers the Flip off (it could not before: Slot never opened the power
+  button's input node).
 - **Lid close and open**, and the MENU button (tap opens the in-game menu, hold
   closes the game), were checked by a person on Crash Bandicoot.
 
