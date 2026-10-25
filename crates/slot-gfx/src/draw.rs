@@ -1,14 +1,23 @@
+#[cfg(not(feature = "software"))]
 use crate::quad::Quad;
+#[cfg(not(feature = "software"))]
 use crate::shaders::{SPRITE_FRAG, SPRITE_VERT};
+#[cfg(not(feature = "software"))]
 use crate::surface::{GfxError, OUT_H, OUT_W};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct TexId(usize);
 
-#[cfg(feature = "test-support")]
 impl TexId {
     pub const fn from_raw(id: usize) -> Self {
         TexId(id)
+    }
+
+    /// The index into the backend's texture store. The GL backend keeps the
+    /// field private and reaches it directly; the software backend lives in
+    /// another module and needs an accessor.
+    pub const fn raw(self) -> usize {
+        self.0
     }
 }
 
@@ -54,6 +63,7 @@ pub enum Draw {
     Capture,
 }
 
+#[cfg(not(feature = "software"))]
 pub struct Sprites {
     prog: gl::types::GLuint,
     white: gl::types::GLuint,
@@ -65,6 +75,7 @@ pub struct Sprites {
     u_src: gl::types::GLint,
 }
 
+#[cfg(not(feature = "software"))]
 impl Sprites {
     pub fn new() -> Result<Self, GfxError> {
         let prog = crate::shaders::program(SPRITE_VERT, SPRITE_FRAG)?;
@@ -214,6 +225,7 @@ impl Sprites {
     }
 }
 
+#[cfg(not(feature = "software"))]
 impl Drop for Sprites {
     fn drop(&mut self) {
         unsafe {

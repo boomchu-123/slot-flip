@@ -1,7 +1,13 @@
 use std::ffi::c_void;
 use std::fmt;
 
+/// The canvas. The GL path draws 720x480 and lets the panel letterbox it; the
+/// software path, for a framebuffer with no GPU, draws what it will blit 1:1,
+/// so its canvas is the panel. See `soft::canvas_size`.
+#[cfg(not(feature = "software"))]
 pub const OUT_W: u32 = 720;
+#[cfg(feature = "software")]
+pub const OUT_W: u32 = 640;
 pub const OUT_H: u32 = 480;
 
 #[derive(Debug)]

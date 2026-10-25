@@ -1,4 +1,4 @@
-use std::ffi::{c_void, CStr};
+use std::ffi::{CStr, c_void};
 use std::fmt::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -121,6 +121,12 @@ unsafe fn fault_address(info: *mut libc::siginfo_t) -> usize {
 #[cfg(target_os = "macos")]
 unsafe fn fault_address(info: *mut libc::siginfo_t) -> usize {
     (*info).si_addr as usize
+}
+
+#[cfg(all(target_os = "linux", target_arch = "arm"))]
+unsafe fn registers(ctx: *mut c_void) -> (usize, Option<usize>) {
+    let mc = &(*(ctx as *mut libc::ucontext_t)).uc_mcontext;
+    (mc.arm_pc as usize, Some(mc.arm_lr as usize))
 }
 
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]

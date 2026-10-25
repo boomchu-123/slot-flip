@@ -10,6 +10,9 @@ default = ["host"]
 host = ["dep:winit", "dep:cpal", "dep:gilrs", "slot-gfx/host"]
 device = ["slot-gfx/device"]
 flip = ["slot-gfx/flip", "slot-power/flip", "slot-store/flip"]
+# Miyoo Mini Plus (miyoomini): no GPU, so the software framebuffer backend
+# instead of the Flip's SDL/GLES one. Its card layout is the Flip's.
+miyoomini = ["slot-gfx/software", "slot-store/flip"]
 
 [dependencies]
 slot-gfx = { path = "../slot-gfx", default-features = false }

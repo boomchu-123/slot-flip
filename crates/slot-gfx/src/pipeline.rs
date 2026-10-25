@@ -1,17 +1,33 @@
+#[cfg(not(feature = "software"))]
 use crate::lcd3x::ScreenEffect;
+#[cfg(not(feature = "software"))]
 use crate::power::{screen_brightness, screen_rect_above};
+#[cfg(not(feature = "software"))]
 use crate::quad::Quad;
+#[cfg(not(feature = "software"))]
 use crate::shaders::{GAME_FRAG, RECT_VERT};
-use crate::surface::{GfxError, OUT_H, OUT_W};
+#[cfg(not(feature = "software"))]
+use crate::surface::GfxError;
+use crate::surface::{OUT_H, OUT_W};
 
 pub const SCALE: u32 = 3;
+/// The core's frame. The GL path's canvas is 720x480, exactly `SCALE` times a
+/// 240x160 game; the software path's canvas is the panel, which need not be, so
+/// the frame keeps the size every core actually gives us.
+#[cfg(not(feature = "software"))]
 pub const SRC_W: u32 = OUT_W / SCALE;
+#[cfg(feature = "software")]
+pub const SRC_W: u32 = 240;
+#[cfg(not(feature = "software"))]
 pub const SRC_H: u32 = OUT_H / SCALE;
+#[cfg(feature = "software")]
+pub const SRC_H: u32 = 160;
 
 pub const WHOLE_TEXTURE: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 
 /// The game texture at `w` x `h`. The Flip's driver needs RGBA (see `upload`),
 /// the H700's takes BGRA.
+#[cfg(not(feature = "software"))]
 fn game_texture(w: u32, h: u32) -> gl::types::GLuint {
     #[cfg(feature = "flip")]
     let format = gl::RGBA;
@@ -20,6 +36,7 @@ fn game_texture(w: u32, h: u32) -> gl::types::GLuint {
     crate::gl::texture(w, h, gl::NEAREST, gl::CLAMP_TO_EDGE, format, None)
 }
 
+#[cfg(not(feature = "software"))]
 pub struct GamePass {
     prog: gl::types::GLuint,
     game: gl::types::GLuint,
@@ -51,6 +68,7 @@ pub struct GamePass {
     rgba: Vec<u8>,
 }
 
+#[cfg(not(feature = "software"))]
 impl GamePass {
     pub fn new() -> Result<Self, GfxError> {
         let prog = crate::shaders::program(RECT_VERT, GAME_FRAG)?;
@@ -326,6 +344,7 @@ fn whole_scale(at: f32, len: f32, texels: f32, out: f32) -> (f32, f32) {
     (at + top / scale / texels, out / scale / texels)
 }
 
+#[cfg(not(feature = "software"))]
 impl Drop for GamePass {
     fn drop(&mut self) {
         unsafe {
@@ -336,7 +355,7 @@ impl Drop for GamePass {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "software")))]
 mod tests {
     use super::*;
 
