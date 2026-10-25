@@ -74,14 +74,6 @@ one-for-one patch cadence the fork does not have.
 
 ## 2. Ground rules for agents
 
-- **Never reply to a person as Ryon without his approval.** He answers people
-  himself: an agent drafts, it does not send. That covers issue comments and
-  replies, PR comments, review comments and review replies, discussions,
-  forums, chat, email and DMs, plus edits to any of them. Put the exact text in
-  the chat, say where it will go and whether it is a new reply or an edit, and
-  wait for explicit approval; approval is per message, not per thread.
-  Branches, commits, PRs, releases and docs are not covered by this rule; this
-  file's other rules still apply to them.
 - **An agent works for a human.** Per CONTRIBUTING, do not open unsolicited PRs
   on someone's behalf; make the change on a branch the human owns and let them
   decide. Open an issue with your reasoning if you are unsure.
