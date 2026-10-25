@@ -16,6 +16,11 @@ SLOT_ROOT="$SD/Slot"
 export LD_LIBRARY_PATH="/usr/lib:/usr/miyoo/lib:$LD_LIBRARY_PATH"
 export SLOT_ROOT
 
+# The Mini Plus LCD is fitted upside down relative to the framebuffer's scan
+# order, so the output stage reverses both axes. Confirmed on hardware on
+# 2026-10-25: without this the shelf is drawn inverted.
+export SLOT_FB_ROTATE=180
+
 LOG="$SLOT_ROOT/slot.log"
 
 # Diagnostics are opt-in. Drop a file named DEBUG next to this script to turn on
@@ -34,6 +39,10 @@ for c in mgba_libretro.so gpsp_libretro.so; do
 done
 
 cd "$DIR"
-./slot --init-root "$SLOT_ROOT" > "$LOG" 2>&1
+# The package name goes first so a report can never be mistaken for another
+# build again: the first tester log was from the previous package and nothing
+# in it said so.
+printf 'slot: pak %s\n' "$(cat "$DIR/slot.version" 2>/dev/null || echo unknown)" > "$LOG"
+./slot --init-root "$SLOT_ROOT" >> "$LOG" 2>&1
 ./slot >> "$LOG" 2>&1
 sync

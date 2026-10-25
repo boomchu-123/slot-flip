@@ -22,6 +22,19 @@ fn main() {
     }
     slot::crash::install();
 
+    // First line of every log, so a report from a handheld can be matched to a
+    // build without guessing from the rest of the output. The Mini Plus test
+    // builds are why this exists: one report turned out to be the previous
+    // package, and nothing in the log said so.
+    let build = slot::build_info::Build::current();
+    eprintln!(
+        "slot: {} ({}) built {} for {}",
+        build.version,
+        build.hash,
+        build.date,
+        slot::build_info::DEVICE
+    );
+
     #[cfg(feature = "host")]
     host_app::run();
 

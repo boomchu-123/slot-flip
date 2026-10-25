@@ -3,6 +3,17 @@
 /// place an owner can see it: the About sticker prints it next to our version.
 pub const UPSTREAM: &str = "1.9.0";
 
+/// The device this binary was compiled for, printed at startup.
+pub const DEVICE: &str = if cfg!(feature = "host") {
+    "host"
+} else if cfg!(feature = "miyoomini") {
+    "miyoomini"
+} else if cfg!(feature = "flip") {
+    "my355"
+} else {
+    "device"
+};
+
 #[derive(Copy, Clone, Debug)]
 pub struct Build {
     pub version: &'static str,
