@@ -495,6 +495,29 @@ fn the_in_game_screen_panel_shows_three_rows_and_scrolls_the_rest() {
 }
 
 #[test]
+fn the_gameplay_page_scrolls_when_it_has_more_rows_than_fit() {
+    // A PlayStation game on the Flip: no Turbo or Rewind, but both stick rows. That
+    // is seven rows for six places, and the page used to spill out of its panel.
+    let hidden = [QuickRow::Turbo, QuickRow::Rewind];
+    assert_eq!(QuickRow::EjectSave.shown(&hidden).len(), 7);
+    let (start, count) = slot_ui::quick_window(QuickRow::EjectSave, &hidden);
+    assert_eq!(count, 6, "only six rows fit");
+    assert_eq!(start, 1, "the last row scrolls the first out of the window");
+    assert!(
+        slot_ui::quick_scroll(QuickRow::EjectSave, &hidden).is_some(),
+        "a page with rows out of sight shows its scroll bar"
+    );
+    // And a page that does fit is left alone.
+    assert_eq!(
+        slot_ui::quick_window(
+            QuickRow::FastForward,
+            &[QuickRow::Turbo, QuickRow::Rewind, QuickRow::LeftStick,]
+        ),
+        (0, 6)
+    );
+}
+
+#[test]
 fn a_scroll_bar_shows_only_on_a_page_with_rows_out_of_sight() {
     let top = slot_ui::quick_scroll(QuickRow::Shader, &[]).expect("six rows in three");
     assert!(
@@ -514,7 +537,20 @@ fn a_scroll_bar_shows_only_on_a_page_with_rows_out_of_sight() {
         slot_ui::quick_scroll(QuickRow::Shader, &[QuickRow::Palette, QuickRow::Bezel]).is_some(),
         "four rows in three still scroll"
     );
-    assert_eq!(slot_ui::quick_scroll(QuickRow::Rumble, &[]), None);
+    // The Gameplay page has nine rows for six places, so it scrolls; with enough of
+    // them hidden to fit, it does not.
+    assert!(
+        slot_ui::quick_scroll(QuickRow::Rumble, &[]).is_some(),
+        "nine rows in six scroll"
+    );
+    assert_eq!(
+        slot_ui::quick_scroll(
+            QuickRow::Rumble,
+            &[QuickRow::Turbo, QuickRow::Rewind, QuickRow::LeftStick]
+        ),
+        None,
+        "six rows in six fit"
+    );
     assert!(slot_ui::quick_scroll(QuickRow::GameUp, &[]).is_some());
 }
 

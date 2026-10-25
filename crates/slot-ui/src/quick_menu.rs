@@ -1514,6 +1514,10 @@ fn scrolls(page: &[QuickRow]) -> bool {
         &QuickRow::SHORTCUTS,
         &QuickRow::GENERAL,
         &QuickRow::PLAY_SCREEN,
+        // Nine rows, six showing. It used to fit by luck: on a PlayStation game the
+        // Flip hid enough of them to land on exactly six, until the Flip gained its
+        // left stick and the Left Stick row with it.
+        &QuickRow::GAME,
     ]
     .contains(&page)
 }

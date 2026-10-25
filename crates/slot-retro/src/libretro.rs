@@ -1,9 +1,9 @@
 use std::cell::Cell;
-use std::ffi::{c_char, c_int, c_uint, c_void, CString};
+use std::ffi::{c_char, c_int, c_uint, c_void, CStr, CString};
 use std::marker::PhantomData;
 use std::path::Path;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 
 use libloading::Library;
 
@@ -15,6 +15,32 @@ use crate::rumble::Rumble;
 const VIDEO_BYTES: usize = (GBA_W * GBA_H * 4) as usize;
 
 static LIVE: AtomicBool = AtomicBool::new(false);
+
+/// How many of a core's own on-screen messages go to the log. They are rare (PCSX
+/// says "ANALOG ON" when the pad is switched), but a core that chatters every frame
+/// must not fill the card's log.
+static MESSAGES: AtomicU32 = AtomicU32::new(0);
+const MESSAGE_LOG_LIMIT: u32 = 64;
+
+/// How many times the core asked for a stick axis, and the furthest value it was
+/// given on each, since `analog_stats` was last called. A core only asks while its
+/// pad is a DualShock in analog mode, so a count of zero means the sticks are not
+/// reaching the game however they are moved, and the peaks say what it was handed.
+static ANALOG_READS: AtomicU32 = AtomicU32::new(0);
+static ANALOG_PEAKS: [AtomicI32; 4] = [
+    AtomicI32::new(0),
+    AtomicI32::new(0),
+    AtomicI32::new(0),
+    AtomicI32::new(0),
+];
+
+/// The core's stick reads since the last call: how many, and the furthest value on
+/// left x, left y, right x and right y. Starts the next count from zero.
+pub fn analog_stats() -> (u32, [i16; 4]) {
+    let reads = ANALOG_READS.swap(0, Ordering::Relaxed);
+    let peaks = std::array::from_fn(|i| ANALOG_PEAKS[i].swap(0, Ordering::Relaxed) as i16);
+    (reads, peaks)
+}
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum PixelFormat {
@@ -279,6 +305,18 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
             })
             .is_some()
         }
+        SET_MESSAGE => {
+            // `struct retro_message { const char *msg; unsigned frames; }`. Slot shows
+            // no core messages, but it used to drop them without a word, which hid
+            // whether a DualShock had been switched between analog and digital.
+            if !data.is_null() {
+                let msg = *(data as *const *const c_char);
+                if !msg.is_null() && MESSAGES.fetch_add(1, Ordering::Relaxed) < MESSAGE_LOG_LIMIT {
+                    eprintln!("slot: core says: {}", CStr::from_ptr(msg).to_string_lossy());
+                }
+            }
+            true
+        }
         other => {
             // A core can ask the same thing every frame (PCSX asks for a software
             // framebuffer 60 times a second), and the log is a file on the SD card.
@@ -497,7 +535,12 @@ unsafe extern "C" fn input_state(port: c_uint, device: c_uint, index: c_uint, id
             (ANALOG_RIGHT, ANALOG_Y) => 3,
             _ => return 0,
         };
-        return with_host(|h| h.analog[at]).unwrap_or(0);
+        let value = with_host(|h| h.analog[at]).unwrap_or(0);
+        ANALOG_READS.fetch_add(1, Ordering::Relaxed);
+        if i32::from(value).abs() > ANALOG_PEAKS[at].load(Ordering::Relaxed).abs() {
+            ANALOG_PEAKS[at].store(i32::from(value), Ordering::Relaxed);
+        }
+        return value;
     }
     if device != DEVICE_JOYPAD {
         return 0;
@@ -1923,6 +1966,14 @@ mod tests {
         TEST_DISCONNECTED_CLIENT.with(|c| assert_eq!(c.get(), None, "nothing was ever connected"));
     }
 
+    /// The stick-read counters are process-wide, and tests run in parallel: the ones
+    /// that read sticks take turns.
+    static STICK_COUNTERS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn sticks_turn() -> std::sync::MutexGuard<'static, ()> {
+        STICK_COUNTERS.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn input_state_answers_each_port_from_its_own_mask() {
         let mut host = host_with(HashMap::new(), false);
@@ -1947,6 +1998,7 @@ mod tests {
 
     #[test]
     fn input_state_answers_each_stick_axis_on_port_1() {
+        let _turn = sticks_turn();
         let mut host = host_with(HashMap::new(), false);
         host.analog = [100, -200, 300, -400];
         let _active = Active::bind(&mut host);
@@ -1959,7 +2011,27 @@ mod tests {
     }
 
     #[test]
+    fn the_cores_stick_reads_are_counted_with_their_furthest_values() {
+        let _turn = sticks_turn();
+        let mut host = host_with(HashMap::new(), false);
+        host.analog = [100, -20_000, 300, -400];
+        let _active = Active::bind(&mut host);
+        let _ = analog_stats();
+        for _ in 0..3 {
+            unsafe { input_state(0, DEVICE_ANALOG, ANALOG_LEFT, ANALOG_Y) };
+        }
+        unsafe { input_state(0, DEVICE_ANALOG, ANALOG_LEFT, ANALOG_X) };
+        let (reads, peaks) = analog_stats();
+        assert_eq!(reads, 4);
+        assert_eq!(peaks, [100, -20_000, 0, 0]);
+        // Reading resets it, and a button read is not a stick read.
+        unsafe { input_state(0, DEVICE_JOYPAD, 0, JOYPAD_MASK) };
+        assert_eq!(analog_stats(), (0, [0; 4]));
+    }
+
+    #[test]
     fn input_state_has_no_sticks_past_port_1_or_past_the_two_sticks() {
+        let _turn = sticks_turn();
         let mut host = host_with(HashMap::new(), false);
         host.analog = [1, 2, 3, 4];
         let _active = Active::bind(&mut host);

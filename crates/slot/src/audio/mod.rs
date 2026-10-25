@@ -3,6 +3,7 @@ mod alsa;
 mod host;
 mod pacer;
 mod ring;
+pub mod route;
 mod sfx;
 mod silence;
 mod sink;

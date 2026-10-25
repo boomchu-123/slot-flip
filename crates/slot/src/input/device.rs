@@ -7,11 +7,11 @@ use std::time::Instant;
 
 use slot_input::{Btn, InputSource, Millis, RawEvent};
 
-#[cfg(feature = "flip")]
-use super::evdev::Stick;
 use super::evdev::{
     decode, device_name, pick_devices, to_raw, Ev, Hat, EVENT_BYTES, EV_ABS, EV_KEY, EV_SYN,
 };
+#[cfg(feature = "flip")]
+use super::evdev::{LeftStick, Stick};
 use super::trace;
 
 const DEV: &str = "/dev/input";
@@ -128,6 +128,8 @@ fn read_node(
     let mut hat = Hat::default();
     #[cfg(feature = "flip")]
     let mut stick = Stick::default();
+    #[cfg(feature = "flip")]
+    let mut left = LeftStick::default();
     let mut file = match File::open(node) {
         Ok(f) => f,
         Err(e) => {
@@ -171,6 +173,10 @@ fn read_node(
                 if ev.kind == EV_ABS {
                     super::sticks::feed(ev.code, ev.value);
                     events.extend(stick.feed(ev));
+                    // The left stick as a D-pad, unless a game is reading the
+                    // sticks itself.
+                    let steering = steers.load(Ordering::Relaxed) && !super::sticks::taken();
+                    events.extend(left.feed(ev, steering));
                 }
                 continue;
             }

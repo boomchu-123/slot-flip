@@ -195,6 +195,42 @@ pub fn apply_link_options(core: &mut LibretroCore, which: Core, player: u8) {
     eprintln!("slot: core: link mode on, player {player}");
 }
 
+/// What PCSX-ReARMed is told, every time. A core's own default never applies here:
+/// slot answers "no value" for an option it has not set, and the core then keeps
+/// its zero, which is not its documented default. That has already cost PlayStation
+/// its memory cards (v0.11) and its analog toggle, so each option that matters is
+/// named, and `pcsx_options_name_what_matters` fails if one goes missing.
+pub fn pcsx_options() -> &'static [(&'static str, &'static str)] {
+    &[
+        // The dynarec is what lets these handhelds run PlayStation games at full
+        // speed (without one mGBA ran ~20x slower), so say so rather than trust a
+        // default.
+        ("pcsx_rearmed_drc", "enabled"),
+        // A real BIOS from BIOS/ when there is one, the built-in replacement when not.
+        ("pcsx_rearmed_bios", "auto"),
+        // Card 1 is handed to the frontend as save RAM, so it is kept per game with
+        // the other saves. Left unset, the core asks for the option, gets nothing and
+        // exposes no save RAM at all, so a game's save never reaches the saves
+        // folder. Card 2 is off, not the core's shared file, which would write into
+        // the saves folder outside anything the frontend tracks.
+        ("pcsx_rearmed_memcard1", "libretro"),
+        ("pcsx_rearmed_memcard2", "none"),
+        // A DualShock starts in digital mode, where the core ignores the sticks until
+        // the game switches the pad to analog. This is the combination that switches
+        // it by hand, as on a real pad's analog button: both sticks pressed in. Left
+        // unset the combination is dead (the core's own default, L1+R1+SELECT, never
+        // applies), and L1+R1+SELECT would collide with slot's SELECT shortcuts
+        // anyway. It does nothing unless Analog Sticks is on, because only then is
+        // the pad a DualShock.
+        ("pcsx_rearmed_analog_combo", "l3+r3"),
+        // Left unset, the core assumes "square" bounds: it scales each axis by 1.27
+        // and clips, so full deflection arrives at about 79% of the stick's travel
+        // and steering is coarse. Slot already applies a round dead zone and keeps
+        // the stick's own range, which is what "circle" passes through untouched.
+        ("pcsx_rearmed_analog_axis_modifier", "circle"),
+    ]
+}
+
 pub fn apply_core_options(
     core: &mut LibretroCore,
     which: Core,
@@ -232,20 +268,9 @@ pub fn apply_core_options(
         }
     }
     if which == Core::Pcsx {
-        // The dynarec is what lets these handhelds run PlayStation games at full
-        // speed (without one mGBA ran ~20x slower), so say so rather than trust a
-        // default.
-        core.set_option("pcsx_rearmed_drc", "enabled");
-        // A real BIOS from BIOS/ when there is one, the built-in replacement when not.
-        core.set_option("pcsx_rearmed_bios", "auto");
-        // Card 1 is handed to the frontend as save RAM, so it is kept per game with
-        // the other saves. Left unset, the core asks for the option, gets nothing
-        // (its own default never applies) and exposes no save RAM at all, so a
-        // game's save never reaches the saves folder. Card 2 is off, not the core's
-        // shared file, which would write into the saves folder outside anything
-        // the frontend tracks.
-        core.set_option("pcsx_rearmed_memcard1", "libretro");
-        core.set_option("pcsx_rearmed_memcard2", "none");
+        for (key, value) in pcsx_options() {
+            core.set_option(key, value);
+        }
     }
     if which == Core::Gpsp {
         core.set_option("gpsp_serial", serial);
@@ -265,6 +290,35 @@ mod tests {
     use std::sync::Mutex;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn pcsx_options_name_what_matters() {
+        let has = |k: &str, v: &str| pcsx_options().contains(&(k, v));
+        assert!(has("pcsx_rearmed_memcard1", "libretro"), "memory cards");
+        assert!(has("pcsx_rearmed_memcard2", "none"));
+        assert!(has("pcsx_rearmed_drc", "enabled"), "the dynarec");
+        assert!(
+            has("pcsx_rearmed_analog_combo", "l3+r3"),
+            "the DualShock analog toggle is dead unless it is set explicitly"
+        );
+        assert!(
+            has("pcsx_rearmed_analog_axis_modifier", "circle"),
+            "unset, the core clips the sticks at 79% of their travel"
+        );
+    }
+
+    #[test]
+    fn no_pcsx_option_is_set_twice() {
+        let mut keys: Vec<_> = pcsx_options().iter().map(|(k, _)| *k).collect();
+        keys.sort_unstable();
+        let n = keys.len();
+        keys.dedup();
+        assert_eq!(
+            keys.len(),
+            n,
+            "an option is listed twice, so the last wins silently"
+        );
+    }
 
     #[test]
     fn the_playstation_core_keeps_its_upstream_library_name() {

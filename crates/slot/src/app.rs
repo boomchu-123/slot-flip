@@ -2387,6 +2387,9 @@ impl App {
             };
             self.hud.toast(toast, self.now());
         }
+        // Point the codec at the speaker or the headphones now, rather than relying
+        // on a launcher daemon to have done it (see audio::route).
+        crate::audio::route::apply(self.headphones);
         self.power = Some(power);
         self.battery_at = self.now();
         self.charge_at = self.now();
@@ -3977,6 +3980,7 @@ impl App {
             let on = self.power.as_ref().is_some_and(|p| p.headphones());
             if on != self.headphones {
                 self.headphones = on;
+                crate::audio::route::apply(on);
                 self.hud.set_headphones(on);
                 let now = self.now();
                 self.hud

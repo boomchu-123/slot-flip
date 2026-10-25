@@ -17,7 +17,9 @@ pub use ffi::{
     NETPACKET_BROADCAST, NETPACKET_FLUSH_HINT, NETPACKET_RELIABLE, NETPACKET_UNRELIABLE,
     NETPACKET_UNSEQUENCED,
 };
-pub use libretro::{LibretroCore, SystemInformation, SWAP_CLOSE_FRAME, SWAP_SWITCH_FRAME};
+pub use libretro::{
+    analog_stats, LibretroCore, SystemInformation, SWAP_CLOSE_FRAME, SWAP_SWITCH_FRAME,
+};
 pub use link::{Link, LinkChannel, LoopbackLink};
 pub use mock::MockCore;
 pub use rumble::Rumble;

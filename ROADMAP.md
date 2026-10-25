@@ -223,6 +223,12 @@ a time; the fork's own work is the Flip port itself and a few small additions.
   (`--check`, `--dry-run`, `--stock-menu`). Checked on hardware: the installer's
   output on a real FAT32 card is byte-identical to the zip, and a Flip boots from
   it straight into Slot.
+- 🚧 **Analog steering at the extremes** is a known issue (see
+  [COMPATIBILITY.md](COMPATIBILITY.md)): full slams and end-to-end sweeps are
+  sometimes ignored by Gran Turismo 2 even though the core is handed the right value.
+  Tried and kept: a wider "all the way" edge, peak capture between reads, a short hold,
+  swing-aware logic. Untried: capping the extreme values, a second analog game to tell a
+  game quirk from a pipeline fault. Not blocking.
 - 📋 **A Windows installer**: the script needs a `sh`, so Windows gets its own
   version. Until then, Windows users drag and drop.
 - 📋 **Rewrite `INSTALL.md`** around "unzip onto your card", with screenshots.

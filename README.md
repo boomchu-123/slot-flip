@@ -284,14 +284,25 @@ Settings. Left and Right pick the disc; close the menu and the game sees the lid
 open, the disc change and the lid close, so a game that says "insert disc 2" carries
 on by itself. The row only appears for a game with more than one disc.
 
-**Analog sticks.** Off by default. Under **Settings > Gameplay > Analog Sticks**
-the Flip plugs in a DualShock, and both sticks go to the game. The sticks have a
-dead zone, because the Flip's rest a little off centre. With them on, pushing a
-stick in is L3 or R3. The core starts a DualShock in digital mode; a game that uses
-the sticks switches it to analog itself, and the core's own combination
-L1 + R1 + SELECT switches it by hand. **While they are on, the right stick stops
-being R2**, so a Flip whose right shoulder is dead then has no R2 and no
-SELECT + R2 fast-forward (rebind fast-forward under Shortcuts if that matters).
+**Sticks.** Two things, depending on one setting.
+
+- **Analog Sticks off (the default):** the **left stick is a D-pad**, so a game that
+  only reads the pad (most of them) is playable with it. The right stick is R2, as
+  before. This is the **Left Stick as D-Pad** row, on by default.
+- **Analog Sticks on** (**Settings > Gameplay > Analog Sticks**): the Flip plugs in a
+  DualShock and both sticks go to the game, which then owns them (the left stick is no
+  longer a D-pad, and the right stick stops being R2, so a Flip whose right shoulder is
+  dead has no R2 and no SELECT + R2 fast-forward; rebind fast-forward under Shortcuts if
+  that matters). Pushing a stick in is L3 or R3. A DualShock starts in **digital** mode,
+  as a real one does, and a game that uses the sticks switches it to analog itself;
+  to switch it by hand, **press both sticks in together (L3 + R3)**.
+
+**Known issue: analog steering is rough at the extremes.** With Analog Sticks on, a
+hard slam or a fast sweep from one end to the other is sometimes not registered by a
+game (seen in Gran Turismo 2, where the car does nothing). Slot hands the game the full
+value, which was checked in the log, and it is smoother than it was, but it is **not
+fully understood** and was not reproduced in a second analog game. If you need it
+reliable, leave Analog Sticks off and use the left stick as a D-pad, or the D-pad.
 
 **What is not there yet.** A screen shader, colour correction or bezel (they do
 nothing for a disc, so those rows are hidden), and a second player. Games run
