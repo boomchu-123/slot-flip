@@ -133,7 +133,8 @@ All three on Genesis Plus GX.
 
 - **The Mini Plus has no sound yet.** ALSA reports the device busy, and no process
   has it open, so the vendor's own audio interface is what has to be used instead.
-  See [Miyoo Mini Plus](#miyoo-mini-plus-miyoomini).
+  exp-v0.4.4 tries that; it is unconfirmed. See
+  [Miyoo Mini Plus](#miyoo-mini-plus-miyoomini).
 
 ## Checked on the device, beyond booting
 
@@ -178,9 +179,9 @@ No GPU: the picture is drawn by the CPU rasteriser, not the Flip's GLES path. Th
 port is **not 1.0-ready**; this section exists so the gap is visible rather than
 assumed either way.
 
-**Checked on:** slot-flip exp-v0.4.0 and exp-v0.4.2 (the lines below say which), a
-Mini Plus, October 2026, installed as a MinUI Tool (`Tools/miyoomini/Slot.pak`).
-exp-v0.4.3 has not been reported on yet.
+**Checked on:** slot-flip exp-v0.4.0, exp-v0.4.2 and exp-v0.4.3 (the lines below say
+which), a Mini Plus, October 2026, installed as a MinUI Tool
+(`Tools/miyoomini/Slot.pak`). exp-v0.4.4 has not been reported on yet.
 
 - **Display:** upright with no setting to change, and the shelf and menu draw.
 - **Buttons:** every button registers, and the whole map was confirmed from the
@@ -193,21 +194,34 @@ exp-v0.4.3 has not been reported on yet.
   using it.
 - **Cart slot:** the Game Boy and Game Boy Color slots line up (exp-v0.4.2), after
   the centring fix. Other consoles' slots are drawn the same way but not looked at.
+- **Speed (exp-v0.4.3):** games run at close to full speed, and the tester says
+  they feel normal. MinUI leaves the CPU at its 504 MHz menu speed when a Tool
+  starts; asking for 1296 MHz is what fixed it. Measured with the emulator's own
+  frame count (the Game Boy Advance core's rate is 59.7 frames a second):
+
+  | Run | Emulator frames a second while playing |
+  | --- | --- |
+  | Game Boy Advance on gpSP (the default) | steady 57 to 58; two short dips to 36 and 39 at the start and end of one run |
+  | Game Boy Color on mGBA | mostly 60, with stretches down to about 29 to 46 |
+  | Game Boy on mGBA | 60 |
+  | Game Boy Advance on mGBA | steady 48 to 50 (about 82 percent: mGBA has no JIT) |
+
+  The tester also saw mGBA slow down in busy scenes. gpSP is about 3 percent short
+  of full speed in these runs. Pokemon and Advance Wars were the games; nothing was
+  timed past a minute or so.
 - **Brightness:** the setting moves the panel (exp-v0.4.2), but only across levels 1
   to 3 of 9. The steps were spread over a range eight times wider than the panel
-  uses; exp-v0.4.3 narrows them to MinUI's own 6 to 100, which is unconfirmed.
+  uses; exp-v0.4.3 narrows them to MinUI's own 6 to 100, which is unconfirmed (the
+  report on exp-v0.4.3 did not mention brightness).
 
 **Not checked, or known not to work:**
 
-- **Sound.** Games are silent. exp-v0.4.2's log says **no process holds
-  `/dev/snd`** and the only card is `MI Alsa`, so the device is busy at the driver
-  or the vendor's own audio interface owns it, and ALSA will not open it. The next
-  step is the vendor interface; there is nothing to wait for.
-- **Speed.** Games still do not hold full speed (exp-v0.4.2, tester's report). The
-  log has no frame count, and its Game Boy Advance run was on mGBA, which has no
-  JIT, not the default gpSP. MinUI's launcher leaves the CPU at its 504 MHz menu
-  speed when a Tool starts, which would explain it; exp-v0.4.3 asks for 1296 MHz and
-  logs the emulator's frame count. Neither is confirmed on a device.
+- **Sound.** Games are silent in every build the tester has run. exp-v0.4.2's log
+  says **no process holds `/dev/snd`** and the only card is `MI Alsa`, so ALSA will
+  not open it. exp-v0.4.4 is a first attempt through the console's own audio
+  interface, the one MinUI uses. It was checked against stand-in vendor calls and a
+  stand-in library, **not against the real one**, so whether it makes any sound is
+  not known.
 - **Every system other than GBA, GB and GBC.** The other six systems' carts, cores
   and slots are unproven on this device.
 - **Installing without MinUI.** The port is still a MinUI Tool. Nothing has been

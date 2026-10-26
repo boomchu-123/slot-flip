@@ -125,12 +125,15 @@ buttons, power, backlight and cores.
 - ✅ The brightness setting moves the panel; it only reached levels 1 to 3 of 9
   because the steps spanned the PWM period instead of the 6 to 100 the panel uses.
   Reworked in exp-v0.4.3, **unconfirmed**
+- ✅ **Speed.** Games run at close to full speed (exp-v0.4.3), measured: gpSP on
+  GBA holds 57 to 58 of 59.7 frames a second, mGBA on GB and GBC about 60, mGBA on
+  GBA about 49. MinUI leaves the CPU at its 504 MHz menu speed when a Tool starts;
+  asking for 1296 MHz fixed it
 - 🚧 **Sound.** Games are silent. exp-v0.4.2's log says no process holds `/dev/snd`
-  and the card is `MI Alsa`, so the vendor's own audio interface is the route:
-  `MI_AO`, the way MinUI plays sound. This is the one hard unknown left.
-- 🚧 **Speed.** Games still do not hold full speed on exp-v0.4.2. MinUI leaves the
-  CPU at its 504 MHz menu speed when a Tool starts; exp-v0.4.3 asks for 1296 MHz
-  and logs the emulator's frame count. **Unconfirmed on a device.**
+  and the card is `MI Alsa`, so ALSA is out. exp-v0.4.4 plays through the console's
+  own audio interface (`MI_AO`, the way MinUI plays sound), with ALSA as the
+  fallback. It has run against stand-ins only, **not on a device**. This is the one
+  hard unknown left
 - 📋 **Install on the Mini Plus's own launcher.** Today it is a MinUI Tool
   (`Tools/miyoomini/Slot.pak`). 1.0 needs the same shape as the Flip: one zip at
   the card root, an entry in the launcher the device ships with, and no MinUI.
