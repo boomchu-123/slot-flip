@@ -208,6 +208,11 @@ fn sms_rom(dir: &Path, name: &str, head: &[u8], nmi: &[u8], body: &[u8], region:
 }
 
 fn md_rom(dir: &Path, name: &str, program: &[(&[u8], &str)]) -> PathBuf {
+    md_rom_with(dir, name, program, false)
+}
+
+/// `md_rom` with the cartridge's save RAM declared in the header, or without.
+fn md_rom_with(dir: &Path, name: &str, program: &[(&[u8], &str)], sram: bool) -> PathBuf {
     let mut file = vec![0u8; 0x20000];
     let (idle, start) = (0x200usize, 0x202usize);
     file[0..4].copy_from_slice(&0x00ff_0000u32.to_be_bytes());
@@ -230,6 +235,14 @@ fn md_rom(dir: &Path, name: &str, program: &[(&[u8], &str)]) -> PathBuf {
     header.extend(std::iter::repeat_n(b' ', 12 + 12 + 40));
     header.extend(format!("{:<16}", "JUE").bytes());
     file[0x100..0x100 + header.len()].copy_from_slice(&header);
+    if sram {
+        // "RA" and a window is how a Mega Drive cart says it has battery-backed
+        // save RAM. It sits at $200000, just past this 128 KiB ROM, and the end
+        // is the last byte of 8 KiB.
+        file[0x1b0..0x1b2].copy_from_slice(b"RA");
+        file[0x1b4..0x1b8].copy_from_slice(&0x0020_0000u32.to_be_bytes());
+        file[0x1b8..0x1bc].copy_from_slice(&0x0020_1fffu32.to_be_bytes());
+    }
     file[idle..idle + 2].copy_from_slice(&[0x4e, 0x73]);
     let mut at = start;
     for (bytes, _) in program {
@@ -582,4 +595,92 @@ fn a_missing_file_is_an_error_and_a_junk_one_never_crashes_the_core() {
             assert_eq!(c.video_xrgb8888().len(), (w * h * 4) as usize);
         }
     }
+}
+
+/// A Mega Drive program that writes a signature to each end of the cart's save
+/// RAM and then idles.
+const MD_SRAM: &[(&[u8], &str)] = &[
+    (&[0x46, 0xfc, 0x27, 0x00], "move.w #$2700,sr"),
+    (
+        &[0x13, 0xfc, 0x00, 0xa5, 0x00, 0x20, 0x00, 0x00],
+        "move.b #$a5,$00200000",
+    ),
+    (
+        &[0x13, 0xfc, 0x00, 0x5a, 0x00, 0x20, 0x00, 0x01],
+        "move.b #$5a,$00200001",
+    ),
+    (
+        &[0x13, 0xfc, 0x00, 0x12, 0x00, 0x20, 0x1f, 0xff],
+        "move.b #$12,$00201fff",
+    ),
+    (&[0x60, 0xfe], "bra.s *"),
+];
+
+#[test]
+fn a_mega_drive_cart_offers_the_save_ram_the_game_wrote() {
+    let _g = lock();
+    let dir = scratch("genesis-sram");
+    let Some(mut c) = core(&dir) else { return };
+    c.load(&md_rom_with(&dir, "save.md", MD_SRAM, true))
+        .unwrap();
+    for _ in 0..20 {
+        c.run_frame(ButtonMask::default());
+    }
+    let sav = c.save_ram().expect("a cart with save RAM offers it");
+    assert!(sav.len() >= 8 * 1024, "8 KiB was declared: {}", sav.len());
+    assert_eq!(&sav[0..2], &[0xa5, 0x5a], "what the program wrote");
+    assert_eq!(sav[0x1fff], 0x12, "and the far end of it");
+}
+
+#[test]
+fn a_saved_mega_drive_cart_comes_back_in_a_new_session() {
+    let _g = lock();
+    let dir = scratch("genesis-sram-reload");
+    let Some(mut c) = core(&dir) else { return };
+    let rom = md_rom_with(&dir, "save.md", MD_SRAM, true);
+    c.load(&rom).unwrap();
+    for _ in 0..20 {
+        c.run_frame(ButtonMask::default());
+    }
+    let mut kept = c.save_ram().expect("save ram");
+    kept[0x100] = 0x77;
+    let path = dir.join("save.sav");
+    std::fs::write(&path, &kept).unwrap();
+    drop(c);
+
+    let mut next = core(&dir).expect("a second session");
+    next.load(&rom).unwrap();
+    next.load_save_ram(&std::fs::read(&path).unwrap())
+        .expect("the kept save is accepted");
+    // Genesis Plus GX reports the cart's declared 8 KiB until a game has
+    // written to it, then reports the largest window it would allow (64 KiB on
+    // this cart). The bytes are what matter: the save slot kept has to come
+    // back at the same offsets, with the rest left as the core fills it.
+    let back = next.save_ram().expect("save ram");
+    assert!(back.len() >= kept.len(), "{} < {}", back.len(), kept.len());
+    assert_eq!(
+        &back[..kept.len()],
+        &kept[..],
+        "every byte that was saved came back"
+    );
+    for _ in 0..5 {
+        next.run_frame(ButtonMask::default());
+    }
+    assert_eq!(&next.save_ram().unwrap()[0..2], &[0xa5, 0x5a]);
+}
+
+#[test]
+fn a_mega_drive_cart_without_save_ram_has_none_to_keep() {
+    let _g = lock();
+    let dir = scratch("genesis-no-sram");
+    let Some(mut c) = core(&dir) else { return };
+    c.load(&md_rom(&dir, "pad3.md", MD_A)).unwrap();
+    for _ in 0..10 {
+        c.run_frame(ButtonMask::default());
+    }
+    let sav = c.save_ram();
+    assert!(
+        sav.is_none() || sav.as_deref() == Some(&[][..]),
+        "a plain cart is not offered as a save: {sav:?}"
+    );
 }
