@@ -26,6 +26,10 @@ pub fn opened_sink() -> Box<dyn AudioSink> {
     let mut sink = open_sink();
     if let Err(e) = sink.open(OUTPUT_HZ) {
         eprintln!("slot: audio: {e}");
+        // Say who owns the sound devices now rather than only when a game
+        // starts making noise; on a handheld that is the boot that matters.
+        #[cfg(not(feature = "host"))]
+        alsa::log_holders();
     }
     sink
 }
