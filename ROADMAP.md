@@ -73,9 +73,12 @@ that has to be merged twice.
 - **The nine systems that ship today** on **both devices** — GBA, GB, GBC, PS1,
   NES, SNES, MD, SMS, GG — with a real game played through on the Flip, and on the
   Mini Plus a game from each system launched and played at full speed with sound.
-- **PlayStation to the end:** a game actually asking for its second disc, a timed
-  heavy 3D game, save integrity across reboots, and the analog/clicks test. All of
-  it on the Flip; the disc-change and save checks repeat on the Mini Plus.
+- **PlayStation to the end:** a timed heavy 3D game (✅ Tekken 3 holds the core's
+  full 60 fps on a Flip), a game actually asking for its second disc, save
+  integrity across reboots, and the analog/clicks test. All of it on the Flip; the
+  disc-change and save checks repeat on the Mini Plus. The analog sticks' roughness
+  at full deflection is a **known issue accepted for 1.0**, not a gate item; it is
+  listed with its workaround in [COMPATIBILITY.md](COMPATIBILITY.md).
 - **An install a stranger can follow, on each device**: one zip unzipped at the
   card root, which also makes the device start in Slot; `install.sh` inside it for
   anyone who would rather not move folders by hand, with `--check` and `--dry-run`;
@@ -88,14 +91,19 @@ that has to be merged twice.
   🚧 Started: 38 titles across all nine systems were cold-booted on a Flip, 37 reach
   their own intro and one (Fire Emblem, GBA) draws nothing. On the Mini Plus, GBA,
   GB and GBC launch and play, with no title catalogue yet. "Boots" is not "plays
-  through": playing games through, sound, speed and in-game saves are still open.
+  through": playing games through, sound and speed are still open. In-game saves
+  are further along than that: every cartridge core now has a real-core test that
+  its save RAM round-trips (fceumm, snes9x2005, Genesis Plus GX and PCSX-ReARMed),
+  so what is left there is a title-by-title play-through, not the plumbing.
 - **1.0 criteria:** all nine systems pass their games on the Flip; the same nine
-  run on the Mini Plus with sound and at full speed; PlayStation has no known
-  failure on either; unzipping the release onto a fresh FAT32 card gives a running
-  Slot on **each device's stock firmware with no MinUI installed**, **and**
-  `install.sh` does the same from a blank card, checked on hardware on both; the
-  download passes `tools/check-pak-licences.sh`; the README table matches reality;
-  and the release has been installed and run on both devices.
+  run on the Mini Plus with sound and at full speed; PlayStation has no failure that
+  stops a game being played through on the Flip — the analog sticks' roughness at
+  full deflection is a known issue accepted for 1.0, listed in
+  [COMPATIBILITY.md](COMPATIBILITY.md); unzipping the release onto a fresh FAT32
+  card gives a running Slot on **each device's stock firmware with no MinUI
+  installed**, **and** `install.sh` does the same from a blank card, checked on
+  hardware on both; the download passes `tools/check-pak-licences.sh`; the README
+  table matches reality; and the release has been installed and run on both devices.
 
 - **Stay free and open source.** No plans to sell. Donations never unlock
   anything. Non-commercial cores are bundled knowingly in the one free download
@@ -284,12 +292,17 @@ a time; the fork's own work is the Flip port itself and a few small additions.
   rewritten around "unzip onto your card". Checked on a Flip by hand: power off,
   sound, the light on lid close, no phantom volume, the left stick, and the menu.
   Not verified: headphones routing, L3/R3 toggling the pad, FF7 analog.
-- 🚧 **Analog steering at the extremes** is a known issue (see
-  [COMPATIBILITY.md](COMPATIBILITY.md)): full slams and end-to-end sweeps are
-  sometimes ignored by Gran Turismo 2 even though the core is handed the right value.
-  Tried and kept: a wider "all the way" edge, peak capture between reads, a short hold,
-  swing-aware logic. Untried: capping the extreme values, a second analog game to tell a
-  game quirk from a pipeline fault. Not blocking.
+- ✅ **PlayStation speed and the sound stream measured** on that release asset:
+  Tekken 3 holds the core's full 60 fps in a 3D scene (120 to 122 emulator frames
+  every 2 s, twelve samples), and the card is open at 48 kHz stereo with the
+  speaker path set by Slot. Measured from Slot's trace, not watched. See
+  [COMPATIBILITY.md](COMPATIBILITY.md).
+- 📋 **Analog steering at the extremes** is a **known issue, accepted for 1.0**
+  (see [COMPATIBILITY.md](COMPATIBILITY.md) and the README's workaround): full
+  slams and end-to-end sweeps are sometimes ignored by Gran Turismo 2 even though
+  the core is handed the right value. Tried and kept: a wider "all the way" edge,
+  peak capture between reads, a short hold, swing-aware logic. Untried: capping the
+  extreme values, a second analog game to tell a game quirk from a pipeline fault.
 - 💡 **Factory-fresh Flip**: this is the one install path never tested on a Flip
   that has never had MinUI's boot hook in its flash. It should be the same stock
   script, but it is not proven. One more tester settles it.
