@@ -13,19 +13,22 @@ first; this file does not repeat it.
 
 `slot-flip` is a fork of [slot](https://slot-cfw.fyi) (by Brandon T. Kowalski),
 a cartridge-shelf frontend for GBA / GB / GBC. Upstream targets the Anbernic RG
-SP. This fork ports it to the **Miyoo Flip (`my355`)**, installed as a **MinUI
-Tool**, and carries experimental ports to other Miyoo devices.
+SP. This fork ports it to the **Miyoo Flip (`my355`)** and the **Miyoo Mini Plus
+(`miyoomini`)**, each targeted at the firmware the device ships with. The Flip is
+the stable release; the Mini Plus is the second 1.0 device and still ships as
+pre-releases.
 
 | Branch | Role | Releases |
 | --- | --- | --- |
 | `flip` (default) | Stable Miyoo Flip build | `v*` tags, normal releases |
-| `experimental` | Unverified device ports (`my282` A30, `miyoomini` Mini Plus) | `exp-v*` tags, **pre-releases** |
+| `feat/miyoomini-software` | Miyoo Mini Plus port (1.0), cut from `flip` | `exp-v*` tags, **pre-releases** |
+| `experimental` | Older device work; behind `flip`, holds the unverified A30 | `exp-v*` tags, **pre-releases** |
 
-**The Flip's own firmware is the target.** Slot installs as an app in its launcher
-(or as the thing it boots into), and that is what releases are checked on. MinUI is
-still supported — the pak in `Tools/my355/` is built and shipped — but it is not
-tested for each release and must not gate one. Do not spend cycles verifying MinUI
-unless someone reports a regression.
+**Each device's own firmware is the target.** Slot installs as an app in the
+launcher the device ships with (or as the thing it boots into), and that is what
+releases are checked on. MinUI is still supported — the pak in `Tools/<platform>/`
+is built and shipped — but it is not tested for each release and must not gate
+one. Do not spend cycles verifying MinUI unless someone reports a regression.
 
 **One download.** A release is exactly one zip, `Slot-my355.zip`: `App/Slot`,
 `Tools/my355/Slot.pak`, `miyoo355/app/MainUI` and `install.sh`. No pak-only or
@@ -33,9 +36,9 @@ autoboot-only variants; the autoboot is the default and the escape is
 `Slot/Config/boot-menu`.
 
 
-`experimental` is always `flip` plus port work. Stable must never regress
-because of experimental work, so ports are not merged into `flip` until they are
-verified on real hardware.
+Port work branches from `flip` and is not merged into it until it is verified on
+real hardware. Stable must never regress because of a port, so the two lines stay
+apart until the evidence is in.
 
 The project is GPL-3.0-or-later (same as upstream). Keep upstream credit intact.
 
@@ -68,6 +71,7 @@ one-for-one patch cadence the fork does not have.
 | `v0.12.0` | v1.9.0 (upstream sync: screenshots and undo save/load on the shared pages, durable writes, core timeouts, label-cache stall; the stick clicks are L3/R3 on PlayStation; otherwise fork work unchanged) |
 | `v0.13.0` | v1.9.0 (fork work only: runs on the Flip's own firmware from `App/Slot`, an optional boot-straight-into-slot zip, and the pak turns the pad on itself) |
 | `v0.14.0` | v1.9.0 (fork work only: one zip that autoboots, plus `install.sh` for the card; stock firmware is the target and MinUI stops gating releases) |
+| `v0.15.0` | v1.9.0 (fork work only: runs on the stock firmware with no launcher daemon — the power node, the codec path, the left stick, the analog bounds; `INSTALL.md` rewritten) |
 | `exp-v0.3.0` | v1.6.0 |
 
 ---
@@ -538,8 +542,9 @@ Notes are for people who own the device, not for developers.
   `System/licenses/<core>_libretro.so.meta`, and a copy of each new patch as
   `System/licenses/<core>-<patch>.patch`. This is GPL source-offer compliance,
   not housekeeping.
-- Cores are aarch64 for the Flip. The experimental armhf targets do not bundle
-  cores yet.
+- Cores are aarch64 for the Flip and armhf for the Mini Plus. The Mini Plus pak
+  bundles its own gpSP and mGBA in `flip/Tools/miyoomini/Slot.pak/System/`, with
+  their licences and source; the A30 has no core bundle yet.
 - `cores/pcsx` builds PCSX-ReARMed (GPL-2.0) with no patches. Build it in the
   device's bullseye box: that gives GLIBC_2.17 (the Flip's own libc is 2.36, so
   the libretro buildbot's prebuilt, which needs 2.34, would also load; building
