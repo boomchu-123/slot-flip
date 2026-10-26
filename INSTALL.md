@@ -150,8 +150,10 @@ separately there.
 
 ## Other devices
 
-Slot's data folder and settings are device-independent, but the Flip is the only
-device this fork supports. What a port needs is in
+The Miyoo Mini Plus is the fork's second 1.0 device: it installs as a MinUI Tool
+today and moves to its own launcher as part of the 1.0 work, and its builds are
+pre-releases until its sound and install are checked on hardware. The A30 is
+still experimental and has never run on a device. Slot's data folder and
+settings are device-independent. What a port needs is in
 [PORTING.md](../PORTING.md), and the devices that could come next are in
-[SYSTEMS.md](../SYSTEMS.md). The A30 and Mini Plus builds are experimental
-pre-releases on the `experimental` branch.
+[SYSTEMS.md](../SYSTEMS.md).

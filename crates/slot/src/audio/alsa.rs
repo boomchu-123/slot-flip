@@ -275,6 +275,7 @@ impl Playback {
                     Err(e) => {
                         if !self.failing {
                             eprintln!("slot: audio: {e}, retrying");
+                            log_holders();
                             self.failing = true;
                         }
                     }
@@ -330,5 +331,65 @@ impl Playback {
 impl Drop for Playback {
     fn drop(&mut self) {
         self.release();
+    }
+}
+
+/// Says which processes have `/dev/snd` open, once per run.
+///
+/// "Device or resource busy" is all ALSA says, and on a handheld it can mean
+/// two different things: a firmware daemon owns the card, or the vendor's own
+/// audio driver does and ALSA cannot open it at all. The answer decides whether
+/// slot should ask ALSA to try again later or talk to the vendor interface
+/// instead, so it belongs in the log rather than in instructions for the tester.
+/// Reading `/proc` costs nothing and runs only when audio has already failed.
+pub(crate) fn log_holders() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static ONCE: AtomicBool = AtomicBool::new(false);
+    if ONCE.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    let mut found = 0;
+    if let Ok(procs) = std::fs::read_dir("/proc") {
+        for proc in procs.flatten() {
+            let name = proc.file_name();
+            let Some(pid) = name
+                .to_str()
+                .filter(|p| p.chars().all(|c| c.is_ascii_digit()))
+            else {
+                continue;
+            };
+            let Ok(fds) = std::fs::read_dir(proc.path().join("fd")) else {
+                continue;
+            };
+            let mut held: Vec<String> = fds
+                .flatten()
+                .filter_map(|fd| std::fs::read_link(fd.path()).ok())
+                .map(|target| target.to_string_lossy().into_owned())
+                .filter(|target| target.starts_with("/dev/snd/"))
+                .collect();
+            if held.is_empty() {
+                continue;
+            }
+            held.sort();
+            held.dedup();
+            let comm = std::fs::read_to_string(proc.path().join("comm"))
+                .map(|c| c.trim().to_string())
+                .unwrap_or_default();
+            for device in held {
+                eprintln!("slot: audio: {device} is held by pid {pid} ({comm})");
+                found += 1;
+            }
+        }
+    }
+    if found == 0 {
+        eprintln!(
+            "slot: audio: no process holds /dev/snd; the card is busy at the driver, or a vendor \
+             daemon owns the audio path another way"
+        );
+    }
+    if let Ok(cards) = std::fs::read_to_string("/proc/asound/cards") {
+        for line in cards.lines().filter(|l| !l.trim().is_empty()) {
+            eprintln!("slot: audio: card{}", line);
+        }
     }
 }
