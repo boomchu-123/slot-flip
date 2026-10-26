@@ -52,8 +52,9 @@ tester.
 - **Miyoo Mini Plus (`miyoomini`)** has **no GPU**, so it draws with a CPU
   rasteriser. GBA, Game Boy and Game Boy Color launch and play on a tester's
   device; buttons, display and POWER all work. **Sound does not work yet** (the
-  firmware's audio daemon holds the audio device), and the port still installs as
-  a MinUI Tool. See the [roadmap](ROADMAP.md).
+  device's sound card cannot be opened the normal way; the port needs the
+  vendor's own audio interface), and games are not yet at full speed. It still
+  installs as a MinUI Tool. See the [roadmap](ROADMAP.md).
 
 If you have a **Mini Plus**, the port's test builds and reports are collected in
 [issue #3](https://github.com/boomchu-123/slot-flip/issues/3). If you have an
