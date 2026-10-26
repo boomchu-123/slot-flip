@@ -30,31 +30,36 @@ for this fork are in the [changelog](CHANGELOG.md).
 | --- | --- | --- | --- | --- |
 | **Miyoo Flip** | `my355` | `Tools/my355/Slot.pak` (MinUI) or `App/Slot` (stock firmware) | ✅ **Supported** (stable) | [Latest release](https://github.com/boomchu-123/slot-flip/releases/latest) |
 | **Miyoo A30** | `my282` | `Tools/my282/Slot.pak` | 🧪 **Experimental** — has a GPU, may work; unverified | [Pre-releases](https://github.com/boomchu-123/slot-flip/releases) |
-| **Miyoo Mini Plus** | `miyoomini` | `Tools/miyoomini/Slot.pak` | 🧪 **Experimental — not working yet** (no GPU) | [Pre-releases](https://github.com/boomchu-123/slot-flip/releases) |
+| **Miyoo Mini Plus** | `miyoomini` | `Tools/miyoomini/Slot.pak` | 🧪 **Experimental** — GBA/GB/GBC play; **no sound yet** | [Pre-releases](https://github.com/boomchu-123/slot-flip/releases) |
 | Any other MinUI device | — | — | ❌ Not supported | — |
 
-The Flip's stock firmware is supported too: Slot was booted on it and run from the
-launcher's **App** list, with input, sound, lid sleep, brightness and re-entering
-games working. That install path ships in the next release (see the
-[roadmap](ROADMAP.md)); until then, use the MinUI path below.
+The Flip's stock firmware is supported: unzip `Slot-my355.zip` at the card root and
+Slot appears in the launcher's **App** list (and the device boots straight into
+it). Input, sound, lid sleep, brightness and re-entering games were all checked
+there. MinUI is a second entry that keeps working.
 
 **Why not other devices?** Each MinUI device loads tools only from its own
 `Tools/<platform>/` folder and has different hardware (CPU architecture,
 display, inputs). The Flip pak will simply **not appear** on a device whose
 platform folder doesn't match, and even if copied across it won't run.
 
-**The two experimental builds need testers** (I only own a Flip):
+**Experimental builds.** The Mini Plus is on the 1.0 path; the A30 still needs a
+tester.
 
 - **Miyoo A30 (`my282`)** has a Mali-400 GPU, so it uses slot's real graphics
   renderer and has a genuine chance of working — but it's **unverified** and the
   button map is a best guess.
-- **Miyoo Mini Plus (`miyoomini`)** has **no GPU**, so its graphics path is still
-  being written; that build only probes the hardware and **does not draw yet**.
+- **Miyoo Mini Plus (`miyoomini`)** has **no GPU**, so it draws with a CPU
+  rasteriser. GBA, Game Boy and Game Boy Color launch and play on a tester's
+  device; buttons, display and POWER all work. **Sound does not work yet** (the
+  firmware's audio daemon holds the audio device), and the port still installs as
+  a MinUI Tool. See the [roadmap](ROADMAP.md).
 
-If you have either device and want to help, grab a pre-release from the
-[Releases](https://github.com/boomchu-123/slot-flip/releases) page and see the
-[`experimental` branch](https://github.com/boomchu-123/slot-flip/tree/experimental)
-and its `TESTERS.md` for exactly what to do.
+If you have a **Mini Plus**, the port's test builds and reports are collected in
+[issue #3](https://github.com/boomchu-123/slot-flip/issues/3). If you have an
+**A30**, grab a pre-release and see
+[`TESTERS.md`](https://github.com/boomchu-123/slot-flip/blob/experimental/TESTERS.md)
+on the `experimental` branch.
 
 ## Watch the launch video
 
@@ -177,7 +182,8 @@ those files up to `~/slot-flip-backups/` on your computer first. It never format
 partitions or deletes, and it never writes to a raw device. `--stock-menu` installs
 it so the device starts in the stock menu instead of Slot.
 
-Windows is not supported by the script yet; use the drag and drop steps above.
+Windows has no `sh` for the script: use the drag and drop steps above, which do
+the same thing by hand.
 
 ### Getting back to the stock menu
 
@@ -472,10 +478,12 @@ launch once, and read `Slot/slot.log` — each press is logged with its code.
 
 ## Installing on other MinUI devices
 
-The only **supported** device is the Miyoo Flip. The Miyoo A30 and Mini Plus have
-**experimental** builds — see [Device support](#device-support) above, and
+The only **supported** device is the Miyoo Flip. The Mini Plus is on the 1.0 path
+but still **experimental**: GBA, Game Boy and Game Boy Color play, and sound does
+not work yet. The A30 is experimental and unverified. See
+[Device support](#device-support) above, the [roadmap](ROADMAP.md), and
 [TESTERS.md](https://github.com/boomchu-123/slot-flip/blob/experimental/TESTERS.md)
-for how to test them.
+for how to test.
 
 If you want to **port** slot to new hardware, see [INSTALL.md](INSTALL.md) for
 the install model and [PORTING.md](PORTING.md) for the device seams (button

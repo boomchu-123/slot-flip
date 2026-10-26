@@ -54,7 +54,8 @@ also:
 It refuses a card that is not FAT32, has no room, or is read-only, and it copies
 anything it replaces to `~/slot-flip-backups/` on your computer first. It never
 formats, partitions or deletes, never asks for `sudo`, and never uses the network.
-Windows has no shell for it yet: use the drag and drop steps.
+Windows has no `sh` for the script: use the drag and drop steps, which do the
+same thing by hand.
 
 ---
 

@@ -64,8 +64,10 @@ with dozens of useless hidden files.
 - Run by hand on a real FAT32 volume made with `hdiutil` (macOS): installed,
   verified, and left zero `._*` files. Case-insensitivity and FAT's lack of unix
   permissions behave as the device expects.
-- **Not tested on Windows** — it has no `sh`. That needs its own version, and it is
-  the next piece of work here.
+- **Not tested on Windows**, and not planned there: the release is a zip, and
+  unzipping it onto the card is the same in Explorer as in Finder. `install.sh`
+  needs a `sh`, so it is for the systems that have one; the drag and drop needs no
+  script at all.
 
 ## What this replaced
 
