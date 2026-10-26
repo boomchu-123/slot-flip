@@ -757,7 +757,13 @@ impl Worker {
             // tying the emulator to the display cadence starves audio and stalls
             // heavy games. There we free-run the emulator at its natural rate
             // (60 fps) and just present the latest frame.
-            let lock = !cfg!(feature = "flip")
+            //
+            // The Mini Plus has a 60 Hz panel but a software renderer whose frame
+            // can take longer than a frame (9.9 ms out on a game, 33.6 ms of work
+            // with the menu open, measured), and the tester reported games running
+            // slightly slow. The same answer applies: run the core at its own rate
+            // and present the latest picture.
+            let lock = !cfg!(any(feature = "flip", feature = "miyoomini"))
                 && self.shared.driven.load(Ordering::Relaxed)
                 && speed == Speed::Normal
                 && !rewinding
