@@ -34,6 +34,10 @@ flip/Tools/my355/SlotEvdev.pak/flip_evdev
 flip/Tools/my355/Slot.pak/slot
 flip/Tools/miyoomini/Slot.pak/slot
 flip/Tools/miyoomini/Slot.pak/slot.version
+# The armhf cores ARE committed, like the Flip's, so the pak can be packaged
+# without a cross build (the licence and source bundle sits beside them).
+!flip/Tools/miyoomini/Slot.pak/System/
+!flip/Tools/miyoomini/Slot.pak/System/*.so
 # The emulator cores and their licences ARE committed so CI can package the
 # full Slot.pak without building the cores (they are prebuilt for the Flip).
 !flip/Tools/my355/Slot.pak/System/

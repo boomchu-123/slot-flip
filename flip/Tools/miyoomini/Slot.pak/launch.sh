@@ -30,10 +30,12 @@ if [ -f "$DIR/DEBUG" ]; then
 	export SLOT_TRACE_LATENCY=1
 fi
 
-# Seed the emulator cores into Slot/System on first run, if the pak carries any.
+# Seed the emulator cores into Slot/System, replacing a copy that differs so a
+# core fix in a new pak reaches an existing card. `cmp -s` is the test the Flip
+# pak uses for the same reason.
 mkdir -p "$SLOT_ROOT/System"
 for c in mgba_libretro.so gpsp_libretro.so; do
-	if [ ! -f "$SLOT_ROOT/System/$c" ] && [ -f "$DIR/System/$c" ]; then
+	if [ -f "$DIR/System/$c" ] && ! cmp -s "$DIR/System/$c" "$SLOT_ROOT/System/$c"; then
 		cp "$DIR/System/$c" "$SLOT_ROOT/System/$c"
 	fi
 done

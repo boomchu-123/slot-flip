@@ -1,0 +1,6 @@
+commit=7b2dd37394e2822110cacef321e9bb291a305b77
+source=https://github.com/libretro/gpsp/archive/7b2dd37394e2822110cacef321e9bb291a305b77.tar.gz
+recipe=make platform=classic_armv7_a7
+device_cflags=
+patch=aw-session-reset.patch sha256:08068ff83442279bbe53d87f7eb510508bc1f4a75640175c3c9caa63e9b1fec6
+patch=jit-cache-in-binary.patch sha256:0671bb3046509db1be878b22dc722943aac9bdae2f525a9257707b81f2770190

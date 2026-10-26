@@ -1,0 +1,23 @@
+diff --git a/src/gb/audio.c b/src/gb/audio.c
+index 12a7ba8..50536aa 100644
+--- a/src/gb/audio.c
++++ b/src/gb/audio.c
+@@ -775,7 +775,8 @@ void GBAudioSamplePSG(struct GBAudio* audio, int16_t* left, int16_t* right) {
+ 	int sampleLeft = dcOffset;
+ 	int sampleRight = dcOffset;
+ 
+-	if (!audio->forceDisableCh[0]) {
++	// A stopped channel's sample is stale, and zombie-mode writes still move it.
++	if (!audio->forceDisableCh[0] && audio->playingCh1) {
+ 		if (audio->ch1Left) {
+ 			sampleLeft += audio->ch1.sample;
+ 		}
+@@ -785,7 +786,7 @@ void GBAudioSamplePSG(struct GBAudio* audio, int16_t* left, int16_t* right) {
+ 		}
+ 	}
+ 
+-	if (!audio->forceDisableCh[1]) {
++	if (!audio->forceDisableCh[1] && audio->playingCh2) {
+ 		if (audio->ch2Left) {
+ 			sampleLeft +=  audio->ch2.sample;
+ 		}

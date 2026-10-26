@@ -9,6 +9,11 @@ fn lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 fn dylib() -> PathBuf {
+    // A cross-compiled run (the armhf test under qemu) has a core of its own;
+    // this must name it explicitly because the default is the host's.
+    if let Some(p) = std::env::var_os("SLOT_TEST_CORE") {
+        return PathBuf::from(p);
+    }
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/mgba_libretro.dylib")
 }
 

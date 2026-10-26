@@ -1,0 +1,830 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 9d528e7..afbff7b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1029,6 +1029,9 @@ if(BUILD_LIBRETRO)
+ 	file(GLOB RETRO_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src/platform/libretro/*.c)
+ 	set(LIBRETRO_CORE_SRC ${CORE_SRC})
+ 	list(APPEND LIBRETRO_CORE_SRC ${VFS_SRC})
++	# slot's link mode joins two GBAs with mGBA's lockstep link driver, which MINIMAL_CORE
++	# leaves out of CORE_SRC. The Dolphin driver beside it stays out.
++	list(APPEND LIBRETRO_CORE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src/gba/sio/lockstep.c)
+ 	list(FILTER LIBRETRO_CORE_SRC EXCLUDE REGEX "/core/(scripting|library|mem-search|rewind|input)\\.c$")
+ 	list(FILTER LIBRETRO_CORE_SRC EXCLUDE REGEX "/util/(audio-resampler|interpolator)\\.c$")
+ 	if(CMAKE_TRY_COMPILE_TARGET_TYPE STREQUAL "STATIC_LIBRARY" AND NOT APPLE)
+diff --git a/include/mgba/internal/gba/cart/gpio.h b/include/mgba/internal/gba/cart/gpio.h
+index 1f870cf..9b52892 100644
+--- a/include/mgba/internal/gba/cart/gpio.h
++++ b/include/mgba/internal/gba/cart/gpio.h
+@@ -59,6 +59,10 @@ struct GBARTC {
+ 	uint8_t time[7];
+ 	time_t lastLatch;
+ 	time_t offset;
++	/* slot's link mode: read the RTC source's time as UTC rather than the device's local time, so
++	 * two devices in different timezones give a game the same date. Never saved in a state: link
++	 * mode sets it each time it plugs the cable in. */
++	bool utc;
+ };
+ 
+ DECL_BITFIELD(GPIOPin, uint16_t);
+diff --git a/src/gba/cart/gpio.c b/src/gba/cart/gpio.c
+index f714cf8..3759ede 100644
+--- a/src/gba/cart/gpio.c
++++ b/src/gba/cart/gpio.c
+@@ -312,7 +312,11 @@ void _rtcUpdateClock(struct GBACartridgeHardware* hw) {
+ 	t -= hw->rtc.offset;
+ 
+ 	struct tm date;
+-	localtime_r(&t, &date);
++	if (hw->rtc.utc) {
++		gmtime_r(&t, &date);
++	} else {
++		localtime_r(&t, &date);
++	}
+ 	hw->rtc.time[0] = _rtcBCD(date.tm_year - 100);
+ 	hw->rtc.time[1] = _rtcBCD(date.tm_mon + 1);
+ 	hw->rtc.time[2] = _rtcBCD(date.tm_mday);
+diff --git a/src/platform/libretro/libretro.c b/src/platform/libretro/libretro.c
+index d4de13f..754846e 100644
+--- a/src/platform/libretro/libretro.c
++++ b/src/platform/libretro/libretro.c
+@@ -21,9 +21,12 @@
+ #include <mgba/internal/gb/overrides.h>
+ #endif
+ #ifdef M_CORE_GBA
++#include <mgba/core/lockstep.h>
+ #include <mgba/gba/core.h>
+ #include <mgba/gba/interface.h>
+ #include <mgba/internal/gba/gba.h>
++#include <mgba/internal/gba/io.h>
++#include <mgba/internal/gba/sio/lockstep.h>
+ #endif
+ #include <mgba-util/memory.h>
+ #include <mgba-util/vfs.h>
+@@ -82,6 +85,9 @@ static int32_t _readTiltX(struct mRotationSource* source);
+ static int32_t _readTiltY(struct mRotationSource* source);
+ static int32_t _readGyroZ(struct mRotationSource* source);
+ static void _setupMaps(struct mCore* core);
++#ifdef M_CORE_GBA
++static void _linkDeferredSetup(void);
++#endif
+ 
+ static struct mCore* core;
+ static mColor* outputBuffer = NULL;
+@@ -132,6 +138,32 @@ static int32_t audioLowPassRange = 0;
+ static int32_t audioLowPassLeftPrev = 0;
+ static int32_t audioLowPassRightPrev = 0;
+ 
++/* Link mode (slot): a second GBA from the same game, joined to `core` by mGBA's lockstep link
++ * cable and stepped with it on this thread. `core` stays the local player's GBA, so video,
++ * audio, save RAM and everything else that reads `core` is that player's. */
++static bool linkMode;
++static int linkPlayer;
++#ifdef M_CORE_GBA
++/* 2000-01-01 00:00 UTC: year 00 of the GBA RTC's own calendar. */
++#define LINK_RTC_EPOCH_MS 946684800000LL
++
++struct LinkGBA {
++	struct mLockstepUser d; /* first, so the coordinator's user is a struct LinkGBA* */
++	int id;
++	bool asleep;
++	struct mCore* core;
++	struct GBASIOLockstepDriver driver;
++};
++
++/* Indexed by player: linkGba[linkPlayer].core is `core`. */
++static struct LinkGBA linkGba[2];
++static struct GBASIOLockstepCoordinator linkCoordinator;
++static bool linkPlugged;
++static bool linkStuck;
++static mColor* peerOutputBuffer;
++static void* peerSavedata;
++#endif
++
+ static const int keymap[] = {
+ 	RETRO_DEVICE_ID_JOYPAD_A,
+ 	RETRO_DEVICE_ID_JOYPAD_B,
+@@ -1257,6 +1289,19 @@ static void _reloadSettings(void) {
+ 	mCoreLoadConfig(core);
+ }
+ 
++/* slot's link mode options, read at load like every "(Restart)" option. */
++static void _loadLinkSettings(void) {
++	struct retro_variable var = {
++		.key = "mgba_link",
++		.value = 0
++	};
++	linkMode = environCallback(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value && strcmp(var.value, "on") == 0;
++
++	var.key = "mgba_link_player";
++	var.value = 0;
++	linkPlayer = environCallback(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value && strcmp(var.value, "1") == 0 ? 1 : 0;
++}
++
+ static void _doDeferredSetup(void) {
+ 	// Libretro API doesn't let you know when it's done copying data into the save buffers.
+ 	// On the off-hand chance that a core actually expects its buffers to be populated when
+@@ -1275,6 +1320,11 @@ static void _doDeferredSetup(void) {
+ 	if (!core->loadSave(core, save)) {
+ 		save->close(save);
+ 	}
++#ifdef M_CORE_GBA
++	if (linkMode) {
++		_linkDeferredSetup();
++	}
++#endif
+ 	deferredSetup = false;
+ }
+ 
+@@ -1534,6 +1584,343 @@ int16_t cycleturbo(bool a, bool b, bool l, bool r) {
+ 	return buttons;
+ }
+ 
++/* Hands the frontend `core`'s picture and sound for the frame just run. */
++static void _postFrame(bool skipFrame) {
++	unsigned width, height;
++	core->currentVideoSize(core, &width, &height);
++
++	if (!skipFrame) {
++#if defined(COLOR_16_BIT) && defined(COLOR_5_6_5)
++		if (videoPostProcess) {
++			videoPostProcess(width, height);
++			videoCallback(ppOutputBuffer, width, height, VIDEO_WIDTH_MAX * sizeof(mColor));
++		} else
++#endif
++			videoCallback(outputBuffer, width, height, VIDEO_WIDTH_MAX * sizeof(mColor));
++	} else {
++		videoCallback(NULL, width, height, VIDEO_WIDTH_MAX * sizeof(mColor));
++	}
++
++	/* Check whether audio sample rate has changed */
++	if (updateAudioRate) {
++		struct retro_system_av_info info;
++		retro_get_system_av_info(&info);
++		environCallback(RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO, &info);
++		updateAudioRate = false;
++	}
++
++#ifdef M_CORE_GBA
++	if (core->platform(core) == mPLATFORM_GBA) {
++		static int16_t coreSamples[GBA_AUDIO_CHUNK_FRAMES * 2];
++		struct mAudioBuffer* coreBuffer = core->getAudioBuffer(core);
++		unsigned coreSampleRate = core->audioSampleRate(core);
++		if (coreSampleRate != audioConverter.inputRate) {
++			audioConverterReset(&audioConverter, coreSampleRate);
++		}
++		while (true) {
++			size_t read = mAudioBufferRead(coreBuffer, coreSamples, GBA_AUDIO_CHUNK_FRAMES);
++			if (!read) {
++				break;
++			}
++			size_t produced = audioConverterProcess(&audioConverter, coreSamples, read, audioSampleBuffer);
++			if (produced > 0) {
++				if (audioLowPassEnabled) {
++					_audioLowPassFilter(audioSampleBuffer, produced);
++				}
++				audioCallback(audioSampleBuffer, (size_t)produced);
++			}
++		}
++	}
++#endif
++}
++
++#ifdef M_CORE_GBA
++static void _linkSleep(struct mLockstepUser* user) {
++	((struct LinkGBA*) user)->asleep = true;
++}
++
++static void _linkWake(struct mLockstepUser* user) {
++	((struct LinkGBA*) user)->asleep = false;
++}
++
++static int _linkRequestedId(struct mLockstepUser* user) {
++	return ((struct LinkGBA*) user)->id;
++}
++
++static void _linkPlayerIdChanged(struct mLockstepUser* user, int id) {
++	UNUSED(user);
++	UNUSED(id);
++}
++
++/* Whether a GBA stands where _linkStep leaves one whose frame is done, which is where a lone
++ * core's frame leaves it too: its video has started the vblank, on VCOUNT 160, and has not yet
++ * reached that line's hblank. Both stop a GBA at the first return from its run loop after the
++ * frame counter moves, and that return always comes before the hblank. It is read from the
++ * video state, which a savestate carries, so a restored GBA answers for itself. */
++static bool _linkAtFrameEnd(struct GBA* gba) {
++	return gba->video.vcount == GBA_VIDEO_VERTICAL_PIXELS &&
++	    !GBARegisterDISPSTATIsInHblank(gba->memory.io[GBA_REG(DISPSTAT)]);
++}
++
++/* Runs a GBA that is not at a frame end on its own until its frame ends: at most one frame, the
++ * most a lone core's frame runs, with no cable, the buttons released, and the picture and sound
++ * it makes thrown away. A GBA already at a frame end does not run. */
++static void _linkRunToFrameEnd(struct mCore* gbaCore) {
++	if (_linkAtFrameEnd(gbaCore->board)) {
++		return;
++	}
++	gbaCore->setKeys(gbaCore, 0);
++	gbaCore->runFrame(gbaCore);
++	mAudioBufferClear(gbaCore->getAudioBuffer(gbaCore));
++}
++
++/* Plugs a fresh coordinator and cable into both GBAs, and only once both stand at a frame end, so
++ * every join is in phase: from the join on, both GBAs' frames end at the same moment on the
++ * cable's clock. Where each GBA stands in its frame when the cable goes in fixes that for the
++ * session, and a link state may pair any two GBA states, so each GBA that is not at a frame end
++ * is first run on its own to its next one. Two states taken at a frame end, which is how every
++ * session starts, go in as they are.
++ *
++ * Both clocks stop following the device before anything runs: a fixed epoch plus emulated time,
++ * read as UTC, with no offset from a save file's RTC data (which a reset works out in the device's
++ * timezone), since each SP runs both GBAs and a wall clock or a timezone would tell the copies
++ * apart. The cable then goes in the order mGBA's own MultiplayerController uses: attach, then set
++ * the peripheral, whose reset registers the player. Player 0 goes first, so the ids handed out
++ * match the players.
++ *
++ * Last, the cable takes up the serial mode each GBA's registers already hold. It only learns a
++ * GBA's mode the way a game's register write teaches it, when the mode changes, and a GBA restored
++ * mid-game is already in the mode its game chose, which the game will not write again: player 0
++ * would never see player 1 as ready. So each GBA goes onto the cable with its mode forgotten, as
++ * GBASIOReset leaves one, and once both are on, its RCNT is written back unchanged. That write
++ * takes the mode switch a game's own write takes, from the registers: each GBA's driver announces
++ * the mode to the other, and player 0 waits for player 1 to take it up. */
++static void _linkPlugIn(void) {
++	int i;
++	for (i = 0; i < 2; ++i) {
++		struct mCore* gbaCore = linkGba[i].core;
++		gbaCore->rtc.override = RTC_FAKE_EPOCH;
++		gbaCore->rtc.value = LINK_RTC_EPOCH_MS;
++		((struct GBA*) gbaCore->board)->memory.hw.rtc.utc = true;
++		((struct GBA*) gbaCore->board)->memory.hw.rtc.offset = 0;
++	}
++	for (i = 0; i < 2; ++i) {
++		_linkRunToFrameEnd(linkGba[i].core);
++		((struct GBA*) linkGba[i].core->board)->sio.mode = -1;
++	}
++	GBASIOLockstepCoordinatorInit(&linkCoordinator);
++	for (i = 0; i < 2; ++i) {
++		struct LinkGBA* player = &linkGba[i];
++		player->id = i;
++		player->asleep = false;
++		player->d.sleep = _linkSleep;
++		player->d.wake = _linkWake;
++		player->d.requestedId = _linkRequestedId;
++		player->d.playerIdChanged = _linkPlayerIdChanged;
++		GBASIOLockstepDriverCreate(&player->driver, &player->d);
++		GBASIOLockstepCoordinatorAttach(&linkCoordinator, &player->driver);
++		player->core->setPeripheral(player->core, mPERIPH_GBA_LINK_PORT, &player->driver.d);
++	}
++	for (i = 0; i < 2; ++i) {
++		struct GBASIO* sio = &((struct GBA*) linkGba[i].core->board)->sio;
++		GBASIOWriteRCNT(sio, sio->rcnt);
++	}
++	linkPlugged = true;
++	linkStuck = false;
++}
++
++/* Pulls the cable out of both GBAs and throws the coordinator away. */
++static void _linkUnplug(void) {
++	if (!linkPlugged) {
++		return;
++	}
++	int i;
++	for (i = 0; i < 2; ++i) {
++		linkGba[i].core->setPeripheral(linkGba[i].core, mPERIPH_GBA_LINK_PORT, NULL);
++		GBASIOLockstepCoordinatorDetach(&linkCoordinator, &linkGba[i].driver);
++	}
++	GBASIOLockstepCoordinatorDeinit(&linkCoordinator);
++	linkPlugged = false;
++}
++
++/* The other player's GBA: the same game on a core of its own, with its own screen, its own
++ * cartridge save and `core`'s settings. It gets no device peripherals, and in link mode neither
++ * does `core`: a light or tilt sensor on one SP is not there for the other SP's copy. */
++static bool _linkCreatePeer(const struct retro_game_info* game, const char* biosPath) {
++	struct VFile* rom = data ? VFileFromMemory(data, dataSize) : VFileOpen(game->path, O_RDONLY);
++	if (!rom) {
++		return false;
++	}
++	struct mCore* peer = mCoreFindVF(rom);
++	if (!peer) {
++		rom->close(rom);
++		return false;
++	}
++	mCoreInitConfig(peer, NULL);
++	peer->init(peer);
++	mCoreLoadForeignConfig(peer, &core->config);
++
++	peerOutputBuffer = malloc(VIDEO_BUFF_SIZE);
++	memset(peerOutputBuffer, 0xFF, VIDEO_BUFF_SIZE);
++	peer->setVideoBuffer(peer, peerOutputBuffer, VIDEO_WIDTH_MAX);
++	peerSavedata = anonymousMemoryMap(GBA_SIZE_FLASH1M);
++	memset(peerSavedata, 0xFF, GBA_SIZE_FLASH1M);
++	peer->loadROM(peer, rom);
++#ifdef ENABLE_VFS
++	if (biosPath) {
++		struct VFile* bios = VFileOpen(biosPath, O_RDONLY);
++		if (bios) {
++			peer->loadBIOS(peer, bios, 0);
++		}
++	}
++#else
++	UNUSED(biosPath);
++#endif
++
++	memset(linkGba, 0, sizeof(linkGba));
++	linkGba[linkPlayer].core = core;
++	linkGba[1 - linkPlayer].core = peer;
++	return true;
++}
++
++/* The other GBA's half of _doDeferredSetup, then the cable. */
++static void _linkDeferredSetup(void) {
++	struct mCore* peer = linkGba[1 - linkPlayer].core;
++	struct VFile* save = VFileFromMemory(peerSavedata, GBA_SIZE_FLASH1M);
++	_linkUnplug();
++	peer->reset(peer);
++	if (!peer->loadSave(peer, save)) {
++		save->close(save);
++	}
++	_linkPlugIn();
++}
++
++static void _linkUnload(void) {
++	_linkUnplug();
++	struct mCore* peer = linkGba[1 - linkPlayer].core;
++	mCoreConfigDeinit(&peer->config);
++	peer->deinit(peer);
++	free(peerOutputBuffer);
++	peerOutputBuffer = NULL;
++	mappedMemoryFree(peerSavedata, GBA_SIZE_FLASH1M);
++	peerSavedata = NULL;
++	memset(linkGba, 0, sizeof(linkGba));
++	linkMode = false;
++}
++
++/* One player's buttons from their own input port, mapped the way retro_run maps port 0 but
++ * without its turbo buttons: turbo keeps a clock of its own, which two SPs would not share. */
++static uint16_t _linkReadKeys(unsigned port) {
++	uint16_t keys = 0;
++	unsigned i;
++	if (useBitmasks) {
++		int16_t joypadMask = inputCallback(port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_MASK);
++		for (i = 0; i < sizeof(keymap) / sizeof(*keymap); ++i) {
++			keys |= ((joypadMask >> keymap[i]) & 1) << i;
++		}
++	} else {
++		for (i = 0; i < sizeof(keymap) / sizeof(*keymap); ++i) {
++			keys |= (!!inputCallback(port, RETRO_DEVICE_JOYPAD, 0, keymap[i])) << i;
++		}
++	}
++	return keys;
++}
++
++/* Steps both GBAs one video frame, taking turns on this thread.
++ *
++ * The coordinator puts a GBA to sleep while it waits on the other, and a sleeping GBA only
++ * flips its flag, so whichever GBA is awake and short of its frame runs next. Every choice
++ * depends only on emulated state, so the same starting states and buttons make the same
++ * machines on every device.
++ *
++ * Every join is in phase (_linkPlugIn): both GBAs' frames end at the same moment on the cable's
++ * clock. A GBA that has finished its frame cannot simply stop while the other sleeps waiting on
++ * it: that is the deadlock a strict per-frame barrier falls into. The cable keeps player 1 behind
++ * player 0's clock, so player 0 finishes while player 1 still sleeps short of its own frame. A
++ * finished player 0 syncs the cable there, at its frame boundary, instead of running on: its
++ * lockstep event fires at once, which moves the shared clock to player 0's frame end and wakes
++ * player 1 to finish. Run on, player 0 would reach its next frame's KEYINPUT read before that
++ * frame's buttons are set, and read them a frame late.
++ *
++ * A finished player 1 still runs on, with the same buttons, while player 0 sleeps waiting on it
++ * for a transfer or a hard sync, since the cable needs player 1 to reach that moment first. In
++ * phase, player 0 only waits at or before its own frame end, which is player 1's too, so that
++ * run-on stops at player 1's frame end, give or take the few cycles two frames in phase can end
++ * apart, and never reaches its next KEYINPUT read.
++ *
++ * A frame is done when the video frame counter moves, or after as many cycles as
++ * _GBACoreRunFrame allows one, so a GBA whose video has stopped cannot hold this loop. */
++static void _linkStep(void) {
++	uint32_t target[2];
++	uint32_t start[2];
++	bool done[2] = { false, false };
++	int i;
++	for (i = 0; i < 2; ++i) {
++		struct GBA* gba = linkGba[i].core->board;
++		target[i] = gba->video.frameCounter + 1;
++		start[i] = mTimingCurrentTime(&gba->timing);
++	}
++	while (!done[0] || !done[1]) {
++		bool ran = false;
++		for (i = 0; i < 2; ++i) {
++			struct LinkGBA* self = &linkGba[i];
++			struct LinkGBA* other = &linkGba[1 - i];
++			if (self->asleep) {
++				continue;
++			}
++			if (done[i] && (done[1 - i] || !other->asleep)) {
++				continue;
++			}
++			struct GBA* gba = self->core->board;
++			/* Here a finished player 0 only runs because player 1 sleeps short of its frame.
++			 * With no transfer or hard sync pending, firing the lockstep event now syncs the
++			 * cable at player 0's frame boundary, where running would carry it into the next
++			 * frame on this frame's buttons. The run loop is also asked to return as soon as
++			 * that event has fired. A CPU blocked by a DMA, or halted waiting on an interrupt,
++			 * otherwise goes on through event after event until one asks it to stop, and the
++			 * lockstep event only wakes player 1: player 0 would run on to its next vblank, end
++			 * two frames in one step, and leave player 1 a whole frame behind for the rest of the
++			 * session. A boot like Mario Kart: Super Circuit's, which reaches its first frame end
++			 * inside a DMA, is now played alone by the join before the cable goes in; what still
++			 * needs this is a DMA started later in a session, at a frame end where the cable's next
++			 * hard sync is more than a frame away. */
++			if (i == 0 && done[0] && !linkCoordinator.transferActive && !linkCoordinator.waiting) {
++				mTimingDeschedule(&gba->timing, &self->driver.event);
++				mTimingSchedule(&gba->timing, &self->driver.event, 0);
++				gba->earlyExit = true;
++			}
++			self->core->runLoop(self->core);
++			ran = true;
++			if (gba->video.frameCounter >= target[i] ||
++			    (uint32_t) mTimingCurrentTime(&gba->timing) - start[i] >= VIDEO_TOTAL_LENGTH + VIDEO_HORIZONTAL_LENGTH) {
++				done[i] = true;
++			}
++		}
++		if (!ran) {
++			if (!linkStuck) {
++				fprintf(stderr, "mgba: link: neither GBA can run (asleep %d/%d, done %d/%d)\n",
++				        linkGba[0].asleep, linkGba[1].asleep, done[0], done[1]);
++				linkStuck = true;
++			}
++			return;
++		}
++	}
++}
++
++/* Link mode's retro_run: both players' buttons, both GBAs one frame, then the local player's
++ * picture and sound. The other GBA's sound is thrown away. */
++static void _linkRunFrame(void) {
++	int i;
++	for (i = 0; i < 2; ++i) {
++		linkGba[i].core->setKeys(linkGba[i].core, _linkReadKeys(i));
++	}
++	_linkStep();
++	_postFrame(false);
++	struct mCore* peer = linkGba[1 - linkPlayer].core;
++	mAudioBufferClear(peer->getAudioBuffer(peer));
++}
++#endif
++
+ void retro_run(void) {
+ 	if (deferredSetup) {
+ 		_doDeferredSetup();
+@@ -1543,6 +1930,15 @@ void retro_run(void) {
+ 
+ 	inputPollCallback();
+ 
++#ifdef M_CORE_GBA
++	/* Link mode takes no option changes mid-run: one would reach `core` and not the other GBA,
++	 * and the two devices running this pair would disagree. */
++	if (linkMode) {
++		_linkRunFrame();
++		return;
++	}
++#endif
++
+ 	bool updated = false;
+ 	if (environCallback(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated) {
+ 		envVarsUpdated = true;
+@@ -1670,8 +2066,6 @@ void retro_run(void) {
+    }
+ 
+ 	core->runFrame(core);
+-	unsigned width, height;
+-	core->currentVideoSize(core, &width, &height);
+ 
+ 	/* If using 'Fixed Interval' frameskipping, check
+ 	 * whether a frame is currently available  */
+@@ -1692,49 +2086,7 @@ void retro_run(void) {
+ 		}
+ 	}
+ 
+-	if (!skipFrame) {
+-#if defined(COLOR_16_BIT) && defined(COLOR_5_6_5)
+-		if (videoPostProcess) {
+-			videoPostProcess(width, height);
+-			videoCallback(ppOutputBuffer, width, height, VIDEO_WIDTH_MAX * sizeof(mColor));
+-		} else
+-#endif
+-			videoCallback(outputBuffer, width, height, VIDEO_WIDTH_MAX * sizeof(mColor));
+-	} else {
+-		videoCallback(NULL, width, height, VIDEO_WIDTH_MAX * sizeof(mColor));
+-	}
+-
+-	/* Check whether audio sample rate has changed */
+-	if (updateAudioRate) {
+-		struct retro_system_av_info info;
+-		retro_get_system_av_info(&info);
+-		environCallback(RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO, &info);
+-		updateAudioRate = false;
+-	}
+-
+-#ifdef M_CORE_GBA
+-	if (core->platform(core) == mPLATFORM_GBA) {
+-		static int16_t coreSamples[GBA_AUDIO_CHUNK_FRAMES * 2];
+-		struct mAudioBuffer* coreBuffer = core->getAudioBuffer(core);
+-		unsigned coreSampleRate = core->audioSampleRate(core);
+-		if (coreSampleRate != audioConverter.inputRate) {
+-			audioConverterReset(&audioConverter, coreSampleRate);
+-		}
+-		while (true) {
+-			size_t read = mAudioBufferRead(coreBuffer, coreSamples, GBA_AUDIO_CHUNK_FRAMES);
+-			if (!read) {
+-				break;
+-			}
+-			size_t produced = audioConverterProcess(&audioConverter, coreSamples, read, audioSampleBuffer);
+-			if (produced > 0) {
+-				if (audioLowPassEnabled) {
+-					_audioLowPassFilter(audioSampleBuffer, produced);
+-				}
+-				audioCallback(audioSampleBuffer, (size_t)produced);
+-			}
+-		}
+-	}
+-#endif
++	_postFrame(skipFrame);
+ }
+ 
+ static void _setupMaps(struct mCore* core) {
+@@ -1931,9 +2283,20 @@ static void _setupMaps(struct mCore* core) {
+ }
+ 
+ void retro_reset(void) {
++#ifdef M_CORE_GBA
++	if (linkMode) {
++		_linkUnplug();
++		linkGba[1 - linkPlayer].core->reset(linkGba[1 - linkPlayer].core);
++	}
++#endif
+ 	core->reset(core);
+ 	mRumbleIntegratorReset(&rumble);
+ 	_setupMaps(core);
++#ifdef M_CORE_GBA
++	if (linkMode) {
++		_linkPlugIn();
++	}
++#endif
+ }
+ 
+ #ifdef GEKKO
+@@ -1977,6 +2340,7 @@ bool retro_load_game(const struct retro_game_info* game) {
+ 	if (!game) {
+ 		return false;
+ 	}
++	_loadLinkSettings();
+ 
+ 	if (game->data) {
+ 		data = anonymousMemoryMap(game->size);
+@@ -2048,7 +2412,9 @@ bool retro_load_game(const struct retro_game_info* game) {
+ 
+ 	core->setAVStream(core, &stream);
+ 	core->setPeripheral(core, mPERIPH_RUMBLE, &rumble);
+-	core->setPeripheral(core, mPERIPH_ROTATION, &rotation);
++	if (!linkMode) {
++		core->setPeripheral(core, mPERIPH_ROTATION, &rotation);
++	}
+ 
+ 	savedata = anonymousMemoryMap(GBA_SIZE_FLASH1M);
+ 	memset(savedata, 0xFF, GBA_SIZE_FLASH1M);
+@@ -2064,7 +2430,9 @@ bool retro_load_game(const struct retro_game_info* game) {
+ 
+ #ifdef M_CORE_GBA
+ 	if (core->platform(core) == mPLATFORM_GBA) {
+-		core->setPeripheral(core, mPERIPH_GBA_LUMINANCE, &lux);
++		if (!linkMode) {
++			core->setPeripheral(core, mPERIPH_GBA_LUMINANCE, &lux);
++		}
+ 		biosName = "gba_bios.bin";
+ 
+ 	}
+@@ -2117,6 +2485,19 @@ bool retro_load_game(const struct retro_game_info* game) {
+ 	}
+ #endif
+ 
++#ifdef M_CORE_GBA
++	if (linkMode && core->platform(core) != mPLATFORM_GBA) {
++		linkMode = false;
++	}
++	if (linkMode && !_linkCreatePeer(game, core->opts.useBios && sysDir && biosName ? biosPath : NULL)) {
++		linkMode = false;
++		retro_unload_game();
++		return false;
++	}
++#else
++	linkMode = false;
++#endif
++
+ 	return true;
+ }
+ 
+@@ -2124,6 +2505,11 @@ void retro_unload_game(void) {
+ 	if (!core) {
+ 		return;
+ 	}
++#ifdef M_CORE_GBA
++	if (linkMode) {
++		_linkUnload();
++	}
++#endif
+ 	mCoreConfigDeinit(&core->config);
+ 	core->deinit(core);
+ 	mappedMemoryFree(data, dataSize);
+@@ -2132,12 +2518,125 @@ void retro_unload_game(void) {
+ 	savedata = 0;
+ }
+ 
++#ifdef M_CORE_GBA
++/* One GBA's state, the core's usual one without SAVESTATE_RTC. */
++static struct VFile* _linkSaveGBA(int player) {
++	struct VFile* state = VFileMemChunk(NULL, 0);
++	mCoreSaveStateNamed(linkGba[player].core, state, SAVESTATE_SAVEDATA);
++	return state;
++}
++
++/* The link state: "SLK1", then for each player a little-endian u32 length and that GBA's state,
++ * player 0 first. Each state leaves out SAVESTATE_RTC, so link mode's fixed clock never follows a
++ * player's own GBA out of the session. */
++static struct VFile* _linkSaveState(void) {
++	struct VFile* out = VFileMemChunk(NULL, 0);
++	out->write(out, "SLK1", 4);
++	int i;
++	for (i = 0; i < 2; ++i) {
++		struct VFile* state = _linkSaveGBA(i);
++		size_t size = state->size(state);
++		uint8_t length[4];
++		STORE_32LE((uint32_t) size, 0, length);
++		out->write(out, length, sizeof(length));
++		void* bytes = state->map(state, size, MAP_READ);
++		out->write(out, bytes, size);
++		state->unmap(state, bytes, size);
++		state->close(state);
++	}
++	return out;
++}
++
++/* Takes a link state apart, then pulls the cable, resets and restores each GBA with its cartridge
++ * save, and plugs a fresh cable in. What follows depends only on these bytes, whatever the two
++ * cores were running beforehand. The states need not come from link mode: two ordinary one-GBA
++ * states are how a session starts.
++ *
++ * A container whose framing is wrong, or whose states are too short to be states, is refused
++ * before anything is touched. A state the core itself refuses once loading has begun (another
++ * game, a newer savestate version) puts both GBAs back where they were, saves included, on a
++ * fresh cable. */
++static bool _linkLoadState(const void* state, size_t size) {
++	const uint8_t* bytes = state;
++	const uint8_t* parts[2];
++	uint32_t lengths[2];
++	size_t offset = 4;
++	if (size < 4 || memcmp(bytes, "SLK1", 4) != 0) {
++		return false;
++	}
++	int i;
++	for (i = 0; i < 2; ++i) {
++		if (size - offset < 4) {
++			return false;
++		}
++		LOAD_32LE(lengths[i], offset, bytes);
++		offset += 4;
++		if (lengths[i] < linkGba[i].core->stateSize(linkGba[i].core)) {
++			return false;
++		}
++		if (size - offset < lengths[i]) {
++			return false;
++		}
++		parts[i] = &bytes[offset];
++		offset += lengths[i];
++	}
++	if (offset != size) {
++		return false;
++	}
++
++	struct VFile* before[2];
++	for (i = 0; i < 2; ++i) {
++		before[i] = _linkSaveGBA(i);
++	}
++
++	_linkUnplug();
++	/* Both GBAs are reset before they are loaded, so that a restore is a function of the link state
++	 * and nothing else. A savestate does not carry everything a GBA holds: RCNT's SC, SD, SI and SO
++	 * bits come back through GBASIOWriteRCNT, which keeps them from whatever the core held before;
++	 * SIOMLT_SEND is not a register mGBA saves at all; and haltPending and the idle-loop counters
++	 * are not saved either. Left alone, the same link state restored into a pair that had been
++	 * running and into a freshly loaded pair gives two different machines, so the two SPs in a
++	 * session would part company from the restore on - which is exactly what a resync, a
++	 * reconnect or a late join asks for. Everything a state does carry is overwritten by the load
++	 * that follows, so the reset costs only the time it takes. */
++	for (i = 0; i < 2; ++i) {
++		linkGba[i].core->reset(linkGba[i].core);
++	}
++	bool success = true;
++	for (i = 0; i < 2 && success; ++i) {
++		struct VFile* vf = VFileFromConstMemory(parts[i], lengths[i]);
++		success = mCoreLoadStateNamed(linkGba[i].core, vf, SAVESTATE_SAVEDATA);
++		vf->close(vf);
++	}
++	if (!success) {
++		for (i = 0; i < 2; ++i) {
++			mCoreLoadStateNamed(linkGba[i].core, before[i], SAVESTATE_SAVEDATA);
++		}
++	}
++	for (i = 0; i < 2; ++i) {
++		before[i]->close(before[i]);
++	}
++	_linkPlugIn();
++	return success;
++}
++#endif
++
++static struct VFile* _saveState(void) {
++#ifdef M_CORE_GBA
++	if (linkMode) {
++		return _linkSaveState();
++	}
++#endif
++	struct VFile* vfm = VFileMemChunk(NULL, 0);
++	mCoreSaveStateNamed(core, vfm, SAVESTATE_SAVEDATA | SAVESTATE_RTC);
++	return vfm;
++}
++
+ size_t retro_serialize_size(void) {
+ 	if (deferredSetup) {
+ 		_doDeferredSetup();
+ 	}
+-	struct VFile* vfm = VFileMemChunk(NULL, 0);
+-	mCoreSaveStateNamed(core, vfm, SAVESTATE_SAVEDATA | SAVESTATE_RTC);
++	struct VFile* vfm = _saveState();
+ 	size_t size = vfm->size(vfm);
+ 	vfm->close(vfm);
+ 	return size;
+@@ -2147,8 +2646,7 @@ bool retro_serialize(void* data, size_t size) {
+ 	if (deferredSetup) {
+ 		_doDeferredSetup();
+ 	}
+-	struct VFile* vfm = VFileMemChunk(NULL, 0);
+-	mCoreSaveStateNamed(core, vfm, SAVESTATE_SAVEDATA | SAVESTATE_RTC);
++	struct VFile* vfm = _saveState();
+ 	if ((ssize_t) size > vfm->size(vfm)) {
+ 		size = vfm->size(vfm);
+ 	} else if ((ssize_t) size < vfm->size(vfm)) {
+@@ -2165,6 +2663,11 @@ bool retro_unserialize(const void* data, size_t size) {
+ 	if (deferredSetup) {
+ 		_doDeferredSetup();
+ 	}
++#ifdef M_CORE_GBA
++	if (linkMode) {
++		return _linkLoadState(data, size);
++	}
++#endif
+ 	struct VFile* vfm = VFileFromConstMemory(data, size);
+ 	bool success = mCoreLoadStateNamed(core, vfm, SAVESTATE_RTC);
+ 	vfm->close(vfm);
+diff --git a/src/platform/libretro/libretro_core_options.h b/src/platform/libretro/libretro_core_options.h
+index 9bd553b..cd81a69 100644
+--- a/src/platform/libretro/libretro_core_options.h
++++ b/src/platform/libretro/libretro_core_options.h
+@@ -305,6 +305,34 @@ struct retro_core_option_v2_definition option_defs_us[] = {
+       },
+       "OFF"
+    },
++   {
++      "mgba_link",
++      "Link Two GBAs (Restart)",
++      NULL,
++      "Runs a second GBA from the same game, joined to the first by a link cable, and steps both together. For link play where every device runs every player's GBA and only buttons cross the network.",
++      NULL,
++      "system",
++      {
++         { "off", "disabled" },
++         { "on",  "enabled" },
++         { NULL, NULL },
++      },
++      "off"
++   },
++   {
++      "mgba_link_player",
++      "Linked GBA Shown (Restart)",
++      NULL,
++      "Which linked GBA this device shows and plays. 0 is the host, who reads input port 0; 1 is the joiner, who reads input port 1.",
++      NULL,
++      "system",
++      {
++         { "0", "0 (host)" },
++         { "1", "1 (joiner)" },
++         { NULL, NULL },
++      },
++      "0"
++   },
+    {
+       "mgba_idle_optimization",
+       "Idle Loop Removal",
