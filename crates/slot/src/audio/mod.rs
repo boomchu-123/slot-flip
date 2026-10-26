@@ -1,6 +1,10 @@
 mod alsa;
 #[cfg(feature = "host")]
 mod host;
+#[cfg(not(feature = "host"))]
+mod miao;
+#[cfg(not(feature = "host"))]
+mod miyoo;
 mod pacer;
 mod ring;
 pub mod route;
@@ -13,6 +17,10 @@ pub mod volume;
 pub use alsa::AlsaSink;
 #[cfg(feature = "host")]
 pub use host::HostAudio;
+#[cfg(not(feature = "host"))]
+pub use miao::MiAoSink;
+#[cfg(feature = "miyoomini")]
+pub use miyoo::MiyooAudio;
 pub use pacer::Pacer;
 pub use ring::{ring_capacity, Ring};
 pub use sfx::Sfx;
@@ -50,5 +58,10 @@ pub fn open_sink() -> Box<dyn AudioSink> {
     if std::env::var_os("SLOT_SILENT").is_some() {
         return Box::new(StubSink::draining());
     }
+    // The Mini Plus' sound card cannot be opened through ALSA, so it goes
+    // through the vendor output and falls back to ALSA only if that cannot start.
+    #[cfg(feature = "miyoomini")]
+    return Box::new(MiyooAudio::new());
+    #[cfg(not(feature = "miyoomini"))]
     Box::new(AlsaSink::new())
 }

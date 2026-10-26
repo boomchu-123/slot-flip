@@ -13,7 +13,10 @@ DIR="$(dirname "$0")"
 SD="${SDCARD_PATH:-/mnt/SDCARD}"
 SLOT_ROOT="$SD/Slot"
 
-export LD_LIBRARY_PATH="/usr/lib:/usr/miyoo/lib:$LD_LIBRARY_PATH"
+# /config/lib and /customer/lib hold the vendor libraries (libmi_ao and the ones
+# it needs) that the sound output loads; MinUI's launcher already has them on the
+# path, and a launcher that does not should not make the sound silent.
+export LD_LIBRARY_PATH="/usr/lib:/usr/miyoo/lib:/config/lib:/customer/lib:$LD_LIBRARY_PATH"
 export SLOT_ROOT
 
 # The Mini Plus LCD is fitted upside down relative to the framebuffer's scan
@@ -28,6 +31,15 @@ LOG="$SLOT_ROOT/slot.log"
 if [ -f "$DIR/DEBUG" ]; then
 	export SLOT_TRACE=1
 	export SLOT_TRACE_LATENCY=1
+fi
+
+# Which sound output to use, if the default gives trouble. Slot plays through the
+# console's own vendor interface and falls back to ALSA by itself; a file
+# Config/audio holding "alsa" makes it use ALSA straight away, so comparing the
+# two is a one-line change and not a rebuild.
+if [ -f "$SLOT_ROOT/Config/audio" ]; then
+	SLOT_AUDIO="$(tr -cd 'a-zA-Z' < "$SLOT_ROOT/Config/audio")"
+	[ -z "$SLOT_AUDIO" ] || export SLOT_AUDIO
 fi
 
 # Seed the emulator cores into Slot/System, replacing a copy that differs so a
