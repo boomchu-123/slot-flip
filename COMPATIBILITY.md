@@ -169,6 +169,16 @@ Checked by hand by the maintainer; this is the build that ships as stable.
 - **Left stick as a D-pad** walks Crash Bandicoot again.
 - **The Gameplay page scrolls** instead of overflowing.
 - **Analog sticks** work, but are still rough at the extremes (known problem above).
+- **PlayStation speed, measured:** Tekken 3, on the shipping v0.15.0 asset (the
+  installed binary's SHA-256 is the one in `Slot-my355.zip`), booted straight
+  into the game on the stock firmware. Twelve consecutive samples had 120 to 122
+  emulator frames every 2.0 s, against the core's own 60.000 fps, with the CPU at
+  1992 MHz and nothing missed. Full speed in a 3D game, measured from Slot's trace
+  rather than watched.
+- **Audio, measured:** while that game ran, the sound card was open and running at
+  48000 Hz, S16_LE, two channels, 10 ms periods, and the codec's `Playback Path`
+  read `SPK` — set by Slot with no launcher daemon running. That is the stream, not
+  the sound: nobody has listened to a Flip title and judged it (see below).
 
 Not verified on v0.15.0: headphones routing (the code path is there, the jack was
 not tried), L3/R3 reaching a game, and the analog sticks in Final Fantasy VII.
@@ -233,10 +243,12 @@ Do not assume any of these work until a row above says so.
 
 - **Playing a game through.** Nothing on the Flip was played past its intro, and
   the Mini Plus games were played briefly rather than through.
-- **Sound.** Screenshots cannot hear. Audio was not judged for any title on the
-  Flip, and the Mini Plus has no sound at all yet (see above).
-- **Speed in heavy scenes.** Frame rate was not measured per game. PlayStation in
-  particular has only one game timed (see the README).
+- **Sound.** Screenshots cannot hear. The stream was confirmed running at 48 kHz
+  with the speaker path set on the Flip (see above), but no title on either device
+  has been listened to and judged. The Mini Plus has no sound at all yet.
+- **Speed in heavy scenes.** Frame rate was not measured per game. On the Flip,
+  Tekken 3 is the one PlayStation game timed (60 fps, above); Gran Turismo 2 is
+  not, and no NES, SNES or Sega title has been timed.
 - **In-game saving** for each title, and resuming from a save after a reboot.
 - **A disc change** on a multi-disc game (Final Fantasy VII, Metal Gear Solid):
   only disc 1 was booted.
