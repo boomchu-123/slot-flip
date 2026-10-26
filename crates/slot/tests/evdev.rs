@@ -6,11 +6,12 @@ use slot_input::{Btn, RawEvent};
 
 fn packet(kind: u16, code: u16, value: i32) -> [u8; EVENT_BYTES] {
     let mut b = [0x11u8; EVENT_BYTES];
-    b[16] = kind as u8;
-    b[17] = (kind >> 8) as u8;
-    b[18] = code as u8;
-    b[19] = (code >> 8) as u8;
-    b[20..24].copy_from_slice(&value.to_le_bytes());
+    let h = EVENT_BYTES - 8;
+    b[h] = kind as u8;
+    b[h + 1] = (kind >> 8) as u8;
+    b[h + 2] = code as u8;
+    b[h + 3] = (code >> 8) as u8;
+    b[h + 4..h + 8].copy_from_slice(&value.to_le_bytes());
     b
 }
 
@@ -425,4 +426,22 @@ mod a30_pad {
         }
         assert_eq!(joystick_btn(11), None);
     }
+}
+
+#[test]
+fn an_event_is_read_at_the_size_this_kernel_writes_it() {
+    // A key press is the key event plus its SYN report, back to back.
+    let mut read = Vec::new();
+    read.extend_from_slice(&packet(EV_KEY, 57, 1));
+    read.extend_from_slice(&packet(EV_SYN, 0, 0));
+    let evs: Vec<_> = read
+        .chunks_exact(EVENT_BYTES)
+        .filter_map(decode)
+        .map(|e| (e.kind, e.code, e.value))
+        .collect();
+    assert_eq!(evs, vec![(EV_KEY, 57, 1), (EV_SYN, 0, 0)]);
+    #[cfg(target_pointer_width = "32")]
+    assert_eq!(EVENT_BYTES, 16);
+    #[cfg(not(target_pointer_width = "32"))]
+    assert_eq!(EVENT_BYTES, 24);
 }
