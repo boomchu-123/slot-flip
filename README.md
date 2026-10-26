@@ -30,7 +30,7 @@ for this fork are in the [changelog](CHANGELOG.md).
 | --- | --- | --- | --- | --- |
 | **Miyoo Flip** | `my355` | `Tools/my355/Slot.pak` (MinUI) or `App/Slot` (stock firmware) | ✅ **Supported** (stable) | [Latest release](https://github.com/boomchu-123/slot-flip/releases/latest) |
 | **Miyoo A30** | `my282` | `Tools/my282/Slot.pak` | 🧪 **Experimental** — has a GPU, may work; unverified | [Pre-releases](https://github.com/boomchu-123/slot-flip/releases) |
-| **Miyoo Mini Plus** | `miyoomini` | `Tools/miyoomini/Slot.pak` | 🧪 **Experimental** — GBA/GB/GBC play; **no sound yet** | [Pre-releases](https://github.com/boomchu-123/slot-flip/releases) |
+| **Miyoo Mini Plus** | `miyoomini` | `Tools/miyoomini/Slot.pak` | 🧪 **Experimental** — GBA/GB/GBC play at close to full speed; **sound is untested** | [Pre-releases](https://github.com/boomchu-123/slot-flip/releases) |
 | Any other MinUI device | — | — | ❌ Not supported | — |
 
 The Flip's stock firmware is supported: unzip `Slot-my355.zip` at the card root and
@@ -50,11 +50,11 @@ tester.
   renderer and has a genuine chance of working — but it's **unverified** and the
   button map is a best guess.
 - **Miyoo Mini Plus (`miyoomini`)** has **no GPU**, so it draws with a CPU
-  rasteriser. GBA, Game Boy and Game Boy Color launch and play on a tester's
-  device; buttons, display and POWER all work. **Sound does not work yet** (the
-  device's sound card cannot be opened the normal way; the port needs the
-  vendor's own audio interface), and games are not yet at full speed. It still
-  installs as a MinUI Tool. See the [roadmap](ROADMAP.md).
+  rasteriser. GBA, Game Boy and Game Boy Color play on a tester's device at close
+  to full speed; buttons, display and POWER all work. **Sound has never worked
+  yet**: the device's sound card cannot be opened the normal way, and the latest
+  test build tries the vendor's own audio interface, which has not run on a real
+  console. It still installs as a MinUI Tool. See the [roadmap](ROADMAP.md).
 
 If you have a **Mini Plus**, the port's test builds and reports are collected in
 [issue #3](https://github.com/boomchu-123/slot-flip/issues/3). If you have an
