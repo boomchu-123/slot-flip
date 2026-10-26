@@ -87,13 +87,24 @@ const DISPDBG_MAX: u32 = 255;
 enum Backlight {
     Class(PathBuf),
     Dispdbg(PathBuf),
+    /// A raw PWM channel instead of a class device. The Mini Plus drives its
+    /// panel backlight through `/sys/class/pwm/pwmchip0/pwm0`, and both the
+    /// vendor firmware and MinUI write `duty_cycle` on it directly. `max` is
+    /// the channel's period, so `backlight_value` still produces a duty that
+    /// fills the range the panel accepts.
+    Pwm {
+        dir: PathBuf,
+    },
 }
 
 enum Led {
     // Unused on the Flip, which only has mono LEDs, but kept for the H700.
     #[cfg_attr(feature = "flip", allow(dead_code))]
     Multi(PathBuf),
-    Mono { dir: PathBuf, max: u32 },
+    Mono {
+        dir: PathBuf,
+        max: u32,
+    },
     // The Flip has two single-colour lights: a green "work" light and a red
     // "charger" light. Driven together so low battery shows red (like a GBA SP)
     // while charging lights both.
@@ -126,17 +137,23 @@ impl DevicePlatform {
         let class = first_dir(&sysfs.join("class/backlight"), |d| {
             d.join("brightness").is_file()
         });
-        let max_brightness = class
-            .as_ref()
-            .and_then(|d| read_number(&d.join("max_brightness")))
-            .unwrap_or(DISPDBG_MAX);
-        let backlight = match class {
-            Some(dir) => Some(Backlight::Class(dir)),
+        // A class device is the normal case; after it, the two vendor
+        // interfaces this fork has met on Miyoo hardware, each probed rather
+        // than chosen by compilation so another board can use the same build.
+        let (backlight, max_brightness) = match class {
+            Some(dir) => {
+                let max = read_number(&dir.join("max_brightness")).unwrap_or(DISPDBG_MAX);
+                (Some(Backlight::Class(dir)), max)
+            }
             None => {
                 let dbg = sysfs.join("kernel/debug/dispdbg");
-                dbg.join("param")
-                    .is_file()
-                    .then_some(Backlight::Dispdbg(dbg))
+                if dbg.join("param").is_file() {
+                    (Some(Backlight::Dispdbg(dbg)), DISPDBG_MAX)
+                } else if let Some((dir, max)) = pwm_backlight(&sysfs.join("class/pwm")) {
+                    (Some(Backlight::Pwm { dir }), max)
+                } else {
+                    (None, DISPDBG_MAX)
+                }
             }
         };
         let battery = first_dir(&sysfs.join("class/power_supply"), is_battery);
@@ -227,6 +244,7 @@ impl DevicePlatform {
         let backlight = match &self.backlight {
             Some(Backlight::Class(dir)) => leaf(dir),
             Some(Backlight::Dispdbg(_)) => "dispdbg".to_string(),
+            Some(Backlight::Pwm { dir, .. }) => leaf(dir),
             None => "no backlight".to_string(),
         };
         let motor = match &self.motor {
@@ -508,6 +526,38 @@ fn headphones_in(gpio: &str) -> bool {
         .is_some_and(|(_, state)| state.split_whitespace().nth(1) == Some("hi"))
 }
 
+/// The Mini Plus' backlight is a PWM channel the firmware has already set up,
+/// so the only probe needed is whether channel 0 exists. If it has not been
+/// exported yet, export it; if it has no period (a cold kernel), give it the
+/// 100 the vendor firmware and MinUI both assume.
+///
+/// This is runtime detection on purpose: it is one more backlight interface in
+/// the list, not a device compiled into shared code.
+fn pwm_backlight(chip: &Path) -> Option<(PathBuf, u32)> {
+    let dir = chip.join("pwmchip0/pwm0");
+    if !dir.join("duty_cycle").is_file() {
+        let _ = fs::write(chip.join("pwmchip0/export"), "0");
+    }
+    let duty = dir.join("duty_cycle");
+    if !duty.is_file() {
+        return None;
+    }
+    let mut period = read_number(&dir.join("period")).filter(|p| *p > 0);
+    if period.is_none() {
+        let enable = dir.join("enable");
+        let _ = fs::write(&enable, "0");
+        let _ = fs::write(dir.join("period"), "100");
+        period = read_number(&dir.join("period")).filter(|p| *p > 0);
+        let _ = fs::write(&enable, "1");
+    }
+    let max = period?;
+    // Enabled here rather than left to the launcher: the first brightness the
+    // app sets would otherwise go to a disabled channel and leave the panel
+    // dark until something else turned it on.
+    let _ = fs::write(dir.join("enable"), "1");
+    Some((dir, max))
+}
+
 fn backlight_value(step: u8, max: u32) -> u32 {
     let step = u32::from(step).min(TOP_STEP);
     if step == 0 {
@@ -557,6 +607,7 @@ impl Platform for DevicePlatform {
                 write(dir.join("param"), value.to_string());
                 write(dir.join("start"), "1".to_string());
             }
+            Backlight::Pwm { dir, .. } => write(dir.join("duty_cycle"), value.to_string()),
         }
     }
 
@@ -670,7 +721,18 @@ impl Platform for DevicePlatform {
         let _ = Command::new("sync").status();
         self.breadcrumb("poweroff: sync returned, about to signal init");
         release_logs();
-        let _ = Command::new("poweroff").status();
+        // The Flip's firmware has `poweroff`; the Mini Plus' buildroot is a
+        // different one and MinUI itself calls `shutdown` there. Ask the first,
+        // fall back to the second, and only wait out the ten seconds if neither
+        // ran: that wait is what made a held power button look like a hang.
+        for cmd in ["poweroff", "shutdown"] {
+            match Command::new(cmd).status() {
+                Ok(status) if status.success() => std::process::exit(0),
+                Ok(_) => {}
+                Err(_) => {}
+            }
+        }
+        self.breadcrumb("poweroff: neither poweroff nor shutdown ran");
         std::thread::sleep(Duration::from_secs(10));
         std::process::exit(0)
     }

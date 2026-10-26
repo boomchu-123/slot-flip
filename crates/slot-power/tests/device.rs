@@ -327,7 +327,11 @@ fn a_mono_led_is_on_except_when_the_battery_is_low() {
 #[test]
 fn the_flip_pair_shows_red_when_low_and_both_when_charging() {
     let d = sysfs("255", "87");
-    leds(&d, "work", &[("brightness", "0"), ("max_brightness", "255")]);
+    leds(
+        &d,
+        "work",
+        &[("brightness", "0"), ("max_brightness", "255")],
+    );
     leds(
         &d,
         "charger",
@@ -549,4 +553,53 @@ fn the_repair_result_is_read_once() {
         assert_eq!(slot_power::take_repair_result(&file), Some(want), "{text}");
         assert!(!file.exists(), "{text} was left to be shown again");
     }
+}
+
+/// The Mini Plus has no class backlight: its panel light is a raw PWM channel.
+fn pwm_sysfs(period: Option<&str>) -> TempDir {
+    let d = tempfile::tempdir().unwrap();
+    let pwm = d.path().join("class/pwm/pwmchip0/pwm0");
+    fs::create_dir_all(&pwm).unwrap();
+    fs::write(pwm.join("duty_cycle"), "100\n").unwrap();
+    fs::write(pwm.join("enable"), "1\n").unwrap();
+    if let Some(period) = period {
+        fs::write(pwm.join("period"), period).unwrap();
+    }
+    d
+}
+
+fn pwm_file(d: &TempDir, name: &str) -> String {
+    fs::read_to_string(d.path().join("class/pwm/pwmchip0/pwm0").join(name)).unwrap()
+}
+
+#[test]
+fn a_raw_pwm_channel_is_treated_as_the_backlight() {
+    let d = pwm_sysfs(Some("100\n"));
+    let mut p = platform(&d);
+    p.set_backlight(9);
+    assert_eq!(pwm_file(&d, "duty_cycle").trim(), "100");
+    p.set_backlight(1);
+    let dim = pwm_file(&d, "duty_cycle").trim().parse::<u32>().unwrap();
+    assert!(dim > 0 && dim < 100, "step 1 wrote {dim} of 100");
+    p.set_backlight(0);
+    assert_eq!(pwm_file(&d, "duty_cycle").trim(), "0");
+}
+
+#[test]
+fn a_pwm_channel_with_no_period_gets_the_vendor_value() {
+    let d = pwm_sysfs(None);
+    let mut p = platform(&d);
+    assert_eq!(pwm_file(&d, "period").trim(), "100");
+    p.set_backlight(9);
+    assert_eq!(pwm_file(&d, "duty_cycle").trim(), "100");
+}
+
+#[test]
+fn the_report_names_the_pwm_channel_it_found() {
+    let d = pwm_sysfs(Some("100\n"));
+    assert!(
+        platform(&d).report().contains("backlight pwm0 (0 to 100)"),
+        "{}",
+        platform(&d).report()
+    );
 }
