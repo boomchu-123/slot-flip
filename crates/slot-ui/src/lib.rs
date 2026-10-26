@@ -86,8 +86,8 @@ pub use polaroids::{
 };
 pub use power_menu::{menu_detail_face, menu_face, PowerChoice, MENU_PAD};
 pub use quick_menu::{
-    core_button_legends, delete_legends, draw_menu_ground, link_button_legends, prompt_legends,
-    quick_caret_face, quick_description_face, quick_label_face, quick_legend_faces,
+    core_button_legends, delete_legends, draw_menu_ground, link_button_legends, menu_ground_face,
+    prompt_legends, quick_caret_face, quick_description_face, quick_label_face, quick_legend_faces,
     quick_pointer_face, quick_row_top, quick_row_top_at, quick_scroll, quick_value_face,
     quick_warning_value_face, quick_window, repair_legends, QuickMenu, QuickMenuFaces, QuickRow,
     QuickScroll, QuickValue, BIND_COUNT, QUICK_EDGE, QUICK_LABEL_X, QUICK_PITCH, QUICK_VISIBLE,

@@ -1300,6 +1300,8 @@ pub struct QuickMenu<'a> {
     pub wallpaper: Option<[(TexId, u32, u32); 2]>,
     pub faces: Option<&'a QuickMenuFaces>,
     pub ground: Option<(TexId, u32)>,
+    /// Whether `ground` already has `GROUND_SCRIM` baked into it.
+    pub ground_dimmed: bool,
     pub palette: Option<[(TexId, u32, u32); 2]>,
     pub gba_bezel: Option<[(TexId, u32, u32); 2]>,
     pub gb_bezel: Option<[(TexId, u32, u32); 2]>,
@@ -1324,7 +1326,7 @@ pub struct QuickMenu<'a> {
 impl QuickMenu<'_> {
     pub fn draw(&self, out: &mut Vec<Draw>) {
         match (self.over_game, self.row.page() == QuickRow::PLAY_SCREEN) {
-            (false, _) => draw_menu_ground(self.canvas, self.ground, out),
+            (false, _) => draw_menu_ground(self.canvas, self.ground, self.ground_dimmed, out),
             (true, panel) => {
                 let y = match panel {
                     true => quick_row_top(self.row.page()[0], self.hidden) - PANEL_GAP,
@@ -1461,7 +1463,12 @@ impl QuickMenu<'_> {
     }
 }
 
-pub fn draw_menu_ground(canvas: Canvas, ground: Option<(TexId, u32)>, out: &mut Vec<Draw>) {
+pub fn draw_menu_ground(
+    canvas: Canvas,
+    ground: Option<(TexId, u32)>,
+    premade_scrim: bool,
+    out: &mut Vec<Draw>,
+) {
     let (w, h) = (canvas.w, OUT_H as f32);
     match ground {
         Some((tex, tex_w)) => {
@@ -1474,13 +1481,20 @@ pub fn draw_menu_ground(canvas: Canvas, ground: Option<(TexId, u32)>, out: &mut 
                 alpha: 1.0,
                 uv: canvas.cover(tex_w as f32),
             });
-            out.push(Draw::Rect {
-                x: 0.0,
-                y: 0.0,
-                w,
-                h,
-                colour: [0.0, 0.0, 0.0, GROUND_SCRIM],
-            });
+            // `premade_scrim` says the texture already carries `GROUND_SCRIM`
+            // (see `menu_ground_face`). On the software renderer that rect is a
+            // read-modify-write over 640x480 -- 17.7 ms of a 16.8 ms frame on
+            // the Mini Plus -- so the menu's static ground is stored dimmed
+            // instead and this rect is skipped.
+            if !premade_scrim {
+                out.push(Draw::Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    w,
+                    h,
+                    colour: [0.0, 0.0, 0.0, GROUND_SCRIM],
+                });
+            }
         }
         None => out.push(Draw::Rect {
             x: 0.0,
@@ -1490,6 +1504,28 @@ pub fn draw_menu_ground(canvas: Canvas, ground: Option<(TexId, u32)>, out: &mut 
             colour: opening(),
         }),
     }
+}
+
+/// `rgba` with the menu scrim already blended in, for `draw_menu_ground`.
+///
+/// Byte-for-byte what the compositor would produce for a black rect at
+/// `GROUND_SCRIM` over the texture, so baking it changes the cost and not the
+/// picture. The division is the compositor's `div255` (rounding, no divide).
+pub fn menu_ground_face(rgba: &[u8]) -> Vec<u8> {
+    let a = (GROUND_SCRIM * 255.0) as u32;
+    let ia = 255 - a;
+    let div255 = |x: u32| {
+        let x = x + 128;
+        (x + (x >> 8)) >> 8
+    };
+    let mut out = rgba.to_vec();
+    for px in out.chunks_exact_mut(4) {
+        for c in &mut px[..3] {
+            *c = div255(u32::from(*c) * ia) as u8;
+        }
+        px[3] = (a + div255(u32::from(px[3]) * ia)).min(255) as u8;
+    }
+    out
 }
 
 pub const QUICK_VISIBLE: usize = 6;
@@ -1581,4 +1617,28 @@ fn push(out: &mut Vec<Draw>, tex: TexId, x: f32, y: f32, w: u32, h: u32) {
         tex,
         alpha: 1.0,
     });
+}
+
+#[cfg(test)]
+mod scrim_tests {
+    use super::menu_ground_face;
+
+    /// The baked scrim must be the compositor's own arithmetic, or baking it
+    /// would change the picture. `div255` rounds, and the alpha is 255 after a
+    /// scrim over an opaque image.
+    #[test]
+    fn the_baked_scrim_is_the_blend_it_replaces() {
+        let got = menu_ground_face(&[255, 128, 0, 255]);
+        assert_eq!(got, vec![90, 45, 0, 255]);
+        let black = menu_ground_face(&[0, 0, 0, 255]);
+        assert_eq!(black, vec![0, 0, 0, 255]);
+    }
+
+    /// Alpha follows the same formula, so a texture that was not quite opaque
+    /// keeps the same coverage it had under the live rect.
+    #[test]
+    fn a_transparent_pixel_keeps_the_right_alpha() {
+        let got = menu_ground_face(&[255, 255, 255, 0]);
+        assert_eq!(got, vec![90, 90, 90, 165]);
+    }
 }
