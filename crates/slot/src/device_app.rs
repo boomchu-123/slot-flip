@@ -163,7 +163,7 @@ pub fn run() {
     frontend.drive_emulator();
     let mut pacer = Pacer::new();
     let (mut frames, mut missed, mut early) = (0u32, 0u32, 0u32);
-    #[cfg(feature = "flip")]
+    #[cfg(any(feature = "flip", feature = "miyoomini"))]
     let mut heartbeat = (Instant::now(), 0u64, frontend.frames_published());
     loop {
         pacer.wait();
@@ -210,9 +210,11 @@ pub fn run() {
                 (frames, missed, early) = (0, 0, 0);
             }
         }
-        // Flip heartbeat: every ~2s report how many main-loop iterations ran
-        // versus how many emulator frames the core published. Only under trace.
-        #[cfg(feature = "flip")]
+        // Heartbeat: every ~2s report how many main-loop iterations ran versus
+        // how many emulator frames the core published. Only under trace. The
+        // Mini Plus has it too, because "the game feels slow" there needs a
+        // frame count to settle, not an impression.
+        #[cfg(any(feature = "flip", feature = "miyoomini"))]
         if slot::latency::tracing() {
             heartbeat.1 += 1;
             if heartbeat.0.elapsed() >= Duration::from_secs(2) {

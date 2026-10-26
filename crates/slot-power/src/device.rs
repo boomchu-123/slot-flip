@@ -16,6 +16,18 @@ const BACKLIGHT_FLOOR: f64 = 8.0 / 255.0;
 
 const BACKLIGHT_CURVE: f64 = 1.75;
 
+/// The Mini Plus' PWM channel has a period of 800, but the panel is already at
+/// full brightness by a duty of 100: MinUI's whole range is 6 to 100 and never
+/// goes higher. Scaling across the period instead put the top of the range
+/// eight times too high, so every step past the third looked the same.
+const PWM_FULL: u32 = 100;
+
+/// MinUI's dimmest setting, and the lowest duty the panel shows anything at.
+const PWM_FLOOR: u32 = 6;
+
+/// What MinUI and the vendor firmware set a cold channel's period to.
+const PWM_PERIOD: u32 = 800;
+
 const DEV_INPUT: &str = "/dev/input";
 
 const RUN_DIR: &str = "/run";
@@ -89,9 +101,9 @@ enum Backlight {
     Dispdbg(PathBuf),
     /// A raw PWM channel instead of a class device. The Mini Plus drives its
     /// panel backlight through `/sys/class/pwm/pwmchip0/pwm0`, and both the
-    /// vendor firmware and MinUI write `duty_cycle` on it directly. `max` is
-    /// the channel's period, so `backlight_value` still produces a duty that
-    /// fills the range the panel accepts.
+    /// vendor firmware and MinUI write `duty_cycle` on it directly. Its `max`
+    /// is `PWM_FULL`, not the channel's period: the period is far longer than
+    /// the part of it the panel responds to.
     Pwm {
         dir: PathBuf,
     },
@@ -529,7 +541,10 @@ fn headphones_in(gpio: &str) -> bool {
 /// The Mini Plus' backlight is a PWM channel the firmware has already set up,
 /// so the only probe needed is whether channel 0 exists. If it has not been
 /// exported yet, export it; if it has no period (a cold kernel), give it the
-/// 100 the vendor firmware and MinUI both assume.
+/// 800 the vendor firmware and MinUI both use.
+///
+/// The returned maximum is the duty that is full brightness, which is not the
+/// period: a Mini Plus reports 800 and is bright by 100.
 ///
 /// This is runtime detection on purpose: it is one more backlight interface in
 /// the list, not a device compiled into shared code.
@@ -546,11 +561,13 @@ fn pwm_backlight(chip: &Path) -> Option<(PathBuf, u32)> {
     if period.is_none() {
         let enable = dir.join("enable");
         let _ = fs::write(&enable, "0");
-        let _ = fs::write(dir.join("period"), "100");
+        let _ = fs::write(dir.join("period"), PWM_PERIOD.to_string());
         period = read_number(&dir.join("period")).filter(|p| *p > 0);
         let _ = fs::write(&enable, "1");
     }
-    let max = period?;
+    let period = period?;
+    let max = period.min(PWM_FULL);
+    eprintln!("slot: backlight: pwm period {period}, full brightness at duty {max}");
     // Enabled here rather than left to the launcher: the first brightness the
     // app sets would otherwise go to a disabled channel and leave the panel
     // dark until something else turned it on.
@@ -558,13 +575,16 @@ fn pwm_backlight(chip: &Path) -> Option<(PathBuf, u32)> {
     Some((dir, max))
 }
 
-fn backlight_value(step: u8, max: u32) -> u32 {
+fn backlight_value(step: u8, max: u32, least: u32) -> u32 {
     let step = u32::from(step).min(TOP_STEP);
     if step == 0 {
         return 0;
     }
     let t = f64::from(step - 1) / f64::from(TOP_STEP - 1);
-    let floor = (f64::from(max) * BACKLIGHT_FLOOR).round().max(1.0);
+    let floor = (f64::from(max) * BACKLIGHT_FLOOR)
+        .round()
+        .max(1.0)
+        .max(f64::from(least.min(max)));
     let span = f64::from(max) - floor;
     (floor + span * t.powf(BACKLIGHT_CURVE)).round() as u32
 }
@@ -593,7 +613,11 @@ impl Platform for DevicePlatform {
         let Some(backlight) = &self.backlight else {
             return;
         };
-        let value = backlight_value(step, self.max_brightness);
+        let least = match backlight {
+            Backlight::Pwm { .. } => PWM_FLOOR,
+            _ => 0,
+        };
+        let value = backlight_value(step, self.max_brightness, least);
         let write = |file: PathBuf, body: String| {
             if let Err(e) = fs::write(&file, body) {
                 eprintln!("slot: {}: {e}", file.display());

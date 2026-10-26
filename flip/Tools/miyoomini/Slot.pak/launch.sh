@@ -45,6 +45,30 @@ cd "$DIR"
 # build again: the first tester log was from the previous package and nothing
 # in it said so.
 printf 'slot: pak %s\n' "$(cat "$DIR/slot.version" 2>/dev/null || echo unknown)" > "$LOG"
+
+# MinUI drops the CPU to its 504 MHz menu speed when it starts and nothing puts
+# it back before a Tool runs, so without this the shelf, the software renderer
+# and the emulator all run at under half the clock MinUI gives its own games.
+# overclock.elf is MinUI's helper; without MinUI it is simply not there and the
+# clock is left as the firmware set it. A file Config/cpu-khz overrides the
+# speed, because a wrong guess here should be a one-line fix and not a rebuild.
+# The helper writes SoC registers, so the number is kept inside the two speeds
+# MinUI itself uses.
+OVERCLOCK="$(command -v overclock.elf 2>/dev/null)"
+[ -n "$OVERCLOCK" ] || [ ! -x "$SD/.system/miyoomini/bin/overclock.elf" ] ||
+	OVERCLOCK="$SD/.system/miyoomini/bin/overclock.elf"
+KHZ=""
+[ ! -f "$SLOT_ROOT/Config/cpu-khz" ] || KHZ="$(tr -cd '0-9' < "$SLOT_ROOT/Config/cpu-khz")"
+if [ -z "$KHZ" ] || [ "$KHZ" -lt 504000 ] || [ "$KHZ" -gt 1488000 ]; then
+	KHZ="${CPU_SPEED_GAME:-1296000}"
+fi
+if [ -n "$OVERCLOCK" ]; then
+	printf 'slot: cpu: asking for %s kHz\n' "$KHZ" >> "$LOG"
+	"$OVERCLOCK" "$KHZ" >> "$LOG" 2>&1
+else
+	printf 'slot: cpu: no overclock.elf, the clock is left as it was\n' >> "$LOG"
+fi
+
 ./slot --init-root "$SLOT_ROOT" >> "$LOG" 2>&1
 ./slot >> "$LOG" 2>&1
 sync

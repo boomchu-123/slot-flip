@@ -589,9 +589,38 @@ fn a_raw_pwm_channel_is_treated_as_the_backlight() {
 fn a_pwm_channel_with_no_period_gets_the_vendor_value() {
     let d = pwm_sysfs(None);
     let mut p = platform(&d);
-    assert_eq!(pwm_file(&d, "period").trim(), "100");
+    assert_eq!(pwm_file(&d, "period").trim(), "800");
     p.set_backlight(9);
     assert_eq!(pwm_file(&d, "duty_cycle").trim(), "100");
+}
+
+/// A Mini Plus reports a period of 800, but its panel is at full brightness by
+/// a duty of 100 (MinUI's whole range is 6 to 100). Scaling across the period
+/// made every step above the third look the same on the device.
+#[test]
+fn a_long_pwm_period_does_not_stretch_the_brightness_steps_past_what_the_panel_shows() {
+    let d = pwm_sysfs(Some("800\n"));
+    let mut p = platform(&d);
+    let mut seen = Vec::new();
+    for step in 1..=9u8 {
+        p.set_backlight(step);
+        seen.push(pwm_file(&d, "duty_cycle").trim().parse::<u32>().unwrap());
+    }
+    assert_eq!(seen[0], 6, "the dimmest step is MinUI's own: {seen:?}");
+    assert_eq!(seen[8], 100, "the top step is full brightness: {seen:?}");
+    assert!(
+        seen.windows(2).all(|w| w[0] < w[1]),
+        "every step is brighter than the one before: {seen:?}"
+    );
+    assert!(
+        seen[2] < 60,
+        "step 3 is dim enough to leave room above it: {seen:?}"
+    );
+    assert!(
+        platform(&d).report().contains("backlight pwm0 (0 to 100)"),
+        "{}",
+        platform(&d).report()
+    );
 }
 
 #[test]
