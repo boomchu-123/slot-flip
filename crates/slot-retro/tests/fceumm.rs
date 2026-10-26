@@ -268,3 +268,89 @@ fn a_file_that_is_not_a_nes_game_is_an_error_not_a_crash() {
     assert!(c.load(&junk).is_err());
     assert!(c.load(&dir.join("nothing-here.nes")).is_err());
 }
+
+/// A battery-backed NES cart: the same hand-assembled program, but the header
+/// says the cartridge keeps its save RAM, and the program writes a signature
+/// into it at $6000 and $7FFF, the two ends of the 8 KiB the NES gives a cart.
+fn battery_rom(dir: &Path, name: &str) -> PathBuf {
+    let mut code: Vec<u8> = vec![
+        0x78, // sei
+        0xa2, 0xff, // ldx #$ff
+        0x9a, // txs
+        0xa9, 0xa5, // lda #$a5
+        0x8d, 0x00, 0x60, // sta $6000
+        0xa9, 0x5a, // lda #$5a
+        0x8d, 0x01, 0x60, // sta $6001
+        0xa9, 0x12, // lda #$12
+        0x8d, 0xff, 0x7f, // sta $7fff
+    ];
+    let here = 0x8000 + code.len() as u16;
+    code.extend([0x4c, here as u8, (here >> 8) as u8]); // jmp here
+    let mut prg = vec![0u8; 16 * 1024];
+    prg[..code.len()].copy_from_slice(&code);
+    for vector in [0x3ffa, 0x3ffc, 0x3ffe] {
+        prg[vector..vector + 2].copy_from_slice(&0x8000u16.to_le_bytes());
+    }
+    let mut header = [0u8; 16];
+    header[..4].copy_from_slice(&[0x4e, 0x45, 0x53, 0x1a]); // iNES
+    header[4] = 1; // 16 KiB of program
+    header[5] = 1; // 8 KiB of character
+                   // Bit 1 of byte 6 is the battery, which is what makes the core expose this
+                   // cartridge's save RAM at all.
+    header[6] = 0b0000_0010;
+    let mut file = header.to_vec();
+    file.extend(prg);
+    file.extend(vec![0u8; 8 * 1024]);
+    let path = dir.join(name);
+    std::fs::write(&path, file).unwrap();
+    path
+}
+
+#[test]
+fn a_battery_cart_offers_the_save_ram_the_game_wrote() {
+    let _g = lock();
+    let dir = scratch("fceumm-sram");
+    let Some(mut c) = core(&dir) else { return };
+    c.load(&battery_rom(&dir, "battery.nes")).unwrap();
+    for _ in 0..20 {
+        c.run_frame(ButtonMask::default());
+    }
+    let sav = c.save_ram().expect("a battery cart has save ram");
+    assert_eq!(sav.len(), 8 * 1024, "the NES gives a cart 8 KiB");
+    assert_eq!(&sav[0..2], &[0xa5, 0x5a], "what the program wrote at $6000");
+    assert_eq!(sav[0x1fff], 0x12, "and at the far end, $7fff");
+}
+
+#[test]
+fn a_saved_cart_battery_comes_back_in_a_new_session() {
+    let _g = lock();
+    let dir = scratch("fceumm-sram-reload");
+    let Some(mut c) = core(&dir) else { return };
+    let rom = battery_rom(&dir, "battery.nes");
+    c.load(&rom).unwrap();
+    for _ in 0..20 {
+        c.run_frame(ButtonMask::default());
+    }
+    let kept = c.save_ram().expect("save ram");
+    let mut edited = kept.clone();
+    edited[0x100] = 0x77;
+    // What the frontend writes to the card and hands back next boot.
+    let path = dir.join("battery.sav");
+    std::fs::write(&path, &edited).unwrap();
+    drop(c);
+
+    let mut next = core(&dir).expect("a second session");
+    next.load(&rom).unwrap();
+    next.load_save_ram(&std::fs::read(&path).unwrap())
+        .expect("the kept save is accepted");
+    let back = next.save_ram().expect("save ram");
+    assert_eq!(back, edited, "the whole 8 KiB came back untouched");
+    for _ in 0..5 {
+        next.run_frame(ButtonMask::default());
+    }
+    assert_eq!(
+        &next.save_ram().unwrap()[0..2],
+        &[0xa5, 0x5a],
+        "the game still sees what it wrote"
+    );
+}

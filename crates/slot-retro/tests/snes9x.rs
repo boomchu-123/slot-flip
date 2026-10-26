@@ -34,12 +34,29 @@ fn core(dir: &Path) -> Option<LibretroCore> {
 /// the low byte of the colour and JOY1L (A X L R) the high one, shifted right once,
 /// so the picture says what the core was handed.
 fn rom(dir: &Path, name: &str) -> PathBuf {
+    rom_with(dir, name, false)
+}
+
+/// `rom` with the cartridge's save RAM declared and written to, or without.
+fn rom_with(dir: &Path, name: &str, sram: bool) -> PathBuf {
     let mut code: Vec<u8> = vec![
         0x78, // sei
         0xa9, 0x8f, 0x8d, 0x00, 0x21, // lda #$8f ; sta $2100 (forced blank)
         0xa9, 0x01, 0x8d, 0x00, 0x42, // lda #1   ; sta $4200 (auto-joypad on)
         0xa9, 0x0f, 0x8d, 0x00, 0x21, // lda #$0f ; sta $2100 (screen on)
     ];
+    if sram {
+        // Point the data bank at $70, where a LoROM cartridge's save RAM lives,
+        // write a signature at each end of the 8 KiB, then put the bank back so
+        // the rest of the program addresses zero page and registers as before.
+        code.extend([
+            0xa9, 0x70, 0x48, 0xab, // lda #$70 ; pha ; plb
+            0xa9, 0xa5, 0x8d, 0x00, 0x00, // lda #$a5 ; sta $0000
+            0xa9, 0x5a, 0x8d, 0x01, 0x00, // lda #$5a ; sta $0001
+            0xa9, 0x12, 0x8d, 0xff, 0x1f, // lda #$12 ; sta $1fff
+            0xa9, 0x00, 0x48, 0xab, // lda #0 ; pha ; plb
+        ]);
+    }
     let again = 0x8000 + code.len() as u16;
     code.extend([
         0xad,
@@ -89,7 +106,7 @@ fn rom(dir: &Path, name: &str) -> PathBuf {
     file[0x7fd5] = 0x20; // LoROM, slow
     file[0x7fd6] = 0x00; // ROM only
     file[0x7fd7] = 0x05; // 32 KB
-    file[0x7fd8] = 0x00; // no RAM
+    file[0x7fd8] = if sram { 0x03 } else { 0x00 }; // no RAM, or 8 KiB of save RAM
     file[0x7fd9] = 0x01; // USA
     file[0x7fda] = 0x33;
     for vector in [
@@ -296,4 +313,62 @@ fn a_missing_file_is_an_error_and_a_junk_one_never_crashes_the_core() {
         let (w, h) = c.video_size();
         assert_eq!(c.video_xrgb8888().len(), (w * h * 4) as usize);
     }
+}
+
+#[test]
+fn a_super_nintendo_cart_offers_the_save_ram_the_game_wrote() {
+    let _g = lock();
+    let dir = scratch("snes-sram");
+    let Some(mut c) = core(&dir) else { return };
+    c.load(&rom_with(&dir, "saving.sfc", true)).unwrap();
+    for _ in 0..20 {
+        c.run_frame(ButtonMask::default());
+    }
+    let sav = c.save_ram().expect("a cart with save RAM offers it");
+    assert_eq!(sav.len(), 8 * 1024, "the header asked for 8 KiB");
+    assert_eq!(&sav[0..2], &[0xa5, 0x5a], "what the program wrote");
+    assert_eq!(sav[0x1fff], 0x12, "and the far end of it");
+}
+
+#[test]
+fn a_saved_super_nintendo_cart_comes_back_in_a_new_session() {
+    let _g = lock();
+    let dir = scratch("snes-sram-reload");
+    let Some(mut c) = core(&dir) else { return };
+    let rom = rom_with(&dir, "saving.sfc", true);
+    c.load(&rom).unwrap();
+    for _ in 0..20 {
+        c.run_frame(ButtonMask::default());
+    }
+    let mut kept = c.save_ram().expect("save ram");
+    kept[0x100] = 0x77;
+    let path = dir.join("saving.sav");
+    std::fs::write(&path, &kept).unwrap();
+    drop(c);
+
+    let mut next = core(&dir).expect("a second session");
+    next.load(&rom).unwrap();
+    next.load_save_ram(&std::fs::read(&path).unwrap())
+        .expect("the kept save is accepted");
+    assert_eq!(next.save_ram().expect("save ram"), kept);
+    for _ in 0..5 {
+        next.run_frame(ButtonMask::default());
+    }
+    assert_eq!(&next.save_ram().unwrap()[0..2], &[0xa5, 0x5a]);
+}
+
+#[test]
+fn a_cart_without_save_ram_has_none_to_keep() {
+    let _g = lock();
+    let dir = scratch("snes-no-sram");
+    let Some(mut c) = core(&dir) else { return };
+    c.load(&rom(&dir, "plain.sfc")).unwrap();
+    for _ in 0..10 {
+        c.run_frame(ButtonMask::default());
+    }
+    let sav = c.save_ram();
+    assert!(
+        sav.is_none() || sav.as_deref() == Some(&[][..]),
+        "a plain cart is not offered as a save: {sav:?}"
+    );
 }
