@@ -130,6 +130,8 @@ All three on Genesis Plus GX.
   directions, so Slot is delivering the value; why the game ignores it is **not known**,
   and it was not tried in a second analog game. Gentle and moderate steering works.
   Leave Analog Sticks off to use the left stick as a D-pad instead.
+  **Accepted as a known issue for 1.0:** it is not one of the release checks, and
+  the workaround is the default (Analog Sticks off).
 
 - **The Mini Plus has no sound yet.** ALSA reports the device busy, and no process
   has it open, so the vendor's own audio interface is what has to be used instead.
@@ -249,7 +251,11 @@ Do not assume any of these work until a row above says so.
 - **Speed in heavy scenes.** Frame rate was not measured per game. On the Flip,
   Tekken 3 is the one PlayStation game timed (60 fps, above); Gran Turismo 2 is
   not, and no NES, SNES or Sega title has been timed.
-- **In-game saving** for each title, and resuming from a save after a reboot.
+- **In-game saving for each title**, and resuming from a save after a reboot. The
+  plumbing itself is tested against the real cores: fceumm, snes9x2005, Genesis Plus
+  GX and PCSX-ReARMed each hand their save RAM over and take it back
+  (`crates/slot-retro/tests/`). What no test can show is that a particular game
+  writes its save when it says it does, which is the play-through's job.
 - **A disc change** on a multi-disc game (Final Fantasy VII, Metal Gear Solid):
   only disc 1 was booted.
 - **Undo Load**, the screenshot gallery, and L3/R3 reaching a PlayStation game.
