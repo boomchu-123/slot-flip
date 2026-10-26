@@ -16,7 +16,7 @@ SLOT_ROOT="$SD/Slot"
 # /config/lib and /customer/lib hold the vendor libraries (libmi_ao and the ones
 # it needs) that the sound output loads; MinUI's launcher already has them on the
 # path, and a launcher that does not should not make the sound silent.
-export LD_LIBRARY_PATH="/usr/lib:/usr/miyoo/lib:/config/lib:/customer/lib:$LD_LIBRARY_PATH"
+export LD_LIBRARY_PATH="/usr/lib:/usr/miyoo/lib:/config/lib:/customer/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export SLOT_ROOT
 
 # The Mini Plus LCD is fitted upside down relative to the framebuffer's scan
@@ -58,6 +58,23 @@ cd "$DIR"
 # in it said so.
 printf 'slot: pak %s\n' "$(cat "$DIR/slot.version" 2>/dev/null || echo unknown)" > "$LOG"
 
+# What the launcher that started us has set up. This runs under MinUI today and
+# is meant to run from the console's own launcher too, which gives an app a
+# different environment, so the report says which one this was: the library
+# path and preload the sound output depends on, whether the vendor audio server
+# is running, and what the CPU is doing before and after anything here touches it.
+{
+	printf 'slot: launcher: %s\n' "$([ -n "$SYSTEM_PATH" ] && echo "MinUI ($SYSTEM_PATH)" || echo "not MinUI (no SYSTEM_PATH)")"
+	printf 'slot: launcher: PATH=%s\n' "$PATH"
+	printf 'slot: launcher: LD_PRELOAD=%s\n' "${LD_PRELOAD:-}"
+	printf 'slot: launcher: LD_LIBRARY_PATH=%s\n' "$LD_LIBRARY_PATH"
+	printf 'slot: launcher: audioserver %s\n' "$(pidof audioserver audioserver.mod 2>/dev/null | tr '\n' ' ' | grep . || echo 'not running')"
+	printf 'slot: launcher: kernel %s\n' "$(uname -r 2>/dev/null)"
+	for f in scaling_governor scaling_cur_freq scaling_max_freq; do
+		printf 'slot: launcher: cpu %s %s\n' "$f" "$(cat /sys/devices/system/cpu/cpufreq/policy0/$f 2>/dev/null || echo unreadable)"
+	done
+} >> "$LOG" 2>&1
+
 # MinUI drops the CPU to its 504 MHz menu speed when it starts and nothing puts
 # it back before a Tool runs, so without this the shelf, the software renderer
 # and the emulator all run at under half the clock MinUI gives its own games.
@@ -80,6 +97,7 @@ if [ -n "$OVERCLOCK" ]; then
 else
 	printf 'slot: cpu: no overclock.elf, the clock is left as it was\n' >> "$LOG"
 fi
+printf 'slot: launcher: cpu now %s kHz\n' "$(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq 2>/dev/null || echo unreadable)" >> "$LOG"
 
 ./slot --init-root "$SLOT_ROOT" >> "$LOG" 2>&1
 ./slot >> "$LOG" 2>&1
