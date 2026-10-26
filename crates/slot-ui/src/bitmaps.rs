@@ -96,7 +96,7 @@ fn bleed(rgba: &mut [u8], w: u32, h: u32) {
     }
 }
 
-fn crop_centre(src: &[u8], sw: u32, sh: u32, w: u32) -> Vec<u8> {
+pub(crate) fn crop_centre(src: &[u8], sw: u32, sh: u32, w: u32) -> Vec<u8> {
     let left = ((sw - w) / 2) as usize;
     let mut out = Vec::with_capacity((w * sh * 4) as usize);
     for row in src.chunks_exact(sw as usize * 4) {
