@@ -120,15 +120,17 @@ buttons, power, backlight and cores.
   on hardware and every key is logged
 - ✅ armhf gpSP (GBA) and mGBA (GB/GBC) cores bundled, refreshed by `launch.sh`
 - ✅ GBA, GB and GBC launch and play on hardware (exp-v0.4.0)
-- ✅ POWER held shuts the device down; the PWM backlight is driven from the app
-  (range unconfirmed)
-- 🚧 **Sound.** The firmware's audio daemon holds the ALSA device, so games are
-  silent. `exp-v0.4.2` logs which process has `/dev/snd` open, or that none does,
-  which decides between waiting for the daemon and writing the console's own
-  `MI_AO` output path. This is the one hard unknown.
-- 🚧 **Still to confirm on hardware:** game speed after the free-run change
-  (exp-v0.4.1), the cart slot on every console, and the bottom of the brightness
-  range.
+- ✅ POWER held shuts the device down
+- ✅ The Game Boy and Game Boy Color cart slots line up (exp-v0.4.2)
+- ✅ The brightness setting moves the panel; it only reached levels 1 to 3 of 9
+  because the steps spanned the PWM period instead of the 6 to 100 the panel uses.
+  Reworked in exp-v0.4.3, **unconfirmed**
+- 🚧 **Sound.** Games are silent. exp-v0.4.2's log says no process holds `/dev/snd`
+  and the card is `MI Alsa`, so the vendor's own audio interface is the route:
+  `MI_AO`, the way MinUI plays sound. This is the one hard unknown left.
+- 🚧 **Speed.** Games still do not hold full speed on exp-v0.4.2. MinUI leaves the
+  CPU at its 504 MHz menu speed when a Tool starts; exp-v0.4.3 asks for 1296 MHz
+  and logs the emulator's frame count. **Unconfirmed on a device.**
 - 📋 **Install on the Mini Plus's own launcher.** Today it is a MinUI Tool
   (`Tools/miyoomini/Slot.pak`). 1.0 needs the same shape as the Flip: one zip at
   the card root, an entry in the launcher the device ships with, and no MinUI.
