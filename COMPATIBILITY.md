@@ -131,10 +131,9 @@ All three on Genesis Plus GX.
   and it was not tried in a second analog game. Gentle and moderate steering works.
   Leave Analog Sticks off to use the left stick as a D-pad instead.
 
-- **The Mini Plus has no sound yet.** The firmware's audio daemon holds the ALSA
-  device and the log said only "busy" until exp-v0.4.2 added the process list.
-  Until that answer is in, nothing is known about which fix is right. See
-  [Miyoo Mini Plus](#miyoo-mini-plus-miyoomini).
+- **The Mini Plus has no sound yet.** ALSA reports the device busy, and no process
+  has it open, so the vendor's own audio interface is what has to be used instead.
+  See [Miyoo Mini Plus](#miyoo-mini-plus-miyoomini).
 
 ## Checked on the device, beyond booting
 
@@ -179,31 +178,36 @@ No GPU: the picture is drawn by the CPU rasteriser, not the Flip's GLES path. Th
 port is **not 1.0-ready**; this section exists so the gap is visible rather than
 assumed either way.
 
-**Checked on:** slot-flip exp-v0.4.0, a Mini Plus, October 2026, installed as a
-MinUI Tool (`Tools/miyoomini/Slot.pak`). Builds after it are noted where they
-change something, and none has been reported on yet.
+**Checked on:** slot-flip exp-v0.4.0 and exp-v0.4.2 (the lines below say which), a
+Mini Plus, October 2026, installed as a MinUI Tool (`Tools/miyoomini/Slot.pak`).
+exp-v0.4.3 has not been reported on yet.
 
 - **Display:** upright with no setting to change, and the shelf and menu draw.
 - **Buttons:** every button registers, and the whole map was confirmed from the
   device's own key log — Menu, D-pad, A/B/X/Y, L1/R1/L2/R2, Start, Select, POWER,
   volume up and down.
-- **Games:** GBA (gpSP), Game Boy and Game Boy Color (mGBA) each launch and play.
+- **Games:** GBA (gpSP), Game Boy and Game Boy Color (mGBA) each launch and play
+  (exp-v0.4.0).
 - **Power:** holding POWER shuts the device down.
 - **Menu:** opens and responds; the quick menu felt responsive to the person
   using it.
+- **Cart slot:** the Game Boy and Game Boy Color slots line up (exp-v0.4.2), after
+  the centring fix. Other consoles' slots are drawn the same way but not looked at.
+- **Brightness:** the setting moves the panel (exp-v0.4.2), but only across levels 1
+  to 3 of 9. The steps were spread over a range eight times wider than the panel
+  uses; exp-v0.4.3 narrows them to MinUI's own 6 to 100, which is unconfirmed.
 
 **Not checked, or known not to work:**
 
-- **Sound.** Games are silent: the firmware's audio daemon holds the ALSA device.
-  `exp-v0.4.2` logs which process holds `/dev/snd`, or that none does, and that
-  answer is not in yet. This is the blocker for the Mini Plus on this page.
-- **Speed after the free-run change.** exp-v0.4.1 stopped tying the emulator to the
-  software renderer's frame time, and nobody has timed a game since, so whether it
-  now holds full speed is unknown.
-- **Brightness.** The PWM channel is driven from the app, but whether the setting
-  moves the panel has never been confirmed.
-- **The cart slot on every console.** A centring bug was fixed in exp-v0.4.1; it
-  has not been looked at on the device.
+- **Sound.** Games are silent. exp-v0.4.2's log says **no process holds
+  `/dev/snd`** and the only card is `MI Alsa`, so the device is busy at the driver
+  or the vendor's own audio interface owns it, and ALSA will not open it. The next
+  step is the vendor interface; there is nothing to wait for.
+- **Speed.** Games still do not hold full speed (exp-v0.4.2, tester's report). The
+  log has no frame count, and its Game Boy Advance run was on mGBA, which has no
+  JIT, not the default gpSP. MinUI's launcher leaves the CPU at its 504 MHz menu
+  speed when a Tool starts, which would explain it; exp-v0.4.3 asks for 1296 MHz and
+  logs the emulator's frame count. Neither is confirmed on a device.
 - **Every system other than GBA, GB and GBC.** The other six systems' carts, cores
   and slots are unproven on this device.
 - **Installing without MinUI.** The port is still a MinUI Tool. Nothing has been
