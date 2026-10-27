@@ -135,7 +135,8 @@ All three on Genesis Plus GX.
 
 - **The Mini Plus has no sound yet.** ALSA reports the device busy, and no process
   has it open, so the vendor's own audio interface is what has to be used instead.
-  exp-v0.4.4 tries that; it is unconfirmed. See
+  exp-v0.4.4 reached that interface and was refused at the last step (below);
+  exp-v0.4.5 is the next attempt and is unconfirmed. See
   [Miyoo Mini Plus](#miyoo-mini-plus-miyoomini).
 
 ## Checked on the device, beyond booting
@@ -191,9 +192,9 @@ No GPU: the picture is drawn by the CPU rasteriser, not the Flip's GLES path. Th
 port is **not 1.0-ready**; this section exists so the gap is visible rather than
 assumed either way.
 
-**Checked on:** slot-flip exp-v0.4.0, exp-v0.4.2 and exp-v0.4.3 (the lines below say
-which), a Mini Plus, October 2026, installed as a MinUI Tool
-(`Tools/miyoomini/Slot.pak`). exp-v0.4.4 has not been reported on yet.
+**Checked on:** slot-flip exp-v0.4.0, exp-v0.4.2, exp-v0.4.3 and exp-v0.4.4 (the lines
+below say which), a Mini Plus, October 2026, installed as a MinUI Tool
+(`Tools/miyoomini/Slot.pak`). exp-v0.4.5 has not been reported on yet.
 
 - **Display:** upright with no setting to change, and the shelf and menu draw.
 - **Buttons:** every button registers, and the whole map was confirmed from the
@@ -221,19 +222,29 @@ which), a Mini Plus, October 2026, installed as a MinUI Tool
   The tester also saw mGBA slow down in busy scenes. gpSP is about 3 percent short
   of full speed in these runs. Pokemon and Advance Wars were the games; nothing was
   timed past a minute or so.
-- **Brightness:** the setting moves the panel (exp-v0.4.2), but only across levels 1
-  to 3 of 9. The steps were spread over a range eight times wider than the panel
-  uses; exp-v0.4.3 narrows them to MinUI's own 6 to 100, which is unconfirmed (the
-  report on exp-v0.4.3 did not mention brightness).
+- **Brightness (exp-v0.4.4):** the nine levels now all look different. exp-v0.4.2 only
+  moved the panel across levels 1 to 3, because the steps were spread over a range
+  eight times wider than the panel uses; exp-v0.4.3 narrowed them to MinUI's own 6
+  to 100, and the tester confirms that fixed it. One thing remained: MinUI's own
+  Menu + volume control writes the backlight directly, so slot's number did not follow
+  it, and opening the setting snapped the panel back to the old level. exp-v0.4.5
+  follows the panel and adopts the nearest level; that is tested against a fake
+  panel and **not yet confirmed on a device**.
 
 **Not checked, or known not to work:**
 
 - **Sound.** Games are silent in every build the tester has run. exp-v0.4.2's log
   says **no process holds `/dev/snd`** and the only card is `MI Alsa`, so ALSA will
-  not open it. exp-v0.4.4 is a first attempt through the console's own audio
-  interface, the one MinUI uses. It was checked against stand-in vendor calls and a
-  stand-in library, **not against the real one**, so whether it makes any sound is
-  not known.
+  not open it. exp-v0.4.4 went through the console's own audio library, the one
+  MinUI uses, and the log shows how far it got: the library loaded from
+  `/config/lib`, `GetPubAttr` answered with a working setup (48 kHz, stereo, 768-point
+  chunks), and then `MI_AO_Enable` was refused with `0xa0052007` on every attempt.
+  The library's own error table makes the low byte 7 "not configured": the setup
+  belonged to another program, exp-v0.4.4 had chosen not to repeat it, and a device
+  this process has not configured will not enable. exp-v0.4.5 always sets the
+  attributes itself, as MinUI's driver does. That reading comes from one log and a
+  stand-in library that behaves the same way; it has **not** run on a console, so
+  whether it makes any sound is not known.
 - **Every system other than GBA, GB and GBC.** The other six systems' carts, cores
   and slots are unproven on this device.
 - **Installing without MinUI.** The port is still a MinUI Tool. Nothing has been
