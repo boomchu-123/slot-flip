@@ -89,12 +89,17 @@ that has to be merged twice.
 - **Compatibility is the bar, not system count**: [COMPATIBILITY.md](COMPATIBILITY.md)
   lists what has been played, what is known broken, and which BIOS is needed.
   🚧 Started: 38 titles across all nine systems were cold-booted on a Flip, 37 reach
-  their own intro and one (Fire Emblem, GBA) draws nothing. On the Mini Plus, GBA,
-  GB and GBC launch and play, with no title catalogue yet. "Boots" is not "plays
-  through": playing games through, sound and speed are still open. In-game saves
-  are further along than that: every cartridge core now has a real-core test that
-  its save RAM round-trips (fceumm, snes9x2005, Genesis Plus GX and PCSX-ReARMed),
-  so what is left there is a title-by-title play-through, not the plumbing.
+  their own intro and one (Fire Emblem, GBA) draws nothing (a bad dump, not Slot).
+  All nine were then launched and run on the shipping v0.15.0 build at the core's
+  own frame rate, with the sound device confirmed running at 48 kHz (see
+  [COMPATIBILITY.md](COMPATIBILITY.md)). On the Mini Plus, GBA, GB and GBC launch
+  and play, with no title catalogue yet. "Boots" is still not "plays through": no
+  game on the Flip has been played start to end, and sound has not been judged by
+  ear. In-game saves are further along than that: every cartridge core now has a
+  real-core test that its save RAM round-trips (fceumm, snes9x2005, Genesis Plus
+  GX and PCSX-ReARMed), a GBA save was carried through a reboot on the device, and
+  a PlayStation memory card was read back after one, so what is left there is the
+  title-by-title play-through.
 - **1.0 criteria:** all nine systems pass their games on the Flip; the same nine
   run on the Mini Plus with sound and at full speed; PlayStation has no failure that
   stops a game being played through on the Flip — the analog sticks' roughness at
@@ -301,6 +306,13 @@ a time; the fork's own work is the Flip port itself and a few small additions.
   every 2 s, twelve samples), and the card is open at 48 kHz stereo with the
   speaker path set by Slot. Measured from Slot's trace, not watched. See
   [COMPATIBILITY.md](COMPATIBILITY.md).
+- ✅ **Every one of the nine systems launched and run on that build**: each on a
+  real game, cold booted, at the core's own frame rate (59.4 to 60.1 fps) with the
+  sound device running at 48 kHz. A GBA save was then carried through a reboot and
+  read back by the game, a PlayStation memory card was read back after one, and the
+  in-game menu's disc change was exercised on a three-disc PlayStation game. Still
+  open: playing a game through, a game *asking* for its second disc, and judging the
+  sound by ear.
 - 📋 **Analog steering at the extremes** is a **known issue, accepted for 1.0**
   (see [COMPATIBILITY.md](COMPATIBILITY.md) and the README's workaround): full
   slams and end-to-end sweeps are sometimes ignored by Gran Turismo 2 even though
