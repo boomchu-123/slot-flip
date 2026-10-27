@@ -72,6 +72,7 @@ one-for-one patch cadence the fork does not have.
 | `v0.13.0` | v1.9.0 (fork work only: runs on the Flip's own firmware from `App/Slot`, an optional boot-straight-into-slot zip, and the pak turns the pad on itself) |
 | `v0.14.0` | v1.9.0 (fork work only: one zip that autoboots, plus `install.sh` for the card; stock firmware is the target and MinUI stops gating releases) |
 | `v0.15.0` | v1.9.0 (fork work only: runs on the stock firmware with no launcher daemon — the power node, the codec path, the left stick, the analog bounds; `INSTALL.md` rewritten) |
+| `v0.15.1` | v1.9.0 (fork work only: the log names the process holding the sound device when ALSA cannot open it; docs record the 1.0 checks) |
 | `exp-v0.3.0` | v1.6.0 |
 
 ---

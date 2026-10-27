@@ -322,6 +322,9 @@ a time; the fork's own work is the Flip port itself and a few small additions.
   in-game menu's disc change was exercised on a three-disc PlayStation game. Still
   open: playing a game through, a game *asking* for its second disc, and judging the
   sound by ear.
+- ✅ **Released v0.15.1**: the log names what holds the sound device when ALSA
+  cannot open it, and the compatibility page carries the 1.0 checks (nine systems
+  run, saves across a reboot, a disc change). No change to how a game plays.
 - 📋 **Analog steering at the extremes** is a **known issue, accepted for 1.0**
   (see [COMPATIBILITY.md](COMPATIBILITY.md) and the README's workaround): full
   slams and end-to-end sweeps are sometimes ignored by Gran Turismo 2 even though
