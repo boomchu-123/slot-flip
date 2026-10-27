@@ -130,17 +130,21 @@ buttons, power, backlight and cores.
 - ✅ GBA, GB and GBC launch and play on hardware (exp-v0.4.0)
 - ✅ POWER held shuts the device down
 - ✅ The Game Boy and Game Boy Color cart slots line up (exp-v0.4.2)
-- ✅ The brightness setting moves the panel; it only reached levels 1 to 3 of 9
-  because the steps spanned the PWM period instead of the 6 to 100 the panel uses.
-  Reworked in exp-v0.4.3, **unconfirmed**
+- ✅ The brightness setting moves the panel across all nine levels (exp-v0.4.3,
+  confirmed on exp-v0.4.4); it had only reached levels 1 to 3 because the steps
+  spanned the PWM period instead of the 6 to 100 the panel uses. MinUI's own
+  Menu + volume control did not update slot's number; exp-v0.4.5 follows it,
+  **unconfirmed**
 - ✅ **Speed.** Games run at close to full speed (exp-v0.4.3), measured: gpSP on
   GBA holds 57 to 58 of 59.7 frames a second, mGBA on GB and GBC about 60, mGBA on
   GBA about 49. MinUI leaves the CPU at its 504 MHz menu speed when a Tool starts;
   asking for 1296 MHz fixed it
-- 🚧 **Sound.** Games are silent. exp-v0.4.2's log says no process holds `/dev/snd`
-  and the card is `MI Alsa`, so ALSA is out. exp-v0.4.4 plays through the console's
-  own audio interface (`MI_AO`, the way MinUI plays sound), with ALSA as the
-  fallback. It has run against stand-ins only, **not on a device**. This is the one
+- 🚧 **Sound.** Games are silent. ALSA is out (exp-v0.4.2's log: no process holds
+  `/dev/snd`, the card is `MI Alsa`). exp-v0.4.4 reached the console's own audio
+  interface (`MI_AO`, the way MinUI plays sound): the library loads and answers,
+  and `Enable` was refused as "not configured" because slot had not set the device
+  up itself. exp-v0.4.5 sets it up the way MinUI's driver does. It has run against
+  a stand-in that reproduces that refusal, **not on a device**. This is the one
   hard unknown left
 - 📋 **Install on the Mini Plus's own launcher.** Today it is a MinUI Tool
   (`Tools/miyoomini/Slot.pak`). 1.0 needs the same shape as the Flip: one zip at
