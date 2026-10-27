@@ -160,6 +160,55 @@ These were run on a Flip with the build that became v0.12.0, on the games named.
 - **Lid close and open**, and the MENU button (tap opens the in-game menu, hold
   closes the game), were checked by a person on Crash Bandicoot.
 
+### All nine systems on the Flip, v0.15.0
+
+Run on the shipping v0.15.0 asset on a Flip with its own firmware, booted from the
+card into Slot with no launcher daemon. Each row is a cold boot of a real game,
+with the emulator's frame count and the sound device sampled from Slot's own trace
+and the kernel: not an impression, and not screenshots alone.
+
+| System | Game | Core | Emulator fps | Sound device |
+| --- | --- | --- | --- | --- |
+| GBA | Pokemon Emerald | gpSP | 60.0 of 59.7 | running, 10 of 10 samples |
+| GB | Kirby's Dream Land | mGBA | 60.0 of 59.7 | running, 10 of 10 |
+| GBC | Pokemon Crystal | mGBA | 60.0 of 59.7 | running, 10 of 10 |
+| NES | The Legend of Zelda | fceumm | 60.1 of 60.1 | running, 10 of 10 |
+| SNES | Chrono Trigger | snes9x2005 | 60.0 of 59.9 | running, 10 of 10 |
+| MD | Sonic the Hedgehog | Genesis Plus GX | 60.1 of 59.9 | running, 10 of 10 |
+| SMS | Phantasy Star | Genesis Plus GX | 60.0 of 59.9 | running, 10 of 10 |
+| GG | Sonic Triple Trouble | Genesis Plus GX | 60.0 of 59.9 | running, 9 of 10 |
+| PS1 | Crash Bandicoot | PCSX-ReARMed | 59.4 of 60.0 | running, 10 of 10 |
+
+"Running" is `/proc/asound/card0/pcm0p/sub0` in state `RUNNING` with
+`S16_LE`, two channels and 48000 Hz. It is the *stream*, not the sound: nobody has
+still listened to a Flip title and judged it. Slot closes the device after three
+seconds of silence on purpose, so a game sitting on a silent screen (Chrono
+Trigger's name entry, for one) shows it closed; that is not a fault.
+
+What this does **not** say: that any of these was played through. GBA was the only
+one taken further than its opening screens (below). The rest were launched and run
+to confirm the core, the picture, the frame rate and the sound stream.
+
+- **GBA in-game save, across a power cycle:** Pokemon Emerald was played through
+  its intro and named, saved from the game's own Start menu, ejected, and the Flip
+  rebooted. On the next cold boot the game's continue screen listed the same save
+  (the name entered, 0:05), with the resume state moved out of the way first so the
+  battery save alone was what the game started from. That is the whole path: the
+  game's save, the card file, the reboot, and the game reading it back.
+- **PlayStation memory card, across a power cycle:** Final Fantasy VII, cold
+  booted from its three-disc playlist with no resume state, showed `Continue?` on
+  its title screen: the game had read the memory card on the card, after a reboot.
+- **Disc change, on a real game:** in Final Fantasy VII (a three-disc `.m3u`), the
+  in-game menu's Disc row stepped the disc, and Slot's log records the emulator
+  taking each change (`slot: emu: changing to disc 2 of 3`). The game restarted on
+  the disc chosen. What is still missing is a game *asking* for its second disc
+  part-way through, which means playing to the end of one.
+- **Analog sticks reach the core:** with Analog Sticks on, left-stick movement
+  written to the gamepad node came back in Slot's own trace as peaks of 31042 and
+  -32767, read by the core about 480 times every two seconds. The values were
+  injected rather than pushed by hand, so this proves the path from the pad node to
+  the core, not the feel of a real stick.
+
 ### On the Flip, v0.15.0 (its own firmware, no launcher daemon)
 
 Checked by hand by the maintainer; this is the build that ships as stable.
@@ -254,8 +303,10 @@ below say which), a Mini Plus, October 2026, installed as a MinUI Tool
 
 Do not assume any of these work until a row above says so.
 
-- **Playing a game through.** Nothing on the Flip was played past its intro, and
-  the Mini Plus games were played briefly rather than through.
+- **Playing a game through.** On the Flip, GBA was played into its first town and
+  saved, but no game on any system has been played from start to end. The other
+  eight systems were launched and run, not played. The Mini Plus games were played
+  briefly rather than through.
 - **Sound.** Screenshots cannot hear. The stream was confirmed running at 48 kHz
   with the speaker path set on the Flip (see above), but no title on either device
   has been listened to and judged. The Mini Plus has no sound at all yet.
@@ -267,9 +318,11 @@ Do not assume any of these work until a row above says so.
   GX and PCSX-ReARMed each hand their save RAM over and take it back
   (`crates/slot-retro/tests/`). What no test can show is that a particular game
   writes its save when it says it does, which is the play-through's job.
-- **A disc change** on a multi-disc game (Final Fantasy VII, Metal Gear Solid):
-  only disc 1 was booted.
-- **Undo Load**, the screenshot gallery, and L3/R3 reaching a PlayStation game.
+- **A game asking for its second disc.** The change itself works on the device in
+  Final Fantasy VII (above), but reaching a point where the game asks for the disc
+  means playing to the end of one.
+- **Undo Load**, the screenshot gallery, and L3/R3 reaching a PlayStation game. The
+  sticks themselves do reach the core (above).
 - **Game Boy Color colour games beyond the three above**, Super Game Boy borders,
   and Master System / Game Gear titles that need a particular region or mapper.
 - **Anything on the Miyoo A30.** That build is experimental and has never run on
