@@ -75,16 +75,6 @@ printf 'slot: pak %s\n' "$(cat "$DIR/slot.version" 2>/dev/null || echo unknown)"
 	done
 } >> "$LOG" 2>&1
 
-# MinUI preloads libpadsp into everything it starts. That library forwards a
-# game's sound to the firmware's audio server and keeps the sound device open
-# while it does, which is why Onion's own stop script restarts network daemons
-# that happen to have it loaded. slot talks to the device itself and plays
-# nothing through libpadsp, so it takes the preload out of its own way.
-if [ -n "${LD_PRELOAD:-}" ]; then
-	printf 'slot: env: LD_PRELOAD cleared for slot (was %s)\n' "$LD_PRELOAD" >> "$LOG"
-	unset LD_PRELOAD
-fi
-
 # MinUI drops the CPU to its 504 MHz menu speed when it starts and nothing puts
 # it back before a Tool runs, so without this the shelf, the software renderer
 # and the emulator all run at under half the clock MinUI gives its own games.

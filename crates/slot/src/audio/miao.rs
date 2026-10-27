@@ -241,7 +241,9 @@ impl Api {
     }
 
     fn open(path: &str) -> Result<Self, String> {
-        let ao = unsafe { Library::new(path) }.map_err(|e| e.to_string())?;
+        let dir = path.rsplit_once('/').map(|(dir, _)| dir);
+        let mut libs = global_support(dir);
+        let ao = open_checked(path)?;
         macro_rules! get {
             ($name:literal) => {
                 *unsafe { ao.get(concat!($name, "\0").as_bytes()) }
@@ -270,13 +272,61 @@ impl Api {
                 .ok()
                 .map(|f| *f)
         });
-        let mut libs = vec![ao];
+        libs.push(ao);
         libs.extend(sys);
         Ok(Api {
             depth,
             _libs: libs,
             ..api
         })
+    }
+}
+
+/// The libraries `libmi_ao` leans on without listing them. It calls into the
+/// system's OS wrapper (`CamOsRwsemInit` and friends) and leaves the loader to
+/// find that from whatever the program already has: MinUI's preloaded libpadsp
+/// supplied it, so a process without the preload died inside the first AO call
+/// with an undefined symbol. Loading them first and globally makes the program
+/// carry its own copy.
+const SUPPORT: [&str; 2] = ["libcam_os_wrapper.so", "libmi_common.so"];
+
+fn global_support(dir: Option<&str>) -> Vec<Library> {
+    use libloading::os::unix::{Library as Unix, RTLD_GLOBAL, RTLD_NOW};
+    let mut loaded = Vec::new();
+    for name in SUPPORT {
+        let candidates = dir
+            .map(|dir| format!("{dir}/{name}"))
+            .into_iter()
+            .chain(["/config/lib", "/customer/lib"].map(|dir| format!("{dir}/{name}")))
+            .chain([name.to_string()]);
+        let mut found = false;
+        for candidate in candidates {
+            if let Ok(lib) = unsafe { Unix::open(Some(&candidate), RTLD_NOW | RTLD_GLOBAL) } {
+                eprintln!("slot: audio: support library {candidate}");
+                loaded.push(Library::from(lib));
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            eprintln!("slot: audio: support library {name} not found");
+        }
+    }
+    loaded
+}
+
+/// Opens the vendor library resolving every symbol at once when it can, so a
+/// missing one is a line in the log and a fall back to ALSA instead of the
+/// loader killing the process in the middle of a call. If it cannot be opened
+/// that way, the lazy open is what was known to work with the preload present.
+fn open_checked(path: &str) -> Result<Library, String> {
+    use libloading::os::unix::{Library as Unix, RTLD_GLOBAL, RTLD_NOW};
+    match unsafe { Unix::open(Some(path), RTLD_NOW | RTLD_GLOBAL) } {
+        Ok(lib) => Ok(Library::from(lib)),
+        Err(e) => {
+            eprintln!("slot: audio: {path} does not resolve completely ({e}); opening lazily");
+            unsafe { Library::new(path) }.map_err(|e| e.to_string())
+        }
     }
 }
 
