@@ -3,10 +3,17 @@
 //! The Mini Plus has an ALSA card (`MI Alsa`), but nothing can open it: a
 //! tester's log showed `hw:0,0` busy with no process holding `/dev/snd`, so the
 //! device is owned a level below ALSA. Everything that plays sound on this
-//! console does it through `libmi_ao`, the vendor library, and so does MinUI's
-//! own SDL: set the device's attributes, enable it and its channel, and send
-//! frames. MinUI's `audioserver` runs alongside and uses the same device, so
-//! this takes care not to disturb a device that is already set up.
+//! console does it through `libmi_ao`, the vendor library: set the device's
+//! attributes, enable it and its channel, and send frames.
+//!
+//! The firmware's own `audioserver` owns that device from boot, and while it is
+//! running the library answers `SetPubAttr` with `0xa0052009`, "operation not
+//! allowed" — it will not configure a device somebody else is playing through.
+//! A frontend that needs the output itself stops the server first, which is what
+//! Onion does for the same reason, and then has to put the volume back: the
+//! device comes back at the codec's default and the player hears silence from a
+//! working output. The server is started again when slot exits, or the console's
+//! own sounds would stay off until the next reboot.
 //!
 //! The structures below are this project's own description of the layout the
 //! library expects (SigmaStar's headers are confidential and are not copied
@@ -73,6 +80,27 @@ const LIBRARIES: [&str; 3] = [
     "/customer/lib/libmi_ao.so",
     "libmi_ao.so",
 ];
+
+/// The firmware's audio server, which owns AO from boot. MinUI ships a modified
+/// copy under the second name. Nothing on the console mixes two programs on this
+/// device, so taking it means stopping whichever is running.
+const SERVERS: [&str; 2] = ["audioserver", "audioserver.mod"];
+
+/// The AO debug node. Reading it says what the device is doing, including the
+/// gain it is at; writing to it sets the gain and the mute, which is how Onion
+/// puts the volume back after stopping the server.
+const PROCFS: &str = "/proc/mi_modules/mi_ao/mi_ao0";
+
+/// The gain to take the device at when the debug node cannot be read: MinUI's own
+/// loudest setting, so a guess is never louder than the console already goes.
+const FALLBACK_DB: i32 = -30;
+
+/// The gain range the AO channel accepts.
+const MIN_DB: i32 = -60;
+const MAX_DB: i32 = 30;
+
+/// How long to give a killed server to let go of the device before each retry.
+const TAKE_WAITS_MS: [u64; 5] = [0, 50, 100, 200, 400];
 
 const SAMPLE_RATE_48000: c_int = 48_000;
 const BIT_WIDTH_16: c_int = 0;
@@ -336,6 +364,28 @@ fn chunk_span_u64(frames: u64) -> Duration {
     Duration::from_secs_f64(frames as f64 / RATE as f64)
 }
 
+/// The firmware's audio server, stopped so this process could take the device,
+/// with what it takes to start it again.
+struct Stopped {
+    argv: Vec<String>,
+}
+
+impl Stopped {
+    fn start(&self) -> Result<u32, String> {
+        let Some(exe) = self.argv.first() else {
+            return Err("its command line was empty".into());
+        };
+        let child = std::process::Command::new(exe)
+            .args(&self.argv[1..])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(child.id())
+    }
+}
+
 struct Output {
     api: Api,
     /// Frames in each chunk once the device is set up, and zero before then.
@@ -345,6 +395,13 @@ struct Output {
     sent: u64,
     clock: Option<Clock>,
     attempts: u32,
+    /// The servers stopped to take the device, started again on drop.
+    stopped: Vec<Stopped>,
+    /// Whether the device has been taken from the server once already, so a
+    /// device that keeps refusing is not chased round the same loop.
+    took: bool,
+    /// The gain the device was at before it was taken, to put back afterwards.
+    volume: Option<i32>,
 }
 
 impl Output {
@@ -357,6 +414,48 @@ impl Output {
             sent: 0,
             clock: None,
             attempts: 0,
+            stopped: Vec::new(),
+            took: false,
+            volume: None,
+        }
+    }
+
+    /// Takes the device from the firmware's audio server: reads the gain to put
+    /// back, then stops the server and waits for the library to accept the
+    /// device. Called once; a device that refuses after this is a different
+    /// problem and is reported rather than chased.
+    fn take_device(&mut self) {
+        self.volume = procfs_volume();
+        self.say(format!(
+            "taking the device: volume {}",
+            match self.volume {
+                Some(db) => format!("{db} dB from {PROCFS}"),
+                None => "unreadable, using the fallback".to_string(),
+            }
+        ));
+        self.stopped = stop_servers();
+        if self.stopped.is_empty() {
+            self.say("no audio server was running to stop".into());
+        }
+        dump_procfs("after stopping the server");
+    }
+
+    /// Puts the gain back on a device this process took over. A device that
+    /// comes up at the codec's default is silent with every call answering
+    /// success, which is the failure that costs a whole tester round trip.
+    fn restore_volume(&mut self) {
+        if self.stopped.is_empty() {
+            // Nothing was disturbed, so the device keeps the gain it had.
+            return;
+        }
+        let db = self.volume.unwrap_or(FALLBACK_DB).clamp(MIN_DB, MAX_DB);
+        match procfs_write(&format!("set_ao_volume {CHANNEL} {db}dB")) {
+            Ok(()) => eprintln!("slot: audio: mi_ao gain set to {db} dB"),
+            Err(e) => eprintln!("slot: audio: mi_ao gain not set: {e}"),
+        }
+        match procfs_write(&format!("set_ao_mute {}", if db > MIN_DB { 0 } else { 1 })) {
+            Ok(()) => eprintln!("slot: audio: mi_ao mute {}", db <= MIN_DB),
+            Err(e) => eprintln!("slot: audio: mi_ao mute not set: {e}"),
         }
     }
 
@@ -376,11 +475,56 @@ impl Output {
 
     /// Brings the device up and returns the frames per chunk to send.
     ///
+    /// If the firmware's audio server owns the device, the library refuses to
+    /// configure it (`0xa0052009`, operation not allowed) for as long as the
+    /// server runs. That is the ordinary case on this console, not a fault: the
+    /// server is stopped once, the device is asked for again, and the server is
+    /// started again when slot exits.
+    fn start(&mut self) -> Result<usize, String> {
+        self.attempts += 1;
+        let refused = match self.set_up() {
+            Ok(frames) => {
+                // A device this process took over is put back at the gain the
+                // player had, every time it comes up.
+                self.restore_volume();
+                return Ok(frames);
+            }
+            Err(e) => e,
+        };
+        if self.took {
+            return Err(refused);
+        }
+        self.took = true;
+        self.say(format!(
+            "{refused}; the console's audio server holds the device, stopping it"
+        ));
+        self.take_device();
+        let mut last = refused;
+        for wait in TAKE_WAITS_MS {
+            // Only a server that was actually stopped needs time to let go; with
+            // nothing to stop there is nothing to wait for.
+            if wait > 0 && !self.stopped.is_empty() {
+                std::thread::sleep(Duration::from_millis(wait));
+            }
+            match self.set_up() {
+                Ok(frames) => {
+                    self.restore_volume();
+                    dump_procfs("set up by slot");
+                    return Ok(frames);
+                }
+                Err(e) => last = e,
+            }
+        }
+        log_holders();
+        Err(last)
+    }
+
+    /// One attempt at bringing the device up, without touching the server.
+    ///
     /// A device someone else already configured for this format is left as it
     /// is. Otherwise this sets it up; if the library refuses because the device
     /// is enabled with something else, it is turned off, set, and turned on.
-    fn start(&mut self) -> Result<usize, String> {
-        self.attempts += 1;
+    fn set_up(&mut self) -> Result<usize, String> {
         let mut found = AttrOut::new();
         let got = unsafe { (self.api.get_attr)(DEVICE, &mut found.attr) };
         // What the device holds now is another process's setup (the vendor audio
@@ -567,6 +711,194 @@ impl Output {
 
 fn chunk_span(frames: usize) -> Duration {
     Duration::from_secs_f64(frames as f64 / RATE as f64)
+}
+
+impl Drop for Output {
+    fn drop(&mut self) {
+        // The output has to be off before the server is started again, or it
+        // finds a device this process still holds and stays silent itself.
+        self.turn_off();
+        for server in std::mem::take(&mut self.stopped) {
+            match server.start() {
+                Ok(pid) => eprintln!("slot: audio: the console's audio server is back as pid {pid}"),
+                Err(e) => eprintln!("slot: audio: the console's audio server was not started again ({e}); the console's own sounds stay off until a reboot"),
+            }
+        }
+    }
+}
+
+/// The pids of the firmware's audio server, matched the way Onion's own stop
+/// script matches it: by the program's name, or its path, so a copy under
+/// another file name still counts.
+fn server_pids() -> Vec<u32> {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    let me = std::process::id();
+    let mut pids = Vec::new();
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|n| n.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if pid == me {
+            continue;
+        }
+        let comm = std::fs::read_to_string(entry.path().join("comm")).unwrap_or_default();
+        let argv = argv_of(pid);
+        let named = SERVERS.contains(&comm.trim());
+        let pathed = argv
+            .first()
+            .and_then(|a| a.rsplit('/').next())
+            .is_some_and(|a| SERVERS.iter().any(|s| a.contains(s)));
+        if named || pathed {
+            pids.push(pid);
+        }
+    }
+    pids
+}
+
+/// A process's command line, as it would be started again.
+fn argv_of(pid: u32) -> Vec<String> {
+    let raw = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+    let argv: Vec<String> = raw
+        .split(|b| *b == 0)
+        .filter(|a| !a.is_empty())
+        .map(|a| String::from_utf8_lossy(a).into_owned())
+        .collect();
+    if !argv.is_empty() {
+        return argv;
+    }
+    // A kernel or a busybox that does not fill cmdline still has its binary.
+    std::fs::read_link(format!("/proc/{pid}/exe"))
+        .ok()
+        .map(|p| vec![p.to_string_lossy().into_owned()])
+        .unwrap_or_default()
+}
+
+/// Stops every audio server found, returning what it takes to start them again.
+fn stop_servers() -> Vec<Stopped> {
+    let mut stopped = Vec::new();
+    for pid in server_pids() {
+        let argv = argv_of(pid);
+        let code = unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+        if code == 0 {
+            eprintln!(
+                "slot: audio: mi_ao stopped pid {pid} ({})",
+                argv.first().map(String::as_str).unwrap_or("unknown")
+            );
+        } else {
+            eprintln!(
+                "slot: audio: mi_ao could not stop pid {pid}: {}",
+                std::io::Error::last_os_error()
+            );
+        }
+        stopped.push(Stopped { argv });
+    }
+    stopped
+}
+
+/// Names the processes holding the AO device or the library that fronts it, for
+/// a report where the library still refuses after the server was stopped. The
+/// console's own audio server is not the only thing that can hold it: anything
+/// started with MinUI's `libpadsp` preloaded and playing a sound holds it open.
+fn log_holders() {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return;
+    };
+    let me = std::process::id();
+    let mut found = 0;
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|n| n.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if pid == me {
+            continue;
+        }
+        let fds = std::fs::read_dir(entry.path().join("fd"))
+            .map(|fds| {
+                fds.flatten()
+                    .filter_map(|fd| std::fs::read_link(fd.path()).ok())
+                    .any(|target| target.to_string_lossy().contains("mi_ao"))
+            })
+            .unwrap_or(false);
+        let padsp = std::fs::read_to_string(entry.path().join("maps"))
+            .map(|maps| maps.contains("libpadsp"))
+            .unwrap_or(false);
+        if !fds && !padsp {
+            continue;
+        }
+        found += 1;
+        if found > 5 {
+            continue;
+        }
+        let comm = std::fs::read_to_string(entry.path().join("comm")).unwrap_or_default();
+        eprintln!(
+            "slot: audio: mi_ao holder pid {pid} ({}) {}",
+            comm.trim(),
+            match (fds, padsp) {
+                (true, true) => "has the device open and libpadsp loaded",
+                (true, false) => "has the device open",
+                _ => "has libpadsp loaded",
+            }
+        );
+    }
+    if found == 0 {
+        eprintln!("slot: audio: mi_ao no process holds the device");
+    }
+}
+
+fn procfs_text() -> Option<String> {
+    std::fs::read_to_string(PROCFS).ok()
+}
+
+/// The device's gain in dB, read the way Onion's stop script reads it: the
+/// `LineOut` row carries it in its eighth field.
+fn procfs_volume() -> Option<i32> {
+    parse_volume(&procfs_text()?)
+}
+
+fn parse_volume(text: &str) -> Option<i32> {
+    let line = text.lines().find(|l| l.contains("LineOut"))?;
+    let field = line.split_whitespace().nth(7)?;
+    let digits: String = field
+        .chars()
+        .filter(|c| c.is_ascii_digit() || *c == '-')
+        .collect();
+    digits
+        .parse::<i32>()
+        .ok()
+        .filter(|db| (MIN_DB..=MAX_DB).contains(db))
+}
+
+fn procfs_write(command: &str) -> Result<(), String> {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(PROCFS)
+        .map_err(|e| format!("{command}: {e}"))?;
+    file.write_all(format!("{command}\n").as_bytes())
+        .map_err(|e| format!("{command}: {e}"))
+}
+
+/// Writes what the device says about itself to the log, once. A report that
+/// names the volume, the mute and whether the output is started answers most of
+/// what a silent game can be.
+fn dump_procfs(when: &str) {
+    let Some(text) = procfs_text() else {
+        eprintln!("slot: audio: mi_ao {when}: no {PROCFS} to read");
+        return;
+    };
+    for line in text.lines().take(16) {
+        eprintln!("slot: audio: mi_ao {when} | {}", line.trim_end());
+    }
 }
 
 /// Gives the calling thread a higher scheduling priority. A thread has its own
@@ -774,6 +1106,15 @@ mod tests {
         })
     }
 
+    /// Refuses `set` this many times. Each rung sets the attributes, fails, turns
+    /// the device off and sets them again, so one attempt is two refusals per
+    /// rung: two with a device that reports a setup to match, one without.
+    fn refuse_sets(times: usize) {
+        for _ in 0..times {
+            CODES.with(|c| c.borrow_mut().push(("set", 0xA005_2009u32 as c_int)));
+        }
+    }
+
     fn calls() -> Vec<String> {
         CALLS.with(|c| c.borrow().clone())
     }
@@ -829,17 +1170,39 @@ mod tests {
     }
 
     #[test]
-    fn a_device_that_refuses_every_setup_reports_the_last_refusal() {
+    fn a_device_the_audio_server_holds_is_taken_from_it_and_set_up_again() {
+        // What the second report from a console showed: with the firmware's
+        // audio server running, SetPubAttr answers 0xa0052009, "operation not
+        // allowed", because the server is playing through the device. Both rungs
+        // are refused once, then the device accepts this backend's own setup.
         let mut out = fake(false);
         DEVICE_ATTR.with(|a| *a.borrow_mut() = Some(configured(48_000, 768)));
-        for _ in 0..2 {
-            CODES.with(|c| c.borrow_mut().push(("enable", 0xA005_2007u32 as c_int)));
-        }
-        let err = out.start().unwrap_err();
-        assert!(
-            err.contains("enable") && err.contains("0xa0052007"),
-            "{err}"
+        refuse_sets(4);
+        // Once the server has let go, the device is free to keep the setup it
+        // reports (768 frames), which is what a server set it to.
+        assert_eq!(out.start(), Ok(768));
+        assert!(out.took, "the device was taken from the server");
+        let calls = calls();
+        assert_eq!(
+            calls.iter().filter(|c| *c == "get").count(),
+            2,
+            "the device was asked for again after the server was stopped: {calls:?}"
         );
+        assert_eq!(
+            calls.last().map(String::as_str),
+            Some("enable chn"),
+            "{calls:?}"
+        );
+    }
+
+    #[test]
+    fn a_device_that_keeps_refusing_after_the_takeover_reports_the_last_refusal() {
+        let mut out = fake(false);
+        DEVICE_ATTR.with(|a| *a.borrow_mut() = Some(configured(48_000, 768)));
+        // Two rungs, the first attempt and the five retries after the takeover.
+        refuse_sets(2 * 2 * 6);
+        let err = out.start().unwrap_err();
+        assert!(err.contains("set") && err.contains("0xa0052009"), "{err}");
         assert!(!calls().contains(&"enable chn".to_string()));
     }
 
@@ -888,10 +1251,12 @@ mod tests {
     #[test]
     fn start_reports_the_code_of_the_step_that_failed() {
         let mut out = fake(false);
-        CODES.with(|c| c.borrow_mut().push(("enable", 0xA005_2009u32 as c_int)));
+        for _ in 0..12 {
+            CODES.with(|c| c.borrow_mut().push(("enable", 0xA005_2007u32 as c_int)));
+        }
         let err = out.start().unwrap_err();
         assert!(
-            err.contains("enable") && err.contains("0xa0052009"),
+            err.contains("enable") && err.contains("0xa0052007"),
             "{err}"
         );
         assert!(!calls().contains(&"enable chn".to_string()));
@@ -900,8 +1265,13 @@ mod tests {
     #[test]
     fn a_device_that_keeps_refusing_is_counted_and_a_success_clears_the_count() {
         let mut out = fake(false);
-        for _ in 0..5 {
-            CODES.with(|c| c.borrow_mut().push(("enable", 0xA005_2009u32 as c_int)));
+        // This device reports no setup, so one attempt is one rung and two sets.
+        // The first start also makes the five retries that follow the takeover;
+        // the device is taken once, so every start after it is a single attempt.
+        refuse_sets(2 * 6);
+        assert!(out.start().is_err());
+        for _ in 0..4 {
+            refuse_sets(2);
             assert!(out.start().is_err());
         }
         assert_eq!(
@@ -1010,6 +1380,23 @@ mod tests {
         let mut mono = configured(48_000, 1024);
         mono.sound_mode = 0;
         assert!(!fits(&mono));
+    }
+
+    #[test]
+    fn the_gain_is_read_from_the_lineout_row_the_way_the_onion_script_reads_it() {
+        // Field eight of the LineOut row, with the punctuation some SDK builds
+        // put in it. The row itself is written to the log, so a build that puts
+        // the gain elsewhere is visible in the next report.
+        let text = "\
+AoDev   SamR BitWidth SondMod PtNumPerFrm VolumeDb bMuteEnable bStartPcmOut
+LineOut 48000 16       ster    768        0        0           -12
+";
+        assert_eq!(parse_volume(text), Some(-12));
+        assert_eq!(parse_volume("LineOut a b c d e f -6,\n"), Some(-6));
+        let out_of_range = "LineOut a b c d e f 99dB\n";
+        assert_eq!(parse_volume(out_of_range), None, "a gain no device accepts");
+        assert_eq!(parse_volume("nothing useful here\n"), None);
+        assert_eq!(parse_volume("LineOut a b c d e f x\n"), None);
     }
 
     #[test]
