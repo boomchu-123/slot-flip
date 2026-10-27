@@ -53,8 +53,8 @@ tester.
   rasteriser. GBA, Game Boy and Game Boy Color play on a tester's device at close
   to full speed; buttons, display and POWER all work. **Sound has never worked
   yet**: the device's sound card cannot be opened the normal way, and the latest
-  test build tries the vendor's own audio interface, which has not run on a real
-  console. It still installs as a MinUI Tool. See the [roadmap](ROADMAP.md).
+  test build sets up the vendor's own audio interface the way MinUI does, which
+  has not yet been heard on a real console. It still installs as a MinUI Tool. See the [roadmap](ROADMAP.md).
 
 If you have a **Mini Plus**, the port's test builds and reports are collected in
 [issue #3](https://github.com/boomchu-123/slot-flip/issues/3). If you have an
