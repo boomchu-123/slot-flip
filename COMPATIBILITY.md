@@ -301,7 +301,10 @@ below say which), a Mini Plus, October 2026, installed as a MinUI Tool
 
 ## Not checked yet
 
-Do not assume any of these work until a row above says so.
+Do not assume any of these work until a row above says so. From 1.0 on, these are
+what field reports settle: the release notes say which have not been done, and an
+owner saying what they saw is how a row here moves. None of them is a reason to
+hold a release back.
 
 - **Playing a game through.** On the Flip, GBA was played into its first town and
   saved, but no game on any system has been played from start to end. The other
