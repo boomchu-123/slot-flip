@@ -71,14 +71,23 @@ answering, label caching and the undo rows. A system added on an old base is wor
 that has to be merged twice.
 
 - **The nine systems that ship today** on **both devices** — GBA, GB, GBC, PS1,
-  NES, SNES, MD, SMS, GG — with a real game played through on the Flip, and on the
-  Mini Plus a game from each system launched and played at full speed with sound.
-- **PlayStation to the end:** a timed heavy 3D game (✅ Tekken 3 holds the core's
-  full 60 fps on a Flip), a game actually asking for its second disc, save
-  integrity across reboots, and the analog/clicks test. All of it on the Flip; the
-  disc-change and save checks repeat on the Mini Plus. The analog sticks' roughness
-  at full deflection is a **known issue accepted for 1.0**, not a gate item; it is
-  listed with its workaround in [COMPATIBILITY.md](COMPATIBILITY.md).
+  NES, SNES, MD, SMS, GG — each running a real game at the core's own frame rate
+  with sound, on each device: ✅ on the Flip (see [COMPATIBILITY.md](COMPATIBILITY.md)),
+  and on the Mini Plus a game from each system launched and played at full speed
+  with sound.
+- **PlayStation, working end to end:** a timed heavy 3D game (✅ Tekken 3 holds the
+  core's full 60 fps on a Flip), save integrity across reboots (✅ the memory card
+  is read back after one), and a disc change (✅ exercised in the in-game menu on a
+  three-disc game). The analog sticks' roughness at full deflection is a **known
+  issue accepted for 1.0**, with its workaround in
+  [COMPATIBILITY.md](COMPATIBILITY.md).
+- **Field testing, not gates.** Playing every title through, a game *asking* for its
+  second disc, judging each title's sound by ear, headphones, L3/R3 in a game, and a
+  Flip that has never had MinUI in its flash are **not release gates**. They are
+  what the first months of field reports are for, and the release notes say which of
+  them have not been done. A gate that waits for someone to play nine systems to the
+  end holds the release for weeks and proves less than a hundred owners playing what
+  they already own.
 - **An install a stranger can follow, on each device**: one zip unzipped at the
   card root, which also makes the device start in Slot; `install.sh` inside it for
   anyone who would rather not move folders by hand, with `--check` and `--dry-run`;
@@ -100,11 +109,11 @@ that has to be merged twice.
   GX and PCSX-ReARMed), a GBA save was carried through a reboot on the device, and
   a PlayStation memory card was read back after one, so what is left there is the
   title-by-title play-through.
-- **1.0 criteria:** all nine systems pass their games on the Flip; the same nine
-  run on the Mini Plus with sound and at full speed; PlayStation has no failure that
-  stops a game being played through on the Flip — the analog sticks' roughness at
-  full deflection is a known issue accepted for 1.0, listed in
-  [COMPATIBILITY.md](COMPATIBILITY.md); unzipping the release onto a fresh FAT32
+- **1.0 criteria:** all nine systems run a real game with sound at the core's own
+  frame rate on the Flip (done) and on the Mini Plus; PlayStation has no failure
+  that stops a game being played through on the Flip, the analog sticks' roughness
+  at full deflection being a known issue accepted for 1.0 (see
+  [COMPATIBILITY.md](COMPATIBILITY.md)); unzipping the release onto a fresh FAT32
   card gives a running Slot on **each device's stock firmware with no MinUI
   installed**, **and** `install.sh` does the same from a blank card, checked on
   hardware on both; the download passes `tools/check-pak-licences.sh`; the README
