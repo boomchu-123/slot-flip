@@ -458,6 +458,42 @@ the game starts on its own, so you can script repeated boots for benchmarking or
 to hunt a flaky crash. **Restore both keys to empty afterwards**, and clear any
 shader or test settings you changed.
 
+### Driving a Flip without hands
+
+A run that only needs "the game was reached" can be driven over adb, which is how
+the nine-system sweep and the save-across-reboot checks were done:
+
+- **See the screen** with Slot's own screenshot (SELECT + X). The PNG lands in
+  `Slot/Screenshots/<system>/<game>/`; pull the newest one. It does not work while
+  the in-game menu is open, so menu navigation has to be checked from the log.
+- **Press a button** by writing input events to the gpio node (`/dev/input/event0`,
+  the same node a real press arrives on). The node is *polled*: every poll reports
+  the real, released state and cancels an injected press within a few milliseconds,
+  so a long hold never arrives as one.
+  - For Slot's own menus (MENU, D-pad, A), write **one** down event and let the
+    poll release it. Repeating the down makes the menu repeat the action, which
+    moves a cursor several rows or opens and closes a menu in one press.
+  - For a **game**, re-assert the down every few milliseconds for the length of
+    the press; the emulator samples the pad once a frame and a single 3 ms event
+    is usually missed.
+  - The stick axes are on the gamepad node (`/dev/input/event5`); writes there
+    reach the core, and `DEBUG` prints `slot: analog: the core read the sticks N
+    times, peaks ...` to prove it.
+- **Boot a game** by setting `cart`/`cart_platform` in `Config/slot.state` (see
+  above), and read the game's own evidence from the log: `launch: opening`,
+  `emu: save ram, N bytes`, `emu: resume state`, `av_info fps`.
+- **Test a cold boot** (not a resume) by moving `resume.state` out of
+  `States/<platform>/<core>/<game>/` first. A resumed state can hide a save that
+  was never read from the card.
+- **Let a save reach the card.** Battery saves are flushed about every 60 seconds
+  and on eject, not when the game saves, so check the `.sav` afterwards rather
+  than while the game is still running.
+- **PlayStation menus hide rows** that have nothing to act on (`UndoSave` with
+  nothing to undo, `States` with no states), so counting Down presses from the
+  target's position in the list is the only reliable way to reach a row blind.
+- **Restore what you touched**: `Config/slot.state`, `States/`, and any `DEBUG`
+  file. A save the automated run created is new data on someone's card; say so.
+
 ### Limits
 
 - `/dev/fb0` reads black under KMSDRM, so there is no easy screenshot. Visual
