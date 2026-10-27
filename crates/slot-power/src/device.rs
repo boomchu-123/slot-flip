@@ -134,6 +134,9 @@ pub struct DevicePlatform {
     sysfs: PathBuf,
     backlight: Option<Backlight>,
     max_brightness: u32,
+    /// The duty this program last wrote to a raw PWM backlight, to tell its own
+    /// writes from another program's.
+    last_duty: Option<u32>,
     battery: Option<PathBuf>,
     rtc: Option<PathBuf>,
     motor: Option<Motor>,
@@ -218,6 +221,7 @@ impl DevicePlatform {
             sysfs: sysfs.to_path_buf(),
             backlight,
             max_brightness,
+            last_duty: None,
             battery,
             rtc,
             motor,
@@ -575,6 +579,13 @@ fn pwm_backlight(chip: &Path) -> Option<(PathBuf, u32)> {
     Some((dir, max))
 }
 
+/// The step whose duty is closest to `duty`: the inverse of `backlight_value`.
+fn nearest_step(duty: u32, max: u32, least: u32) -> u8 {
+    (1..=TOP_STEP as u8)
+        .min_by_key(|&step| backlight_value(step, max, least).abs_diff(duty))
+        .unwrap_or(1)
+}
+
 fn backlight_value(step: u8, max: u32, least: u32) -> u32 {
     let step = u32::from(step).min(TOP_STEP);
     if step == 0 {
@@ -631,8 +642,24 @@ impl Platform for DevicePlatform {
                 write(dir.join("param"), value.to_string());
                 write(dir.join("start"), "1".to_string());
             }
-            Backlight::Pwm { dir, .. } => write(dir.join("duty_cycle"), value.to_string()),
+            Backlight::Pwm { dir, .. } => {
+                self.last_duty = Some(value);
+                write(dir.join("duty_cycle"), value.to_string())
+            }
         }
+    }
+
+    fn backlight_moved_elsewhere(&mut self) -> Option<u8> {
+        let Some(Backlight::Pwm { dir }) = &self.backlight else {
+            return None;
+        };
+        let now = read_number(&dir.join("duty_cycle"))?;
+        let ours = self.last_duty?;
+        if now == ours {
+            return None;
+        }
+        self.last_duty = Some(now);
+        Some(nearest_step(now, self.max_brightness, PWM_FLOOR))
     }
 
     fn battery(&self) -> Option<Battery> {

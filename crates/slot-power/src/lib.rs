@@ -54,6 +54,14 @@ pub enum LedState {
 
 pub trait Platform: Send {
     fn set_backlight(&mut self, step: u8);
+
+    /// The brightness step another program has moved the panel to since this one
+    /// last set it, if it did. MinUI's own Menu + volume control writes the
+    /// backlight directly, so without this the setting shows one level while the
+    /// panel is at another, and opening the setting snaps the panel back.
+    fn backlight_moved_elsewhere(&mut self) -> Option<u8> {
+        None
+    }
     fn battery(&self) -> Option<Battery>;
     fn charge(&self) -> Charge;
     fn set_led(&mut self, state: LedState);

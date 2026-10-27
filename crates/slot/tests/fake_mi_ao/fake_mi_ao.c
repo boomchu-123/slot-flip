@@ -7,6 +7,9 @@
  *   fresh      no attributes yet (get fails)       -> slot sets its own
  *   configured already 48 kHz stereo, 1024 points  -> slot adopts it
  *   busy       set fails until the device is disabled
+ *   unowned    reports a working setup (768 points) but refuses Enable with
+ *              "not configured" until this process has called SetPubAttr: what
+ *              the first console report showed
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,7 +19,7 @@ typedef struct { int rate, bits, work, sound; unsigned frames, points, codec, ch
 typedef struct { int bits, sound; void *addr[16]; unsigned long long ts; unsigned seq, len, pool[2]; void *src[16]; unsigned srclen; } Frame;
 typedef struct { unsigned total, free, busy; } State;
 
-static Attr cur; static int have, enabled;
+static Attr cur; static int have, enabled, set_called;
 static unsigned long long sent_frames, sent_sum;
 
 static void note(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
@@ -32,6 +35,10 @@ static const char *mode(void) { const char *m = getenv("FAKE_MI_AO_MODE"); retur
 
 int MI_AO_GetPubAttr(int dev, Attr *a) {
 	(void)dev;
+	if (!have && !strcmp(mode(), "unowned")) {
+		memset(&cur, 0, sizeof cur);
+		cur.rate = 48000; cur.sound = 1; cur.frames = 6; cur.points = 768; cur.chn = 2; have = 1;
+	}
 	if (!have && !strcmp(mode(), "configured")) {
 		memset(&cur, 0, sizeof cur);
 		cur.rate = 48000; cur.sound = 1; cur.frames = 6; cur.points = 1024; cur.chn = 2; have = 1;
@@ -42,9 +49,13 @@ int MI_AO_GetPubAttr(int dev, Attr *a) {
 int MI_AO_SetPubAttr(int dev, Attr *a) {
 	(void)dev;
 	if (!strcmp(mode(), "busy") && enabled) { note("set refused"); return 0xA0052005; }
-	cur = *a; have = 1; note("set %d %d %u %u", a->rate, a->sound, a->points, a->frames); return 0;
+	cur = *a; have = 1; set_called = 1; note("set %d %d %u %u", a->rate, a->sound, a->points, a->frames); return 0;
 }
-int MI_AO_Enable(int dev) { (void)dev; enabled = 1; note("enable"); return 0; }
+int MI_AO_Enable(int dev) {
+	(void)dev;
+	if (!strcmp(mode(), "unowned") && !set_called) { note("enable refused"); return (int)0xA0052007u; }
+	enabled = 1; note("enable"); return 0;
+}
 int MI_AO_Disable(int dev) { (void)dev; enabled = 0; note("disable"); return 0; }
 int MI_AO_EnableChn(int dev, int chn) { (void)dev; (void)chn; note("enable chn"); return 0; }
 int MI_AO_DisableChn(int dev, int chn) { (void)dev; (void)chn; note("disable chn"); return 0; }

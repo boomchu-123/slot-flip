@@ -383,41 +383,51 @@ impl Output {
         self.attempts += 1;
         let mut found = AttrOut::new();
         let got = unsafe { (self.api.get_attr)(DEVICE, &mut found.attr) };
-        let frames = if got == 0 && fits(&found.attr) {
+        // What the device holds now is another process's setup (the vendor audio
+        // server's), and `Enable` refuses a device this process has not configured
+        // itself (0xa0052007, "not configured": exactly what the first on-device
+        // report showed). So attributes are always set. If the device already
+        // holds this backend's format its chunk size is kept, so the audio server's
+        // setup is repeated, not changed; if that still does not enable, this
+        // backend's own attributes are the second try.
+        let mut tries: Vec<Attr> = Vec::new();
+        if got == 0 && fits(&found.attr) {
             self.say(format!(
-                "using the device as configured: {}",
+                "device already holds this format: {}",
                 describe(&found.attr)
             ));
-            found.attr.points_per_frame as usize
+            tries.push(found.attr);
+        } else if got == 0 {
+            self.say(format!(
+                "device is configured differently: {}",
+                describe(&found.attr)
+            ));
         } else {
-            if got == 0 {
-                self.say(format!(
-                    "device is configured differently: {}",
-                    describe(&found.attr)
-                ));
-            } else {
-                self.say(format!("get attr 0x{:x}", got as u32));
-            }
-            let mut attr = own_attr();
-            let set = unsafe { (self.api.set_attr)(DEVICE, &mut attr) };
-            if set != 0 {
-                self.say(format!(
-                    "set attr 0x{:x}, turning the device off first",
-                    set as u32
-                ));
-                unsafe {
-                    let _ = (self.api.disable_chn)(DEVICE, CHANNEL);
-                    let _ = (self.api.disable)(DEVICE);
+            self.say(format!("get attr 0x{:x}", got as u32));
+        }
+        tries.push(own_attr());
+
+        let mut last = String::new();
+        let mut frames = 0;
+        let rungs = tries.len();
+        for (n, mut attr) in tries.into_iter().enumerate() {
+            match self.configure_and_enable(&mut attr) {
+                Ok(()) => {
+                    frames = attr.points_per_frame as usize;
+                    last.clear();
+                    break;
                 }
-                self.step("set attr", unsafe {
-                    (self.api.set_attr)(DEVICE, &mut attr)
-                })?;
-            } else {
-                self.say(format!("set attr 0x0: {}", describe(&attr)));
+                Err(e) => {
+                    if n + 1 < rungs {
+                        self.say(format!("{e}; trying this backend's own setup"));
+                    }
+                    last = e;
+                }
             }
-            OWN_CHUNK as usize
-        };
-        self.step("enable", unsafe { (self.api.enable)(DEVICE) })?;
+        }
+        if !last.is_empty() {
+            return Err(last);
+        }
         self.step("enable channel", unsafe {
             (self.api.enable_chn)(DEVICE, CHANNEL)
         })?;
@@ -436,6 +446,35 @@ impl Output {
         self.frames = frames;
         self.attempts = 0;
         Ok(frames)
+    }
+
+    /// Sets the attributes and enables the device. A device that refuses new
+    /// attributes is turned off and asked again; one that then refuses to enable
+    /// is turned off too, so the next setup starts from a stopped device.
+    fn configure_and_enable(&self, attr: &mut Attr) -> Result<(), String> {
+        let set = unsafe { (self.api.set_attr)(DEVICE, attr) };
+        if set != 0 {
+            self.say(format!(
+                "set attr 0x{:x}, turning the device off first",
+                set as u32
+            ));
+            self.turn_off();
+            self.step("set attr", unsafe { (self.api.set_attr)(DEVICE, attr) })?;
+        } else {
+            self.say(format!("set attr 0x0: {}", describe(attr)));
+        }
+        let enabled = self.step("enable", unsafe { (self.api.enable)(DEVICE) });
+        if enabled.is_err() {
+            self.turn_off();
+        }
+        enabled
+    }
+
+    fn turn_off(&self) {
+        unsafe {
+            let _ = (self.api.disable_chn)(DEVICE, CHANNEL);
+            let _ = (self.api.disable)(DEVICE);
+        }
     }
 
     /// Sends one chunk and says how long to wait before the next.
@@ -754,11 +793,54 @@ mod tests {
     }
 
     #[test]
-    fn a_device_already_set_up_for_this_format_is_used_as_it_is() {
+    fn a_device_already_holding_this_format_is_set_again_with_its_own_chunk_size() {
+        // The device reports a setup, but it is another process's: Enable refuses a
+        // device this process never configured, so the attributes are set anyway.
         let mut out = fake(false);
         DEVICE_ATTR.with(|a| *a.borrow_mut() = Some(configured(48_000, 1024)));
         assert_eq!(out.start(), Ok(1024));
-        assert_eq!(calls(), ["get", "enable", "enable chn"]);
+        assert_eq!(
+            calls(),
+            ["get", "set 48000 1 1024 6", "enable", "enable chn"]
+        );
+    }
+
+    #[test]
+    fn a_device_that_will_not_enable_with_its_own_chunk_gets_this_backends_setup() {
+        // What the first report from a console showed: GetPubAttr answered with a
+        // working setup and Enable then said "not configured" (0xa0052007).
+        let mut out = fake(false);
+        DEVICE_ATTR.with(|a| *a.borrow_mut() = Some(configured(48_000, 768)));
+        CODES.with(|c| c.borrow_mut().push(("enable", 0xA005_2007u32 as c_int)));
+        assert_eq!(out.start(), Ok(OWN_CHUNK as usize));
+        assert_eq!(
+            calls(),
+            [
+                "get",
+                "set 48000 1 768 6",
+                "enable",
+                "disable chn",
+                "disable",
+                "set 48000 1 512 6",
+                "enable",
+                "enable chn"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_device_that_refuses_every_setup_reports_the_last_refusal() {
+        let mut out = fake(false);
+        DEVICE_ATTR.with(|a| *a.borrow_mut() = Some(configured(48_000, 768)));
+        for _ in 0..2 {
+            CODES.with(|c| c.borrow_mut().push(("enable", 0xA005_2007u32 as c_int)));
+        }
+        let err = out.start().unwrap_err();
+        assert!(
+            err.contains("enable") && err.contains("0xa0052007"),
+            "{err}"
+        );
+        assert!(!calls().contains(&"enable chn".to_string()));
     }
 
     #[test]
@@ -988,7 +1070,11 @@ mod tests {
             .iter()
             .position(|l| l.starts_with("send #1 "))
             .expect("a frame was sent");
-        let chunk = if mode == "configured" { 1024 } else { 512 };
+        let chunk = match mode.as_str() {
+            "configured" => 1024,
+            "unowned" => 768,
+            _ => 512,
+        };
         assert!(
             lines[first_send].contains(&format!("len {}", chunk * 4)),
             "a chunk is its frames times four bytes: {}",
@@ -1021,7 +1107,12 @@ mod tests {
             "the channel was enabled before the first frame"
         );
         match mode.as_str() {
-            "configured" => assert!(!lines.iter().any(|l| l.starts_with("set ")), "{lines:?}"),
+            "configured" | "unowned" => assert!(
+                lines
+                    .iter()
+                    .any(|l| l.starts_with(&format!("set 48000 1 {chunk} 6"))),
+                "{lines:?}"
+            ),
             _ => assert!(
                 lines.iter().any(|l| l.starts_with("set 48000 1 512 6")),
                 "{lines:?}"

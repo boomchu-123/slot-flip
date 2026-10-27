@@ -81,6 +81,9 @@ const MENU_REVEAL_MS: Millis = 180;
 
 const CHARGE_POLL_MS: Millis = 1_000;
 const HEADPHONES_POLL_MS: Millis = 500;
+/// How often to look for the backlight having been moved by another program
+/// (MinUI's Menu + volume brightness control writes it directly).
+const BACKLIGHT_POLL_MS: Millis = 500;
 
 const BATTERY_LOW: u8 = 20;
 
@@ -475,6 +478,7 @@ pub struct App {
     charge_at: Millis,
     headphones: bool,
     headphones_at: Millis,
+    backlight_at: Millis,
     battery: Option<Battery>,
     last_led: Option<LedState>,
     powering_off: bool,
@@ -693,6 +697,7 @@ impl App {
             charge_at: CHARGE_POLL_MS,
             headphones: false,
             headphones_at: 0,
+            backlight_at: 0,
             battery: None,
             last_led: None,
             powering_off: false,
@@ -3996,6 +4001,19 @@ impl App {
             self.battery = self.power.as_ref().and_then(|p| p.battery());
             if let Some(b) = self.battery {
                 self.on_battery(b);
+            }
+        }
+        if self.now() >= self.backlight_at {
+            self.backlight_at = self.now() + BACKLIGHT_POLL_MS;
+            let moved = self
+                .power
+                .as_mut()
+                .and_then(|p| p.backlight_moved_elsewhere());
+            if let Some(step) = moved.filter(|&step| step != self.state.brightness) {
+                // Another program set the panel; take that as the setting so the
+                // number shown is the level the panel is at.
+                self.state.brightness = step;
+                self.persist_soon();
             }
         }
         if self.now() >= self.headphones_at {

@@ -31,6 +31,17 @@ impl Power {
         }
     }
 
+    /// See `Platform::backlight_moved_elsewhere`. Not asked while the lid is
+    /// closed, when the backlight is deliberately off.
+    pub fn backlight_moved_elsewhere(&mut self) -> Option<u8> {
+        if self.closed {
+            return None;
+        }
+        let step = self.platform.backlight_moved_elsewhere()?;
+        self.level = step;
+        Some(step)
+    }
+
     pub fn battery(&self) -> Option<Battery> {
         self.platform.battery()
     }

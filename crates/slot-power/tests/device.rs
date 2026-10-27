@@ -632,3 +632,57 @@ fn the_report_names_the_pwm_channel_it_found() {
         platform(&d).report()
     );
 }
+
+/// MinUI's Menu + volume control writes the duty directly. The app has to be able
+/// to see that, or its setting shows one level while the panel is at another.
+#[test]
+fn a_brightness_change_made_by_another_program_is_seen_and_mapped_to_a_step() {
+    let d = pwm_sysfs(Some("800\n"));
+    let mut p = platform(&d);
+    assert_eq!(p.backlight_moved_elsewhere(), None, "nothing written yet");
+    p.set_backlight(7);
+    assert_eq!(
+        p.backlight_moved_elsewhere(),
+        None,
+        "its own write is not news"
+    );
+    // Another program moves the panel to the duty this program calls step 3.
+    p.set_backlight(3);
+    let three = pwm_file(&d, "duty_cycle").trim().to_string();
+    p.set_backlight(7);
+    fs::write(d.path().join("class/pwm/pwmchip0/pwm0/duty_cycle"), &three).unwrap();
+    assert_eq!(p.backlight_moved_elsewhere(), Some(3));
+    assert_eq!(
+        p.backlight_moved_elsewhere(),
+        None,
+        "it is reported once, then it is the new normal"
+    );
+}
+
+#[test]
+fn every_step_comes_back_as_itself_and_a_duty_between_two_comes_back_as_the_nearer() {
+    let d = pwm_sysfs(Some("800\n"));
+    let mut p = platform(&d);
+    p.set_backlight(5);
+    for step in 1..=9u8 {
+        p.set_backlight(step);
+        let duty = pwm_file(&d, "duty_cycle").trim().to_string();
+        p.set_backlight(5);
+        fs::write(d.path().join("class/pwm/pwmchip0/pwm0/duty_cycle"), &duty).unwrap();
+        let want = if step == 5 { None } else { Some(step) };
+        assert_eq!(
+            p.backlight_moved_elsewhere(),
+            want,
+            "step {step} duty {duty}"
+        );
+    }
+}
+
+#[test]
+fn the_lids_own_darkness_is_not_another_programs_change() {
+    let d = pwm_sysfs(Some("800\n"));
+    let mut p = platform(&d);
+    p.set_backlight(6);
+    p.set_backlight(0);
+    assert_eq!(p.backlight_moved_elsewhere(), None);
+}
