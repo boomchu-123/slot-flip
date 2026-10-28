@@ -32,10 +32,13 @@ jobs:
             rust_container: 1-buster
             max_glibc: 2.28
           # Miyoo A30 — Mali-400 GPU, uses the existing GLES renderer.
+          # Its firmware's C library predates GLIBC_2.25, so it is linked
+          # against glibc 2.17 with zig rather than a Debian sysroot.
           - slug: my282
             feature: my282
             rust_container: 1-bullseye
-            max_glibc: 2.31
+            max_glibc: 2.17
+            zig: true
     steps:
       - uses: actions/checkout@v7
 
@@ -62,13 +65,30 @@ jobs:
             zip gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
           rustup target add armv7-unknown-linux-gnueabihf
 
+      - name: Install zig
+        if: matrix.zig
+        run: |
+          set -eu
+          apt-get install -y --no-install-recommends xz-utils
+          mkdir -p /opt/zig
+          curl -fsSL https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz |
+            tar -xJ -C /opt/zig --strip-components=1
+          echo /opt/zig >> "$GITHUB_PATH"
+          cargo install cargo-zigbuild --version 0.20.1 --locked
+
       - name: Build the ${{ matrix.slug }} frontend (armhf, experimental)
         env:
           CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
+          ZIG: ${{ matrix.zig }}
         run: |
           set -eu
-          cargo build --release -p slot --no-default-features --features ${{ matrix.feature }} \
-            --target armv7-unknown-linux-gnueabihf --target-dir target-exp
+          if [ "$ZIG" = true ]; then
+            cargo zigbuild --release -p slot --no-default-features --features ${{ matrix.feature }} \
+              --target armv7-unknown-linux-gnueabihf.${{ matrix.max_glibc }} --target-dir target-exp
+          else
+            cargo build --release -p slot --no-default-features --features ${{ matrix.feature }} \
+              --target armv7-unknown-linux-gnueabihf --target-dir target-exp
+          fi
 
       - name: Assemble Slot.pak
         run: |

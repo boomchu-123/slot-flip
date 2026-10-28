@@ -45,6 +45,18 @@ for c in mgba_libretro.so gpsp_libretro.so; do
 done
 
 cd "$DIR"
-./slot --init-root "$SLOT_ROOT" > "$LOG" 2>&1
+
+# The package and the device's C library go first, so a report says which build
+# it came from and why a binary that cannot load was refused.
+printf 'slot: pak %s\n' "$(cat "$DIR/slot.version" 2>/dev/null || echo unknown)" > "$LOG"
+{
+	printf 'slot: device: kernel %s\n' "$(uname -r 2>/dev/null)"
+	for f in /lib/libc.so.6 /lib/libc-*.so /lib/ld-*.so; do
+		[ -e "$f" ] && printf 'slot: device: %s\n' "$(ls -l "$f" 2>/dev/null)"
+	done
+	printf 'slot: device: LD_LIBRARY_PATH=%s\n' "$LD_LIBRARY_PATH"
+} >> "$LOG" 2>&1
+
+./slot --init-root "$SLOT_ROOT" >> "$LOG" 2>&1
 ./slot >> "$LOG" 2>&1
 sync
