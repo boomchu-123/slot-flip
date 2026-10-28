@@ -33,12 +33,13 @@ if [ -f "$DIR/DEBUG" ]; then
 	export SLOT_TRACE_LATENCY=1
 fi
 
-# Which sound output to use, if the default gives trouble. Slot plays through the
-# console's audio server (the /dev/dsp the launcher's own sound uses, answered by
-# the preloaded libpadsp) and falls back to ALSA by itself. A file Config/audio
-# holding "alsa" makes it use ALSA straight away; "vendor" makes it take the
-# sound device from the audio server and drive it directly, which stops the
-# server until slot exits. Comparing them is a one-line change, not a rebuild.
+# Which sound output to use, if the default gives trouble. Slot calls the vendor
+# audio library the way the launcher's own SDL does, so the preloaded libpadsp
+# in front of it can hand the calls to the console's audio server, and falls back
+# to ALSA by itself. A file Config/audio holding "alsa" makes it use ALSA
+# straight away; "takeover" makes it stop the audio server and take the sound
+# device if the device is refused, which silences the console's own sounds until
+# slot exits. Comparing them is a one-line change, not a rebuild.
 if [ -f "$SLOT_ROOT/Config/audio" ]; then
 	SLOT_AUDIO="$(tr -cd 'a-zA-Z' < "$SLOT_ROOT/Config/audio")"
 	[ -z "$SLOT_AUDIO" ] || export SLOT_AUDIO

@@ -9,11 +9,21 @@
 //! The firmware's own `audioserver` owns that device from boot, and while it is
 //! running the library answers `SetPubAttr` with `0xa0052009`, "operation not
 //! allowed" — it will not configure a device somebody else is playing through.
-//! A frontend that needs the output itself stops the server first, which is what
-//! Onion does for the same reason, and then has to put the volume back: the
-//! device comes back at the codec's default and the player hears silence from a
-//! working output. The server is started again when slot exits, or the console's
-//! own sounds would stay off until the next reboot.
+//!
+//! The launcher gets round that without touching the server. Its SDL links the
+//! library, and the preloaded `libpadsp` defines the same function names ahead of
+//! it and passes the calls to the server. So these calls are looked up through
+//! everything the process has loaded (where that preload comes first) and not in
+//! the library's own table, which is what the first versions did, and which
+//! reaches the device behind the server's back. The log says, for each call,
+//! which file answered it.
+//!
+//! Stopping the server and taking the device (`MiAoSink::taking`) is the other
+//! way, kept for comparison. Onion does it, but on a tester's console the device
+//! was still refused after the server was stopped, and it has to put the volume
+//! back (the device comes back at the codec's default, silent from a working
+//! output) and start the server again on exit, or the console's own sounds stay
+//! off until the next reboot.
 //!
 //! The structures below are this project's own description of the layout the
 //! library expects (SigmaStar's headers are confidential and are not copied
@@ -249,21 +259,35 @@ impl Api {
         let dir = path.rsplit_once('/').map(|(dir, _)| dir);
         let mut libs = global_support(dir);
         let ao = open_checked(path)?;
+        // Every call is looked up the way a program that links the library
+        // looks it up: through everything the process has loaded, in load order,
+        // so a preloaded library that defines the same name comes first. That is
+        // how the launcher's own sound works. Its SDL imports these functions,
+        // and `libpadsp` in front of them hands them to the audio server. Asking
+        // the library itself for each name skips that and reaches the device the
+        // server holds, which refuses (0xa0052009).
+        let here = libloading::os::unix::Library::this();
         macro_rules! get {
-            ($name:literal) => {
-                *unsafe { ao.get(concat!($name, "\0").as_bytes()) }
-                    .map_err(|e| format!("{}: {e}", $name))?
-            };
+            ($name:literal, $ty:ty) => {{
+                let name = concat!($name, "\0").as_bytes();
+                let own: Option<$ty> = unsafe { ao.get::<$ty>(name) }.ok().map(|f| *f);
+                let global: Option<$ty> = unsafe { here.get::<$ty>(name) }.ok().map(|f| *f);
+                let found = global
+                    .or(own)
+                    .ok_or_else(|| format!("{}: not found", $name))?;
+                say_origin($name, found as usize, own.map(|f| f as usize));
+                found
+            }};
         }
         let api = Api {
-            set_attr: get!("MI_AO_SetPubAttr"),
-            get_attr: get!("MI_AO_GetPubAttr"),
-            enable: get!("MI_AO_Enable"),
-            disable: get!("MI_AO_Disable"),
-            enable_chn: get!("MI_AO_EnableChn"),
-            disable_chn: get!("MI_AO_DisableChn"),
-            send: get!("MI_AO_SendFrame"),
-            query: get!("MI_AO_QueryChnStat"),
+            set_attr: get!("MI_AO_SetPubAttr", AttrFn),
+            get_attr: get!("MI_AO_GetPubAttr", AttrFn),
+            enable: get!("MI_AO_Enable", DeviceFn),
+            disable: get!("MI_AO_Disable", DeviceFn),
+            enable_chn: get!("MI_AO_EnableChn", ChannelFn),
+            disable_chn: get!("MI_AO_DisableChn", ChannelFn),
+            send: get!("MI_AO_SendFrame", SendFn),
+            query: get!("MI_AO_QueryChnStat", QueryFn),
             depth: None,
             _libs: Vec::new(),
         };
@@ -284,6 +308,32 @@ impl Api {
             _libs: libs,
             ..api
         })
+    }
+}
+
+/// The file a function lives in, as the loader knows it.
+fn origin_of(addr: usize) -> String {
+    let mut info: libc::Dl_info = unsafe { std::mem::zeroed() };
+    let found = unsafe { libc::dladdr(addr as *const c_void, &mut info) };
+    if found == 0 || info.dli_fname.is_null() {
+        return "somewhere unknown".into();
+    }
+    unsafe { std::ffi::CStr::from_ptr(info.dli_fname) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Says where a call was found, and whether something sits in front of the
+/// library's own copy. A report that shows this settles which calls the
+/// console's preload takes over, which nothing else here can see.
+fn say_origin(name: &str, found: usize, own: Option<usize>) {
+    let at = origin_of(found);
+    match own {
+        Some(own) if own != found => eprintln!(
+            "slot: audio: mi_ao {name} from {at}, in front of the library's own at {}",
+            origin_of(own)
+        ),
+        _ => eprintln!("slot: audio: mi_ao {name} from {at}"),
     }
 }
 
@@ -457,6 +507,9 @@ struct Output {
     took: bool,
     /// The gain the device was at before it was taken, to put back afterwards.
     volume: Option<i32>,
+    /// Whether a refusal may be answered by stopping the audio server. Off, the
+    /// server is left alone and a refusal is only reported.
+    may_take: bool,
 }
 
 impl Output {
@@ -472,7 +525,14 @@ impl Output {
             stopped: Vec::new(),
             took: false,
             volume: None,
+            may_take: true,
         }
+    }
+
+    /// Leaves the audio server running whatever the device answers.
+    fn leaving_the_server(mut self) -> Self {
+        self.may_take = false;
+        self
     }
 
     /// Takes the device from the firmware's audio server: reads the gain to put
@@ -547,6 +607,15 @@ impl Output {
             }
             Err(e) => e,
         };
+        if !self.may_take {
+            // The one report worth having from a device that still refuses: what
+            // it says about itself and who has it open.
+            if self.attempts == 1 {
+                dump_procfs("refused, server left running");
+                log_holders();
+            }
+            return Err(refused);
+        }
         if self.took {
             return Err(refused);
         }
@@ -960,7 +1029,7 @@ fn dump_procfs(when: &str) {
 /// Gives the calling thread a higher scheduling priority. A thread has its own
 /// nice value on Linux, and 0 means the calling one. It is only a request: a
 /// process that may not raise it keeps running at the priority it had.
-pub(super) fn raise_priority() {
+fn raise_priority() {
     let code = unsafe { libc::setpriority(libc::PRIO_PROCESS as _, 0, AUDIO_NICE) };
     match code {
         0 => eprintln!("slot: audio: thread priority raised to {AUDIO_NICE}"),
@@ -974,14 +1043,27 @@ pub(super) fn raise_priority() {
 pub struct MiAoSink {
     ring: Arc<Ring>,
     thread: Option<(Arc<AtomicBool>, JoinHandle<()>)>,
+    /// Whether to stop the audio server if the device is refused.
+    take: bool,
 }
 
 impl MiAoSink {
+    /// Plays through whatever answers the vendor calls and leaves the audio
+    /// server alone.
     pub fn new() -> Self {
         MiAoSink {
             ring: Arc::new(Ring::new(0)),
             thread: None,
+            take: false,
         }
+    }
+
+    /// As `new`, but a refused device is answered by stopping the audio server
+    /// and taking the device from it, then starting the server again on exit.
+    pub fn taking() -> Self {
+        let mut sink = MiAoSink::new();
+        sink.take = true;
+        sink
     }
 
     fn close(&mut self) {
@@ -1016,6 +1098,7 @@ impl AudioSink for MiAoSink {
         let stop = Arc::new(AtomicBool::new(false));
         let flag = stop.clone();
         let (ready_tx, ready_rx) = mpsc::channel();
+        let take = self.take;
         let join = std::thread::Builder::new()
             .name("slot-audio".into())
             .spawn(move || match Api::load() {
@@ -1023,7 +1106,9 @@ impl AudioSink for MiAoSink {
                     raise_priority();
                     ring.reopen(RATE);
                     let _ = ready_tx.send(Ok(()));
-                    Output::new(api).run(&ring, &flag);
+                    let out = Output::new(api);
+                    let mut out = if take { out } else { out.leaving_the_server() };
+                    out.run(&ring, &flag);
                 }
                 Err(e) => {
                     let _ = ready_tx.send(Err(e));
@@ -1561,6 +1646,80 @@ LineOut 48000 16       ster    768        0        0           -12
                 "{lines:?}"
             ),
         }
+    }
+
+    /// Plays a short tone through a sink opened on the stand-in library and
+    /// returns what the stand-ins logged.
+    fn play_tone_through_stand_ins(sink: &mut MiAoSink) -> Vec<String> {
+        let lib = std::env::var("SLOT_TEST_FAKE_MI_AO").expect("SLOT_TEST_FAKE_MI_AO");
+        let log = std::env::temp_dir().join(format!("fake-mi-ao-{}.log", std::process::id()));
+        let _ = std::fs::remove_file(&log);
+        std::env::set_var("SLOT_MI_AO_LIB", &lib);
+        std::env::set_var("FAKE_MI_AO_LOG", &log);
+        sink.open(RATE).expect("the stand-in library should load");
+        let ring = sink.ring();
+        let tone: Vec<i16> = (0..960 * 2)
+            .map(|i| if (i / 2) % 48 < 24 { 8000 } else { -8000 })
+            .collect();
+        for _ in 0..25 {
+            ring.push(&tone);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+        sink.close();
+        let text = std::fs::read_to_string(&log).unwrap_or_default();
+        eprintln!("{text}");
+        text.lines().map(str::to_string).collect()
+    }
+
+    /// With the stand-in for `libpadsp` preloaded and a device that refuses
+    /// everything, the calls have to reach the preload and not the library's own
+    /// copy. Run it as `FAKE_MI_AO_MODE=server LD_PRELOAD=<fake_padsp.so>
+    /// SLOT_TEST_FAKE_MI_AO=<fake_mi_ao.so> cargo test -- --ignored <name>`.
+    #[test]
+    #[ignore = "needs both stand-in libraries from tests/fake_mi_ao, one preloaded"]
+    fn calls_reach_a_preloaded_hook_ahead_of_the_library() {
+        let mut sink = MiAoSink::new();
+        let lines = play_tone_through_stand_ins(&mut sink);
+        for want in ["hook set", "hook enable", "hook enable chn", "hook send"] {
+            assert!(lines.iter().any(|l| l == want), "{want}: {lines:?}");
+        }
+        assert!(
+            !lines.iter().any(|l| l.starts_with("real ")),
+            "a call went round the hook: {lines:?}"
+        );
+    }
+
+    /// The same refusing device with nothing in front of it: the output reports
+    /// the refusal and keeps asking, and does not go looking for a server to stop.
+    /// `FAKE_MI_AO_MODE=server SLOT_TEST_FAKE_MI_AO=<fake_mi_ao.so>`, no preload.
+    #[test]
+    #[ignore = "needs the stand-in library from tests/fake_mi_ao, with no preload"]
+    fn a_refusing_device_with_no_hook_is_reported_and_not_forced() {
+        let mut sink = MiAoSink::new();
+        let lines = play_tone_through_stand_ins(&mut sink);
+        assert!(lines.iter().any(|l| l == "real set refused"), "{lines:?}");
+        assert!(
+            !lines.iter().any(|l| l.starts_with("send #")),
+            "nothing should have been sent: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn the_file_a_function_came_from_is_named() {
+        assert!(origin_of(libc::getpid as *const () as usize).contains("libc"));
+        assert_eq!(origin_of(1), "somewhere unknown");
+    }
+
+    #[test]
+    fn both_shapes_of_the_origin_line_can_be_written() {
+        // Only checks that neither panics; what they say is read from a console log.
+        say_origin("MI_AO_SetPubAttr", libc::getpid as *const () as usize, None);
+        say_origin(
+            "MI_AO_SetPubAttr",
+            libc::getpid as *const () as usize,
+            Some(libc::getppid as *const () as usize),
+        );
     }
 
     #[test]

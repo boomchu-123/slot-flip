@@ -10,6 +10,10 @@
  *   unowned    reports a working setup (768 points) but refuses Enable with
  *              "not configured" until this process has called SetPubAttr: what
  *              the first console report showed
+ *   server     the audio server holds the device: SetPubAttr, Enable, EnableChn
+ *              and SendFrame are all refused with "not permitted" (0xA0052009),
+ *              as the console's library answered. Only a preloaded library in
+ *              front of this one (fake_padsp.c) gets calls through.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,19 +52,26 @@ int MI_AO_GetPubAttr(int dev, Attr *a) {
 }
 int MI_AO_SetPubAttr(int dev, Attr *a) {
 	(void)dev;
+	if (!strcmp(mode(), "server")) { note("real set refused"); return (int)0xA0052009u; }
 	if (!strcmp(mode(), "busy") && enabled) { note("set refused"); return 0xA0052005; }
 	cur = *a; have = 1; set_called = 1; note("set %d %d %u %u", a->rate, a->sound, a->points, a->frames); return 0;
 }
 int MI_AO_Enable(int dev) {
 	(void)dev;
+	if (!strcmp(mode(), "server")) { note("real enable refused"); return (int)0xA0052009u; }
 	if (!strcmp(mode(), "unowned") && !set_called) { note("enable refused"); return (int)0xA0052007u; }
 	enabled = 1; note("enable"); return 0;
 }
 int MI_AO_Disable(int dev) { (void)dev; enabled = 0; note("disable"); return 0; }
-int MI_AO_EnableChn(int dev, int chn) { (void)dev; (void)chn; note("enable chn"); return 0; }
+int MI_AO_EnableChn(int dev, int chn) {
+	(void)dev; (void)chn;
+	if (!strcmp(mode(), "server")) { note("real enable chn refused"); return (int)0xA0052009u; }
+	note("enable chn"); return 0;
+}
 int MI_AO_DisableChn(int dev, int chn) { (void)dev; (void)chn; note("disable chn"); return 0; }
 int MI_AO_SendFrame(int dev, int chn, Frame *f, int wait) {
 	(void)dev; (void)chn; (void)wait;
+	if (!strcmp(mode(), "server")) { note("real send refused"); return (int)0xA0052009u; }
 	short *s = f->addr[0]; unsigned long long sum = 0;
 	for (unsigned i = 0; i < f->len / 2; i++) sum += (unsigned)(s[i] < 0 ? -s[i] : s[i]);
 	sent_frames++; sent_sum += sum;
