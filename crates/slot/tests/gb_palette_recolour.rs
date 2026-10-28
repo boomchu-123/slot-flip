@@ -7,7 +7,8 @@ use common::{repo_root, session_with_platform, tmp_root_with_gb_carts};
 use slot::app::Phase;
 use slot::session::Session;
 use slot_input::{Btn, Millis, RawEvent};
-use slot_store::{write_slot_state, GbPalette, SlotState};
+use slot_store::{write_slot_state, SlotState};
+use slot_ui::QuickRow;
 use tempfile::TempDir;
 
 const FRAME_MS: Millis = 16;
@@ -87,8 +88,7 @@ fn the_chord_recolours_the_running_game() {
     write_slot_state(
         d.path(),
         &SlotState {
-            gb_palettes: true,
-            gb_palette: GbPalette::parse("SGB 4-H").unwrap(),
+            gb_palettes: false,
             ..SlotState::default()
         },
     )
@@ -96,12 +96,9 @@ fn the_chord_recolours_the_running_game() {
     let (mut s, _motor) = session_with_platform(d.path());
     let mut now = 0;
     play(&mut s, &mut now);
-    until(
-        &mut s,
-        &mut now,
-        "a title screen in SGB 4-H's colours",
-        |f| mean_saturation(f) > 6.0,
-    );
+    until(&mut s, &mut now, "a title screen in Auto's colours", |f| {
+        mean_saturation(f) > 6.0
+    });
 
     for ev in [
         RawEvent::Down(Btn::Select),
@@ -111,11 +108,62 @@ fn the_chord_recolours_the_running_game() {
     ] {
         event(&mut s, ev, &mut now);
     }
-    assert_eq!(
-        s.app().gb_palette().map(GbPalette::core_name),
-        Some("Grayscale")
-    );
+    assert_eq!(Some(s.app().gb_colors().core_name()), Some("Grayscale"));
     until(&mut s, &mut now, "the picture to turn to Grayscale", |f| {
         mean_saturation(f) < 4.0
     });
+}
+
+fn tap(s: &mut Session, now: &mut Millis, btn: Btn) {
+    event(s, RawEvent::Down(btn), now);
+    event(s, RawEvent::Up(btn), now);
+}
+
+#[test]
+fn a_palette_picked_behind_the_menu_outlasts_the_menu() {
+    let Some(dylib) = common::vendored_core() else {
+        eprintln!("no mgba dylib, skipping");
+        return;
+    };
+    std::env::set_var("SLOT_CORE", dylib);
+    let _g = common::core_lock();
+    let Some(d) = root_with_catrap() else {
+        eprintln!("no Catrap on this machine's card, skipping");
+        return;
+    };
+    write_slot_state(
+        d.path(),
+        &SlotState {
+            gb_palettes: false,
+            ..SlotState::default()
+        },
+    )
+    .expect("write slot.state");
+    let (mut s, _motor) = session_with_platform(d.path());
+    let mut now = 0;
+    play(&mut s, &mut now);
+    until(&mut s, &mut now, "a title screen in Auto's colours", |f| {
+        mean_saturation(f) > 6.0
+    });
+
+    tap(&mut s, &mut now, Btn::Menu);
+    for btn in [Btn::Down, Btn::A, Btn::A, Btn::Down, Btn::Down] {
+        tap(&mut s, &mut now, btn);
+    }
+    assert_eq!(s.app().in_game_menu(), Some(QuickRow::Palette));
+    tap(&mut s, &mut now, Btn::Right);
+    assert_eq!(Some(s.app().gb_colors().core_name()), Some("Grayscale"));
+    while s.app().in_game_menu().is_some() {
+        tap(&mut s, &mut now, Btn::B);
+    }
+    for _ in 0..120 {
+        step(&mut s, &mut now);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let f = s.frame().expect("no frame");
+    assert!(
+        mean_saturation(&f) < 4.0,
+        "the game went back to Auto once the menu closed, saturation {}",
+        mean_saturation(&f)
+    );
 }

@@ -26,6 +26,21 @@ fn boot_with_a_seated_cart_never_shows_the_shelf() {
 }
 
 #[test]
+fn boot_reseats_the_cart_fresh_only_with_auto_load_off() {
+    for auto_load in [true, false] {
+        let d = tmp_root_with_carts(&["Emerald"]);
+        let s = SlotState {
+            auto_load,
+            ..seated("Emerald")
+        };
+        write_slot_state(d.path(), &s).unwrap();
+        let a = App::boot(d.path());
+        assert!(matches!(a.phase(), Phase::Inserting { .. }));
+        assert_eq!(a.starting_clean(), !auto_load, "auto_load {auto_load}");
+    }
+}
+
+#[test]
 fn boot_with_an_empty_slot_shows_the_shelf() {
     let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
     let a = boot(d.path());
@@ -328,7 +343,7 @@ fn a_named_shelf_that_no_longer_has_the_cart_is_an_empty_slot() {
 fn seating_a_cart_records_the_shelf_it_came_off() {
     let d = two_tetrises();
     let mut a = boot(d.path());
-    a.apply(Action::GbaDown(Btn::R1));
+    common::through(&mut a, Btn::R1);
     assert_eq!(
         a.selected_stem(),
         Some("Tetris"),

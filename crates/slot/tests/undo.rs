@@ -31,6 +31,28 @@ fn undoing_a_save_removes_it_and_restores_the_evicted_entry() {
 }
 
 #[test]
+fn a_save_behind_the_newest_stamp_survives_a_full_ring() {
+    let d = tmp_root_with_carts(&["Emerald"]);
+    let r = StateRing::new(d.path(), Platform::Gba, Core::Mgba, "Emerald");
+    for i in 0..10 {
+        r.push(&[i as u8; 64], b"png", &format!("2099-01-01_00-00-{i:02}"))
+            .unwrap();
+    }
+    let mut a = app_playing_in(d.path(), "Emerald");
+    a.apply_at(Action::SaveState, 1_000);
+    let l = r.list().unwrap();
+    assert_eq!(l.len(), 10);
+    assert_eq!(
+        l[0].stamp, "2099-01-01_00-00-10",
+        "the new save was not stamped after the newest one"
+    );
+    assert!(
+        l.iter().all(|e| e.stamp != "2099-01-01_00-00-00"),
+        "the oldest entry was kept instead of making room"
+    );
+}
+
+#[test]
 fn undo_expires_after_thirty_seconds() {
     let d = tmp_root_with_carts(&["Emerald"]);
     let mut a = app_playing_in(d.path(), "Emerald");
@@ -148,4 +170,23 @@ fn the_plate_is_drawn_only_over_the_switcher_and_only_while_the_offer_stands() {
         expired.len() + 1,
         "the plate outlived the offer"
     );
+}
+
+#[test]
+fn undo_load_in_the_menu_returns_the_emulator_to_the_prior_state() {
+    let d = tmp_root_with_carts(&["Emerald"]);
+    let core = CoreSnapshot::new();
+    let mut a = app_playing_with(d.path(), "Emerald", core.boxed());
+    core.run_frame();
+    a.apply_at(Action::SaveState, 500);
+    for _ in 0..120 {
+        core.run_frame();
+    }
+    let before = core.bytes();
+    a.apply_at(Action::LoadState, 1_000);
+    a.apply_at(Action::QuickMenu, 1_100);
+    a.apply_at(Action::GbaDown(Btn::Down), 1_200);
+    a.apply_at(Action::GbaUp(Btn::Down), 1_250);
+    a.apply_at(Action::GbaDown(Btn::A), 1_300);
+    assert_eq!(core.bytes(), before);
 }

@@ -2,8 +2,8 @@ mod common;
 
 use common::tmp_root;
 use slot_store::{
-    atomic_write, read_slot_state, write_slot_state, GbPalette, Platform, Shader, SlotState,
-    FF_SPEEDS, FF_SPEED_DEFAULT,
+    atomic_write, read_slot_state, sweep_temps, write_slot_state, Appearance, BezelPick, GbPalette,
+    Platform, Recent, Shader, SlotState, WallpaperPick, WallpaperTint, FF_SPEEDS, FF_SPEED_DEFAULT,
 };
 use tempfile::tempdir;
 
@@ -20,6 +20,33 @@ fn atomic_write_leaves_no_partial_file_and_no_temp_behind() {
         .filter(|e| e.file_name() != "x.bin")
         .collect();
     assert!(strays.is_empty(), "temp files left behind: {strays:?}");
+}
+
+#[test]
+fn a_temp_left_by_an_interrupted_write_is_swept_and_nothing_else() {
+    let d = tempdir().unwrap();
+    let deep = d.path().join("States/GBA/mgba/Emerald");
+    std::fs::create_dir_all(&deep).unwrap();
+    let stray = deep.join(".resume.state.4242.7.tmp");
+    let mine = deep.join(format!(".resume.state.{}.0.tmp", std::process::id()));
+    let keep = [
+        deep.join("resume.state"),
+        deep.join(".hidden.tmp"),
+        deep.join("notes.4242.7.tmp"),
+        d.path().join(".x.y.tmp"),
+    ];
+    for p in keep.iter().chain([&stray, &mine]) {
+        std::fs::write(p, b"bytes").unwrap();
+    }
+    sweep_temps(d.path());
+    assert!(
+        !stray.exists(),
+        "a temp from an earlier run was left behind"
+    );
+    assert!(mine.exists(), "swept a temp this run may still be writing");
+    for p in &keep {
+        assert!(p.exists(), "swept {}", p.display());
+    }
 }
 
 #[test]
@@ -164,7 +191,14 @@ fn a_first_boot_rumbles_and_fast_forwards_silently_at_the_default() {
     assert!(s.rumble, "boots with the motor off");
     assert_eq!(s.ff_speed, FF_SPEED_DEFAULT);
     assert!(!s.ff_sound, "boots with fast forward audible");
-    assert!(!s.colour_correction, "boots with the picture tinted");
+    assert!(
+        !s.colour_correction_gba,
+        "boots with the GBA picture tinted"
+    );
+    assert!(
+        !s.colour_correction_gb,
+        "boots with the Game Boy picture tinted"
+    );
     assert_eq!(s.shader_gba, Shader::Grid);
     assert_eq!(s.shader_gb, Shader::Simpletex);
 }
@@ -193,15 +227,34 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             rumble: true,
             ff_speed: FF_SPEED_DEFAULT,
             ff_sound: false,
-            colour_correction: false,
-            sleep_timeout_min: slot_store::SLEEP_TIMEOUT_DEFAULT_MIN,
+            colour_correction_gba: false,
+            colour_correction_gb: false,
+            colour_correction_gbc: false,
             shader_gba: Shader::Grid,
             shader_gb: Shader::Simpletex,
+            shader_gbc: Shader::Simpletex,
+            auto_load: true,
             eject_save: true,
             turbo: true,
             rewind: true,
             gb_palettes: false,
             gb_palette: GbPalette::DEFAULT,
+            appearance: Appearance::Dark,
+            wallpaper: WallpaperPick::Default,
+            wallpaper_tint: WallpaperTint::Off,
+            show_recents: false,
+            show_titles: false,
+            left_stick_dpad: true,
+            analog_sticks: false,
+            lid_off_min: None,
+            seen_version: String::new(),
+            bezel_gba: BezelPick::Ags102,
+            bezel_gb: BezelPick::Ags102,
+            bezel_gbc: BezelPick::Ags102,
+            recents: Vec::new(),
+            favorites: Vec::new(),
+            shelf: None,
+            shelf_cart: None,
         }
     );
 }
@@ -214,14 +267,27 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         rumble: false,
         ff_speed: 2,
         ff_sound: true,
-        colour_correction: true,
+        colour_correction_gba: true,
+        colour_correction_gb: false,
         shader_gba: Shader::Dot,
         shader_gb: Shader::Off,
+        auto_load: false,
         eject_save: false,
         turbo: false,
         rewind: false,
         gb_palettes: true,
         gb_palette: GbPalette::parse("GBC Dark Green →A").unwrap(),
+        wallpaper_tint: WallpaperTint::Medium,
+        colour_correction_gbc: true,
+        shader_gbc: Shader::Grid,
+        bezel_gba: BezelPick::None,
+        bezel_gb: BezelPick::Default,
+        bezel_gbc: BezelPick::File("Pocket.png".into()),
+        shelf: Some("gba".into()),
+        shelf_cart: Some(Recent {
+            platform: Platform::Gba,
+            stem: "Drill Dozer".into(),
+        }),
         ..SlotState::default()
     };
     write_slot_state(d.path(), &s).unwrap();
@@ -231,17 +297,46 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
         "rumble=0",
         "ff_speed=2",
         "ff_sound=1",
-        "colour_correction=1",
+        "colour_correction_gba=1",
+        "colour_correction_gb=0",
         "shader_gba=dot",
         "shader_gb=off",
+        "auto_load=0",
         "eject_save=0",
         "turbo=0",
         "rewind=0",
         "gb_palettes=1",
         "gb_palette=GBC Dark Green →A",
+        "appearance=dark",
+        "wallpaper_tint=medium",
+        "bezel_gba=none",
+        "bezel_gb=default",
+        "bezel_gbc=Pocket.png",
+        "colour_correction_gbc=1",
+        "shader_gbc=grid",
+        "shelf=gba",
+        "shelf_cart=gba/Drill Dozer",
     ] {
         assert!(text.lines().any(|l| l == line), "no {line} in {text:?}");
     }
+}
+
+#[test]
+fn a_card_that_still_carries_run_ahead_keeps_the_rest_of_its_values() {
+    let d = tmp_root();
+    let s = SlotState {
+        clock_set: true,
+        rewind: false,
+        ..SlotState::default()
+    };
+    write_slot_state(d.path(), &s).unwrap();
+    let path = d.path().join("Config/slot.state");
+    let text = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(&path, text.replace("rewind=0\n", "rewind=0\nrunahead=1\n")).unwrap();
+    assert!(std::fs::read_to_string(&path)
+        .unwrap()
+        .contains("runahead=1"));
+    assert_eq!(read_slot_state(d.path()), s);
 }
 
 #[test]
@@ -283,11 +378,13 @@ fn an_out_of_range_setting_falls_back_to_its_default() {
     for bad in [
         "rumble=2\nff_speed=5\nff_sound=9\n",
         "rumble=\nff_speed=1\nff_sound=on\n",
-        "rumble=-1\nff_speed=0\nff_sound=-1\n",
+        "rumble=-1\nff_speed=7\nff_sound=-1\n",
         "ff_speed=x\n",
         "colour_correction=2\n",
         "colour_correction=\n",
         "colour_correction=Auto\n",
+        "colour_correction_gba=2\n",
+        "colour_correction_gb=on\n",
         "ff_speed=5\n",
         "ff_speed=7\n",
         "ff_speed=8\n",
@@ -296,8 +393,14 @@ fn an_out_of_range_setting_falls_back_to_its_default() {
         std::fs::write(d.path().join("Config/slot.state"), format!("{known}{bad}")).unwrap();
         let s = read_slot_state(d.path());
         assert_eq!(
-            (s.rumble, s.ff_speed, s.ff_sound, s.colour_correction),
-            (true, FF_SPEED_DEFAULT, false, false),
+            (
+                s.rumble,
+                s.ff_speed,
+                s.ff_sound,
+                s.colour_correction_gba,
+                s.colour_correction_gb
+            ),
+            (true, FF_SPEED_DEFAULT, false, false, false),
             "accepted {bad:?}"
         );
         assert_eq!(
@@ -352,12 +455,17 @@ fn an_unreadable_platform_reads_as_a_card_that_never_said() {
     let known = "cart=Tetris\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n";
     for (line, want) in [
         ("cart_platform=\n", None),
-        ("cart_platform=nes\n", None),
+        ("cart_platform=genesis\n", None),
         ("cart_platform=gameboy\n", None),
         ("cart_platform=0\n", None),
         ("cart_platform=nds\n", None),
         ("cart_platform=GBA\n", Some(Platform::Gba)),
         ("cart_platform=Gbc\n", Some(Platform::Gbc)),
+        ("cart_platform=nes\n", Some(Platform::Nes)),
+        ("cart_platform=snes\n", Some(Platform::Snes)),
+        ("cart_platform=md\n", Some(Platform::Md)),
+        ("cart_platform=SMS\n", Some(Platform::Sms)),
+        ("cart_platform=gg\n", Some(Platform::Gg)),
     ] {
         std::fs::write(d.path().join("Config/slot.state"), format!("{known}{line}")).unwrap();
         let s = read_slot_state(d.path());
@@ -401,5 +509,190 @@ fn a_missing_or_unknown_palette_falls_back_to_dmg_green() {
         );
         assert!(!s.gb_palettes, "{bad:?} turned palettes on");
         assert_eq!(s.gb_palette, GbPalette::DEFAULT, "{bad:?}");
+    }
+}
+
+#[test]
+fn a_card_with_one_colour_correction_setting_starts_both_systems_from_it() {
+    let d = tmp_root();
+    let known = "cart=Emerald\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n";
+    for (old, want) in [
+        ("colour_correction=1\n", true),
+        ("colour_correction=0\n", false),
+    ] {
+        std::fs::write(d.path().join("Config/slot.state"), format!("{known}{old}")).unwrap();
+        let s = read_slot_state(d.path());
+        assert_eq!(
+            (s.colour_correction_gba, s.colour_correction_gb),
+            (want, want),
+            "{old:?}"
+        );
+    }
+    std::fs::write(
+        d.path().join("Config/slot.state"),
+        format!("{known}colour_correction=1\ncolour_correction_gb=0\n"),
+    )
+    .unwrap();
+    let s = read_slot_state(d.path());
+    assert_eq!(
+        (s.colour_correction_gba, s.colour_correction_gb),
+        (true, false),
+        "the old line overrode a system's own setting"
+    );
+}
+
+#[test]
+fn a_wallpaper_tint_it_does_not_know_reads_as_off() {
+    let d = tmp_root();
+    let known = "cart=Emerald\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n";
+    for (line, want) in [
+        ("wallpaper_tint=high", WallpaperTint::High),
+        ("wallpaper_tint=blinding", WallpaperTint::Off),
+    ] {
+        std::fs::write(
+            d.path().join("Config/slot.state"),
+            format!("{known}wallpaper=a.png\n{line}\n"),
+        )
+        .unwrap();
+        let s = read_slot_state(d.path());
+        assert_eq!(s.wallpaper, WallpaperPick::File("a.png".into()), "{line}");
+        assert_eq!(s.wallpaper_tint, want, "{line}");
+    }
+}
+
+#[test]
+fn a_card_from_before_the_gbc_split_starts_gbc_from_the_gb_c_settings() {
+    let d = tmp_root();
+    let known = "cart=Emerald\nbrightness=3\nblue_light=1\nvolume=40\nmuted=0\nclock_set=1\nutc_offset_min=0\n";
+    std::fs::write(
+        d.path().join("Config/slot.state"),
+        format!("{known}colour_correction_gb=1\nshader_gb=grid\n"),
+    )
+    .unwrap();
+    let s = read_slot_state(d.path());
+    assert_eq!((s.colour_correction_gb, s.shader_gb), (true, Shader::Grid));
+    assert_eq!(
+        (s.colour_correction_gbc, s.shader_gbc),
+        (true, Shader::Grid)
+    );
+    std::fs::write(
+        d.path().join("Config/slot.state"),
+        format!("{known}colour_correction=1\n"),
+    )
+    .unwrap();
+    assert!(read_slot_state(d.path()).colour_correction_gbc);
+    std::fs::write(
+        d.path().join("Config/slot.state"),
+        format!("{known}colour_correction_gb=1\nshader_gb=grid\ncolour_correction_gbc=0\nshader_gbc=off\n"),
+    )
+    .unwrap();
+    let s = read_slot_state(d.path());
+    assert_eq!(
+        (s.colour_correction_gbc, s.shader_gbc),
+        (false, Shader::Off),
+        "the GB settings overrode GBC's own"
+    );
+}
+
+#[test]
+fn lid_power_off_minutes_round_trip_and_drop_a_value_the_menu_does_not_offer() {
+    let d = tmp_root();
+    for min in [0, 1, 3, 5, 10, 15, 30] {
+        let s = SlotState {
+            lid_off_min: Some(min),
+            ..Default::default()
+        };
+        write_slot_state(d.path(), &s).unwrap();
+        assert_eq!(read_slot_state(d.path()).lid_off_min, Some(min));
+    }
+    let path = d.path().join("Config").join("slot.state");
+    let text = std::fs::read_to_string(&path)
+        .unwrap()
+        .replace("lid_off_min=30", "lid_off_min=7");
+    std::fs::write(&path, text).unwrap();
+    assert_eq!(read_slot_state(d.path()).lid_off_min, None);
+}
+
+/// A complete state file, as an upgrading player has one, with `extra` lines
+/// added at the end. (The reader rejects a file that is missing keys.)
+fn complete_state(root: &std::path::Path, extra: &str) {
+    std::fs::create_dir_all(root.join("Config")).unwrap();
+    write_slot_state(root, &SlotState::default()).unwrap();
+    let path = root.join("Config/slot.state");
+    let text: String = std::fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.starts_with("lid_off_min="))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    std::fs::write(&path, format!("{text}{extra}")).unwrap();
+}
+
+#[test]
+fn an_old_sleep_timeout_carries_over_to_lid_power_off() {
+    // The values the fork's menu offered, and where each one lands.
+    for (old, want) in [
+        ("1", Some(1)),
+        ("5", Some(5)),
+        ("10", Some(10)),
+        ("30", Some(30)),
+        // 3 was the fork's default, never a choice: follow upstream's default.
+        ("3", None),
+        // "Off" (stay asleep forever) is Never again.
+        ("0", Some(0)),
+        // Not something the menu ever offered.
+        ("2", None),
+        ("abc", None),
+    ] {
+        let d = tempdir().unwrap();
+        complete_state(d.path(), &format!("sleep_timeout_min={old}\n"));
+        assert_eq!(
+            read_slot_state(d.path()).lid_off_min,
+            want,
+            "sleep_timeout_min={old}"
+        );
+    }
+}
+
+#[test]
+fn a_lid_power_off_chosen_in_the_new_menu_beats_an_old_sleep_timeout() {
+    let d = tempdir().unwrap();
+    complete_state(d.path(), "sleep_timeout_min=10\nlid_off_min=5\n");
+    assert_eq!(read_slot_state(d.path()).lid_off_min, Some(5));
+}
+
+#[test]
+fn the_old_sleep_timeout_key_is_not_written_back() {
+    let d = tempdir().unwrap();
+    complete_state(d.path(), "sleep_timeout_min=10\n");
+    let s = read_slot_state(d.path());
+    write_slot_state(d.path(), &s).unwrap();
+    let text = std::fs::read_to_string(d.path().join("Config/slot.state")).unwrap();
+    assert!(!text.contains("sleep_timeout_min"), "{text}");
+    assert!(
+        text.contains("lid_off_min=10"),
+        "the choice was lost:\n{text}"
+    );
+}
+
+#[test]
+fn the_build_that_last_ran_round_trips_and_nonsense_is_not_kept() {
+    let d = tempdir().unwrap();
+    std::fs::create_dir_all(d.path().join("Config")).unwrap();
+    let mut s = SlotState::default();
+    s.seen_version = "0.6.0".into();
+    write_slot_state(d.path(), &s).unwrap();
+    let text = std::fs::read_to_string(d.path().join("Config/slot.state")).unwrap();
+    assert!(text.contains("seen_version=0.6.0"), "{text}");
+    assert_eq!(read_slot_state(d.path()).seen_version, "0.6.0");
+
+    for bad in ["not a version!", "0.6.0; rm -rf", &"9".repeat(30)] {
+        let text = text.replace("seen_version=0.6.0", &format!("seen_version={bad}"));
+        std::fs::write(d.path().join("Config/slot.state"), &text).unwrap();
+        assert_eq!(
+            read_slot_state(d.path()).seen_version,
+            "",
+            "a version the sticker could not print was kept: {bad}"
+        );
     }
 }

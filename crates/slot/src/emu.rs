@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU64, AtomicU8, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -24,6 +24,19 @@ pub const FAST_STEPS: u32 = 6;
 
 pub const FAST_STEPS_MAX: u32 = 6;
 
+/// How long one emulated frame takes to run at normal speed. Everything the
+/// Game Boy family and NTSC discs do is paced at the panel's 60 Hz (a GBA's
+/// 59.73 fps has always been); a core that really runs at another rate, a 50 Hz
+/// PAL disc, gets its own period or it would play a fifth too fast.
+fn frame_period(fps: f64) -> Duration {
+    match fps {
+        f if (25.0..=75.0).contains(&f) && (f - 60.0).abs() > 3.0 => {
+            Duration::from_secs_f64(1.0 / f)
+        }
+        _ => PRESENT,
+    }
+}
+
 const FAST_TARGET: Duration = Duration::from_micros(14_000);
 
 const COST_BLEND: u32 = 4;
@@ -37,6 +50,10 @@ const RATE_WINDOW: u32 = 300;
 const TRACE_EVERY: u64 = 300;
 
 const MAX_LINK_PACKETS_PER_PRESENT: u32 = 256;
+
+const ANSWER_WAIT: Duration = Duration::from_secs(2);
+
+const STOP_WAIT: Duration = Duration::from_secs(10);
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Speed {
@@ -80,16 +97,22 @@ enum Cmd {
     EndLink,
     BeginCable(u8, Box<dyn LinkChannel>),
     SetOption(String, String),
+    Disc(usize),
+    Refresh,
 }
 
 struct Shared {
     input: AtomicU16,
+    /// The two sticks, left x, left y, right x, right y, a 16-bit lane each.
+    analog: AtomicU64,
+    dualshock: AtomicBool,
     speed: AtomicU8,
     observed: AtomicU8,
     state: AtomicU8,
     rewind: AtomicBool,
     rewind_fill: AtomicU8,
     turbo: AtomicBool,
+    native_pad: AtomicBool,
     recording: AtomicBool,
     stop: AtomicBool,
     volume: AtomicU8,
@@ -106,6 +129,11 @@ struct Shared {
     locked: AtomicBool,
     present_ns: AtomicU64,
     requested: AtomicBool,
+    /// Discs in the loaded game (0 until it has loaded, 1 for a single disc) and
+    /// the one in the drive or being changed to, as the core last reported them.
+    discs: AtomicU8,
+    disc: AtomicU8,
+    disc_changing: AtomicBool,
     clock: Mutex<Clock>,
     clocked: Condvar,
 }
@@ -138,6 +166,14 @@ impl EmuHandle {
         Self::spawn_as(core, rom, ring, sav, resume, Some(player))
     }
 
+    pub fn refuse_save_ram(&self) {
+        self.shared.sav_refused.store(true, Ordering::Release);
+    }
+
+    pub fn refuse_resume(&self) {
+        self.shared.resume_refused.store(true, Ordering::Release);
+    }
+
     fn spawn_as(
         core: Box<dyn RetroCore>,
         rom: PathBuf,
@@ -151,12 +187,15 @@ impl EmuHandle {
         let frames = Frames::new((GBA_W * GBA_H * 4) as usize);
         let shared = Arc::new(Shared {
             input: AtomicU16::new(0),
+            analog: AtomicU64::new(0),
+            dualshock: AtomicBool::new(false),
             speed: AtomicU8::new(Speed::Paused as u8),
             observed: AtomicU8::new(Speed::Paused as u8),
             state: AtomicU8::new(CoreState::Loading as u8),
             rewind: AtomicBool::new(false),
             rewind_fill: AtomicU8::new(0),
             turbo: AtomicBool::new(true),
+            native_pad: AtomicBool::new(false),
             recording: AtomicBool::new(true),
             stop: AtomicBool::new(false),
             volume: AtomicU8::new(100),
@@ -173,6 +212,9 @@ impl EmuHandle {
             locked: AtomicBool::new(false),
             present_ns: AtomicU64::new(PRESENT.as_nanos() as u64),
             requested: AtomicBool::new(false),
+            discs: AtomicU8::new(0),
+            disc: AtomicU8::new(0),
+            disc_changing: AtomicBool::new(false),
             clock: Mutex::new(Clock::default()),
             clocked: Condvar::new(),
         });
@@ -251,6 +293,34 @@ impl EmuHandle {
         );
     }
 
+    /// How many discs the game has. Under two there is nothing to change.
+    pub fn disc_count(&self) -> usize {
+        usize::from(self.shared.discs.load(Ordering::Relaxed))
+    }
+
+    /// The disc in the drive, or the one it is being changed to.
+    pub fn disc_index(&self) -> usize {
+        usize::from(self.shared.disc.load(Ordering::Relaxed))
+    }
+
+    /// The lid is open for a disc change.
+    pub fn disc_changing(&self) -> bool {
+        self.shared.disc_changing.load(Ordering::Relaxed)
+    }
+
+    /// Ask for disc `to` (0 is the first). The change finishes over the frames
+    /// that follow, so it only completes while the game is running.
+    pub fn change_disc(&self, to: usize) {
+        if to >= self.disc_count() {
+            return;
+        }
+        // Say so now, so the menu does not show the old disc until the emulator
+        // thread has got round to the request. It sets the true values after.
+        self.shared.disc.store(to as u8, Ordering::Relaxed);
+        self.shared.disc_changing.store(true, Ordering::Relaxed);
+        request(&self.cmds, &self.shared, Cmd::Disc(to));
+    }
+
     pub fn set_driven(&self, driven: bool) {
         self.shared.driven.store(driven, Ordering::Relaxed);
         self.shared.clocked.notify_all();
@@ -292,6 +362,24 @@ impl EmuHandle {
     pub fn set_input(&self, mask: ButtonMask) {
         let before = self.shared.input.swap(mask.0, Ordering::Relaxed);
         crate::latency::applied(before, mask.0);
+    }
+
+    /// Where the sticks are (left x, left y, right x, right y), read by the next frame.
+    pub fn set_analog(&self, sticks: [i16; 4]) {
+        let packed = sticks
+            .iter()
+            .enumerate()
+            .fold(0u64, |bits, (i, v)| bits | u64::from(*v as u16) << (16 * i));
+        self.shared.analog.store(packed, Ordering::Relaxed);
+    }
+
+    pub fn analog(&self) -> [i16; 4] {
+        unpack_analog(self.shared.analog.load(Ordering::Relaxed))
+    }
+
+    /// Plug a DualShock into port 1, for a game that reads sticks, or take it out.
+    pub fn set_dualshock(&self, on: bool) {
+        self.shared.dualshock.store(on, Ordering::Relaxed);
     }
 
     pub fn input(&self) -> ButtonMask {
@@ -356,6 +444,12 @@ impl EmuHandle {
         self.shared.turbo.store(on, Ordering::Relaxed);
     }
 
+    /// The pad is handed to the core as it is: X and Y are buttons of its own, not
+    /// the turbo keys the Game Boy cores are given.
+    pub fn set_native_pad(&self, on: bool) {
+        self.shared.native_pad.store(on, Ordering::Relaxed);
+    }
+
     pub fn set_rewind_recording(&self, on: bool) {
         self.shared.recording.store(on, Ordering::Relaxed);
     }
@@ -376,6 +470,10 @@ impl EmuHandle {
         let (tx, rx) = channel();
         request(&self.cmds, &self.shared, Cmd::Save(tx));
         rx
+    }
+
+    pub fn refresh(&self) {
+        request(&self.cmds, &self.shared, Cmd::Refresh);
     }
 
     pub fn request_load(&self, state: Vec<u8>) {
@@ -400,19 +498,19 @@ impl Snapshot for EmuSnapshot {
     fn state(&self) -> Option<Vec<u8>> {
         let (tx, rx) = channel();
         request(&self.cmds, &self.shared, Cmd::Save(tx)).then_some(())?;
-        rx.recv().ok()
+        answer(rx, "state")
     }
 
     fn save_ram(&self) -> Option<Vec<u8>> {
         let (tx, rx) = channel();
         request(&self.cmds, &self.shared, Cmd::Sav(tx)).then_some(())?;
-        rx.recv().ok().flatten()
+        answer(rx, "save ram").flatten()
     }
 
     fn thumb(&self) -> Option<Vec<u8>> {
         let (tx, rx) = channel();
         request(&self.cmds, &self.shared, Cmd::Thumb(tx)).then_some(())?;
-        rx.recv().ok().flatten()
+        answer(rx, "thumbnail").flatten()
     }
 
     fn load(&self, state: Vec<u8>) {
@@ -425,6 +523,24 @@ impl Snapshot for EmuSnapshot {
 
     fn save_ram_trusted(&self) -> bool {
         !self.shared.sav_refused.load(Ordering::Acquire)
+    }
+}
+
+fn unpack_analog(bits: u64) -> [i16; 4] {
+    std::array::from_fn(|i| (bits >> (16 * i)) as u16 as i16)
+}
+
+fn answer<T>(rx: Receiver<T>, what: &str) -> Option<T> {
+    match rx.recv_timeout(ANSWER_WAIT) {
+        Ok(v) => Some(v),
+        Err(RecvTimeoutError::Timeout) => {
+            eprintln!(
+                "slot: emu: no {what} after {} s, the core is not answering",
+                ANSWER_WAIT.as_secs()
+            );
+            None
+        }
+        Err(RecvTimeoutError::Disconnected) => None,
     }
 }
 
@@ -449,6 +565,20 @@ impl Drop for EmuHandle {
         eprintln!("slot: emu: stopping at {:.1} ms", crate::boot_time::ms());
         self.shared.stop.store(true, Ordering::Relaxed);
         if let Some(join) = self.join.take() {
+            let deadline = Instant::now() + STOP_WAIT;
+            while !join.is_finished() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            if !join.is_finished() {
+                eprintln!(
+                    "slot: emu: the core has not stopped after {} s",
+                    STOP_WAIT.as_secs()
+                );
+                #[cfg(feature = "device")]
+                unsafe {
+                    libc::_exit(75)
+                };
+            }
             let _ = join.join();
         }
         eprintln!("slot: emu: stopped at {:.1} ms", crate::boot_time::ms());
@@ -528,12 +658,14 @@ impl Worker {
             0 => av.sample_rate,
             hz => hz as f64,
         };
+        let period = frame_period(av.fps);
         let core_hz = match av.fps {
-            fps if fps > 0.0 => av.sample_rate / (fps * PRESENT.as_secs_f64()),
+            fps if fps > 0.0 => av.sample_rate / (fps * period.as_secs_f64()),
             _ => av.sample_rate,
         };
         let mut resampler = Resampler::new(core_hz, device_hz);
         ring.clear_faults();
+        self.publish_discs(&*core);
         self.shared
             .state
             .store(CoreState::Ready as u8, Ordering::Release);
@@ -554,6 +686,7 @@ impl Worker {
         let mut rate = TickRate::new(Instant::now(), 0);
         let mut stalled = false;
         let mut turbo_frame = 0u32;
+        let mut dualshock = false;
         let mut transport: Option<Box<dyn LinkChannel>> = None;
         let mut cable: Option<Cable> = None;
         let mut cable_presents = 0u32;
@@ -585,6 +718,8 @@ impl Worker {
                                         "slot: cable: restored {} bytes, running the host's game",
                                         state.len()
                                     );
+                                        self.shared.sav_refused.store(true, Ordering::Release);
+                                        self.shared.resume_refused.store(true, Ordering::Release);
                                         c.prime();
                                         t.send(NETPACKET_RELIABLE, &cable::ready_packet());
                                     }
@@ -634,6 +769,12 @@ impl Worker {
                 self.shared.clocked.notify_all();
             }
             let input = ButtonMask(self.shared.input.load(Ordering::Relaxed));
+            let pad = self.shared.dualshock.load(Ordering::Relaxed);
+            if pad != dualshock {
+                dualshock = pad;
+                core.set_dualshock(pad);
+            }
+            core.set_analog(unpack_analog(self.shared.analog.load(Ordering::Relaxed)));
             crate::latency::emu_frame(input.0);
             let mut span = 1u32;
             let ceiling = match speed {
@@ -649,7 +790,7 @@ impl Worker {
                     }
                     core.set_frame_skip(false);
                     core.run_frame(ButtonMask(0));
-                    self.publish(core.video_xrgb8888());
+                    self.publish(&*core);
                 }
                 self.shared
                     .rewind_fill
@@ -668,9 +809,13 @@ impl Worker {
                 loop {
                     ran += 1;
                     let last = ran >= ceiling || cost.last(began.elapsed(), budget);
-                    let input = match self.shared.turbo.load(Ordering::Relaxed) {
-                        true => input.turbo(turbo_frame),
-                        false => input.without_turbo(),
+                    let input = if self.shared.native_pad.load(Ordering::Relaxed) {
+                        input
+                    } else {
+                        match self.shared.turbo.load(Ordering::Relaxed) {
+                            true => input.turbo(turbo_frame),
+                            false => input.without_turbo(),
+                        }
                     };
                     turbo_frame = turbo_frame.wrapping_add(1);
                     core.set_frame_skip(!last);
@@ -767,7 +912,7 @@ impl Worker {
                     }
                 }
                 flush_outbound(&mut transport, &link);
-                self.publish(core.video_xrgb8888());
+                self.publish(&*core);
                 self.frame_done(served);
 
                 since_snapshot += 1;
@@ -848,7 +993,7 @@ impl Worker {
                 continue;
             }
             ticked = false;
-            deadline += PRESENT * span;
+            deadline += period * span;
             let now = Instant::now();
             match deadline.checked_duration_since(now) {
                 Some(wait) => std::thread::sleep(wait),
@@ -886,11 +1031,26 @@ impl Worker {
                     eprintln!("slot: {e}");
                 }
             }
+            Cmd::Refresh => match core.serialize() {
+                Ok(state) => {
+                    core.set_frame_skip(true);
+                    core.run_frame(ButtonMask(0));
+                    core.set_frame_skip(false);
+                    core.run_frame(ButtonMask(0));
+                    self.publish(&*core);
+                    let _ = core.take_audio();
+                    if let Err(e) = core.unserialize(&state) {
+                        eprintln!("slot: refresh: {e}");
+                    }
+                }
+                Err(e) => eprintln!("slot: refresh: {e}"),
+            },
             Cmd::Sav(reply) => {
                 let _ = reply.send(core.save_ram());
             }
             Cmd::Thumb(reply) => {
-                let _ = reply.send(crate::thumb::png(core.video_xrgb8888()));
+                let (w, h) = core.video_size();
+                let _ = reply.send(crate::thumb::png_sized(core.video_xrgb8888(), w, h));
             }
             Cmd::BeginLink(client_id, t) => {
                 self.shared.link_lost.store(false, Ordering::Relaxed);
@@ -924,6 +1084,18 @@ impl Worker {
             }
             Cmd::SetOption(key, value) => {
                 core.set_option(&key, &value);
+            }
+            Cmd::Disc(to) => {
+                if core.change_disc(to) {
+                    eprintln!(
+                        "slot: emu: changing to disc {} of {}",
+                        to + 1,
+                        core.disc_count()
+                    );
+                } else {
+                    eprintln!("slot: emu: the core would not change to disc {}", to + 1);
+                }
+                self.publish_discs(core);
             }
             Cmd::EndLink => {
                 self.shared.link_lost.store(false, Ordering::Relaxed);
@@ -981,13 +1153,27 @@ impl Worker {
         }
     }
 
-    fn publish(&self, video: &[u8]) {
+    fn publish(&self, core: &dyn RetroCore) {
         let mut buf = self.frames.take_write();
         buf.clear();
-        buf.extend_from_slice(video);
-        self.frames.publish(buf);
+        buf.extend_from_slice(core.video_xrgb8888());
+        self.frames.publish_sized(buf, core.video_size());
         self.shared.published.fetch_add(1, Ordering::Relaxed);
         crate::latency::published();
+        self.publish_discs(core);
+    }
+
+    fn publish_discs(&self, core: &dyn RetroCore) {
+        let clamp = |n: usize| n.min(usize::from(u8::MAX)) as u8;
+        self.shared
+            .discs
+            .store(clamp(core.disc_count()), Ordering::Relaxed);
+        self.shared
+            .disc
+            .store(clamp(core.disc_index()), Ordering::Relaxed);
+        self.shared
+            .disc_changing
+            .store(core.disc_changing(), Ordering::Relaxed);
     }
 
     fn speed(&self) -> Speed {
@@ -1119,6 +1305,20 @@ fn drain_transport(transport: &mut dyn LinkChannel, link: &Link, cap: u32) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_pal_disc_is_paced_at_its_own_50_hz_and_everything_else_at_the_panels_60() {
+        assert_eq!(frame_period(50.0), Duration::from_millis(20));
+        assert_eq!(frame_period(49.76), Duration::from_secs_f64(1.0 / 49.76));
+        // A GBA's 59.7275 and an NTSC disc's 59.94 or 60 stay exactly as they were.
+        for fps in [60.0, 59.7275, 59.94, 60.1] {
+            assert_eq!(frame_period(fps), PRESENT, "{fps}");
+        }
+        // Nonsense from a core never stalls or races the loop.
+        for fps in [0.0, -1.0, f64::NAN, 1.0, 1000.0] {
+            assert_eq!(frame_period(fps), PRESENT, "{fps}");
+        }
+    }
+
     use super::*;
     use slot_retro::LoopbackLink;
 

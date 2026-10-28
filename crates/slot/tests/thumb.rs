@@ -27,3 +27,22 @@ fn a_short_frame_is_not_a_thumbnail() {
     assert!(thumb::png(&[]).is_none());
     assert!(thumb::png(&vec![0u8; (GBA_W * GBA_H * 4) as usize - 4]).is_none());
 }
+
+#[test]
+fn a_thumbnail_of_a_larger_picture_keeps_its_size() {
+    let (w, h) = (320u32, 240u32);
+    let mut frame = vec![0u8; (w * h * 4) as usize];
+    for px in frame.chunks_exact_mut(4) {
+        px.copy_from_slice(&[0x20, 0x40, 0xd0, 0xff]);
+    }
+    let encoded = thumb::png_sized(&frame, w, h).expect("encode");
+    let (rgb, dw, dh) = decode(&encoded);
+    assert_eq!((dw, dh), (w, h));
+    assert_eq!(&rgb[..3], &[0xd0, 0x40, 0x20]);
+}
+
+#[test]
+fn a_sized_thumbnail_refuses_a_buffer_that_is_too_short_or_empty() {
+    assert!(thumb::png_sized(&[0u8; 16], 320, 240).is_none());
+    assert!(thumb::png_sized(&[0u8; 16], 0, 0).is_none());
+}

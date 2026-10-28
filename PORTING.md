@@ -8,7 +8,7 @@ the seams.
 
 | Concern | File | Notes |
 | --- | --- | --- |
-| Button key codes | `crates/slot/src/input/evdev.rs` (`code_to_btn`) | Built-in default map, selected by the `flip` Cargo feature. Users override per-code in `Slot/Config/buttons.ini` with no rebuild. |
+| Button key codes | `crates/slot/src/input/evdev.rs` (`code_to_btn`) | Built-in default map, selected by the `flip` Cargo feature. Users override per-code with no rebuild, either in the in-app **Buttons** screen (which saves it) or by editing `Slot/Config/buttons.ini`. |
 | Display surface | `crates/slot/src/device_app.rs` + `crates/slot-gfx` | `flip` uses an SDL2 GLES2 surface; the default uses fbdev. |
 | LED / backlight / lib paths | `flip/Tools/my355/Slot.pak/launch.sh` | Shell only. These sysfs paths are device-specific. |
 | Audio | `crates/slot/src/audio` | ALSA at 48 kHz on the Flip. |

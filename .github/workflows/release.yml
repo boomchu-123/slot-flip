@@ -42,24 +42,47 @@ jobs:
           file "$pak/slot" | grep -q aarch64
           file "$pak/System/mgba_libretro.so" | grep -q aarch64
           file "$pak/System/gpsp_libretro.so" | grep -q aarch64
+          file "$pak/System/pcsx_rearmed_libretro.so" | grep -q aarch64
+          file "$pak/System/fceumm_libretro.so" | grep -q aarch64
+          file "$pak/System/snes9x2005_plus_libretro.so" | grep -q aarch64
+          file "$pak/System/genesis_plus_gx_libretro.so" | grep -q aarch64
           test -x "$pak/launch.sh"
+          sh tools/check-pak-licences.sh "$pak"
           test -f "$pak/System/licenses/gpsp-GPL-2.0.txt"
           test -f "$pak/System/licenses/mgba-MPL-2.0.txt"
           test -f "$pak/System/licenses/gpsp-src.tar.gz"
+          test -f "$pak/System/licenses/pcsx-GPL-2.0.txt"
+          test -f "$pak/System/licenses/pcsx-src.tar.gz"
+          test -f "$pak/System/licenses/pcsx_rearmed_libretro.so.meta"
 
       - name: Package
         id: package
         run: |
           set -eu
+          # One zip, unzipped at the card root. It carries both launcher entries,
+          # the pak, the optional autoboot and the installer, so there is nothing
+          # to choose between downloads.
           stage="$(mktemp -d)"
-          cp -R flip/Tools/my355/Slot.pak "$stage/Slot.pak"
-          ( cd "$stage" && zip -qry "$GITHUB_WORKSPACE/Slot.pak-my355.zip" Slot.pak )
-          echo "zip=Slot.pak-my355.zip" >> "$GITHUB_OUTPUT"
+          mkdir -p "$stage/Tools/my355"
+          cp -R flip/Tools/my355/Slot.pak "$stage/Tools/my355/Slot.pak"
+          cp -R flip/App "$stage/App"
+          cp -R flip/autoboot/miyoo355 "$stage/miyoo355"
+          cp tools/install-slot.sh "$stage/install.sh"
+          chmod +x "$stage/install.sh"
+          ( cd "$stage" && zip -qry "$GITHUB_WORKSPACE/Slot-my355.zip" App Tools miyoo355 install.sh )
+          unzip -l Slot-my355.zip | grep -q "App/Slot/config.json"
+          unzip -l Slot-my355.zip | grep -q "Tools/my355/Slot.pak/launch.sh"
+          unzip -l Slot-my355.zip | grep -q "miyoo355/app/MainUI"
+          unzip -l Slot-my355.zip | grep -q "install.sh"
+          unzip -l Slot-my355.zip | grep -q "snes9x2005_plus_libretro.so"
+          unzip -l Slot-my355.zip | grep -q "NOTICE-NONCOMMERCIAL.txt"
+          echo "zip=Slot-my355.zip" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.package.outputs.zip }}
-          path: ${{ steps.package.outputs.zip }}
+          path: |
+            Slot-my355.zip
           if-no-files-found: error
 
   publish:
@@ -72,7 +95,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: Slot.pak-my355.zip
+          name: Slot-my355.zip
 
       - name: Create the release
         env:
@@ -80,20 +103,29 @@ jobs:
         run: |
           set -eu
           cat > notes.md <<'NOTES'
-          Miyoo Flip (my355) build of slot. for MinUI.
+          Miyoo Flip (my355) build of slot, for the Flip's own firmware.
 
-          **Install:** unzip and copy the `Slot.pak` folder to
-          `<SD CARD>/Tools/my355/Slot.pak`, then boot MinUI and open
-          **Tools -> Slot**. Full guide in the README.
+          **Install:** unzip `Slot-my355.zip` at the **root of your SD card**. Slot
+          then appears in the launcher's App list, and the device boots straight
+          into Slot. Nothing on the device is changed and nothing is reformatted.
 
-          Emulation by mGBA (MPL-2.0) and gpSP (GPL-2.0). Their licences,
-          patches and gpSP's source are in `System/licenses/`.
+          **Prefer a script?** The zip has `install.sh` in it: run it and it finds
+          the card, checks it, backs up what it replaces and copies everything.
+          `./install.sh --check` only looks; `--dry-run` says what it would do.
+
+          To get the stock menu back, create an empty file `Slot/Config/boot-menu`
+          and reboot. Delete it to boot straight into Slot again.
+
+          Emulation by mGBA (MPL-2.0), gpSP, PCSX-ReARMed and fceumm (GPL-2.0)
+          snes9x2005 and Genesis Plus GX (both non-commercial: this download is
+          free and must not be sold). Their licences, patches and source are in
+          `System/licenses/`.
 
           A fork of slot by Brandon T. Kowalski (https://slot-cfw.fyi). Not
           affiliated with the upstream author or Nintendo. Use your own
           legally-dumped ROMs.
           NOTES
-          gh release create "$GITHUB_REF_NAME" Slot.pak-my355.zip \
+          gh release create "$GITHUB_REF_NAME" Slot-my355.zip \
             --repo "$GITHUB_REPOSITORY" \
             --title "slot-flip $GITHUB_REF_NAME (Miyoo Flip)" \
             --notes-file notes.md

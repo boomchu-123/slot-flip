@@ -12,6 +12,8 @@ pub enum Btn {
     R1,
     L2,
     R2,
+    L3,
+    R3,
     Start,
     Select,
     Menu,
@@ -37,6 +39,8 @@ impl Btn {
             Btn::R1 => "r1",
             Btn::L2 => "l2",
             Btn::R2 => "r2",
+            Btn::L3 => "l3",
+            Btn::R3 => "r3",
             Btn::Start => "start",
             Btn::Select => "select",
             Btn::Menu => "menu",
@@ -63,6 +67,8 @@ impl Btn {
             "r1" | "r" | "rb" => Btn::R1,
             "l2" | "lt" => Btn::L2,
             "r2" | "rt" => Btn::R2,
+            "l3" => Btn::L3,
+            "r3" => Btn::R3,
             "start" => Btn::Start,
             "select" => Btn::Select,
             "menu" | "guide" | "home" => Btn::Menu,
@@ -75,7 +81,7 @@ impl Btn {
     }
 
     /// Every button, for enumerating bindings in a menu.
-    pub const ALL: [Btn; 19] = [
+    pub const ALL: [Btn; 21] = [
         Btn::Up,
         Btn::Down,
         Btn::Left,
@@ -88,6 +94,8 @@ impl Btn {
         Btn::R1,
         Btn::L2,
         Btn::R2,
+        Btn::L3,
+        Btn::R3,
         Btn::Start,
         Btn::Select,
         Btn::Menu,

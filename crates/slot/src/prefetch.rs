@@ -11,6 +11,9 @@ pub const PREFETCH_REST_MS: Millis = 500;
 
 const CHUNK: usize = 1 << 20;
 
+/// The largest file worth reading ahead. The biggest cartridge is 32 MiB.
+pub const MAX_PREFETCH: u64 = 64 << 20;
+
 #[derive(Default)]
 pub struct Prefetch {
     resting: Option<(PathBuf, Millis)>,
@@ -63,6 +66,12 @@ fn read_through(path: &Path, turn: &AtomicU64, mine: u64) -> u64 {
     let Ok(mut file) = std::fs::File::open(path) else {
         return 0;
     };
+    // Warming the cache pays off for a cartridge and costs the earth for a disc
+    // image: reading a 150 MB image whole spends seconds of card time and a
+    // fifth of this device's memory on a file the core streams anyway.
+    if file.metadata().is_ok_and(|m| m.len() > MAX_PREFETCH) {
+        return 0;
+    }
     let mut buf = vec![0u8; CHUNK];
     let mut total = 0u64;
     while turn.load(Ordering::Relaxed) == mine {

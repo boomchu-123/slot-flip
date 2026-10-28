@@ -1,0 +1,158 @@
+name: upstream-sync
+
+# Prepares the next upstream release for review. It never pushes to flip and
+# never opens the PR itself: a clean text merge can still be wrong, and a PR
+# created with GITHUB_TOKEN would not trigger the required checks.
+#
+# It merges ONE upstream release at a time, pushes a sync branch, and opens an
+# issue with the conflicts (or a ready-to-review branch). A human resolves,
+# bumps build_info::UPSTREAM, runs the checklist in AGENTS.md and opens the PR.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    container: rust:1-bookworm
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install build deps
+        run: |
+          set -eu
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git libudev-dev libasound2-dev pkg-config
+
+      - name: Find the next upstream release
+        id: pick
+        run: |
+          set -eu
+          # actions/checkout leaves the tree owned by another uid inside the
+          # rust container; git refuses to read it without this.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git remote add upstream https://github.com/BrandonKowalski/slot.git
+          # Only v1.*: upstream's old v0.* tags collide with this fork's own.
+          git fetch upstream 'refs/tags/v1.*:refs/tags/v1.*'
+          tags=$(git tag -l 'v1.*' --sort=v:refname)
+          base=""
+          next=""
+          for t in $tags; do
+            if git merge-base --is-ancestor "$t" HEAD; then
+              base="$t"
+            else
+              next="$t"
+              break
+            fi
+          done
+          if [ -z "$next" ]; then
+            {
+              echo "Already on the newest upstream release (${base:-none})."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "status=current" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "base=${base:-none}"
+            echo "tag=$next"
+            echo "branch=chore/upstream-sync-${next#v}"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Upstream sync"
+            echo ""
+            echo "Next release: **$next** (current base: ${base:-none})."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Merge it into a sync branch
+        id: merge
+        if: steps.pick.outputs.status != 'current'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          tag="${{ steps.pick.outputs.tag }}"
+          branch="${{ steps.pick.outputs.branch }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          if ! git merge --no-ff "$tag" -m "Merge upstream slot $tag"; then
+            files=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
+            git merge --abort
+            git checkout --detach
+            echo "state=conflict" >> "$GITHUB_OUTPUT"
+            echo "files=$files" >> "$GITHUB_OUTPUT"
+            {
+              echo ""
+              echo "**Conflicts:** $files"
+              echo ""
+              echo "Resolve by hand. The checklist is AGENTS.md section 5."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "state=merged" >> "$GITHUB_OUTPUT"
+
+      - name: Check the merged tree compiles
+        id: check
+        if: steps.merge.outputs.state == 'merged'
+        run: |
+          set -eu
+          cargo check -p slot --tests --target-dir target-sync
+          cargo check -p slot --no-default-features --features flip --target-dir target-sync-flip
+          sh tools/check-pak-licences.sh flip/Tools/my355/Slot.pak
+          echo "state=green" >> "$GITHUB_OUTPUT"
+
+      - name: Push the sync branch
+        if: steps.merge.outputs.state == 'merged'
+        run: git push --force-with-lease origin "${{ steps.pick.outputs.branch }}"
+
+      - name: Open or update the review issue
+        if: steps.pick.outputs.status != 'current'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          tag="${{ steps.pick.outputs.tag }}"
+          branch="${{ steps.pick.outputs.branch }}"
+          state="${{ steps.merge.outputs.state }}"
+          if [ "$state" = "conflict" ]; then
+            title="Upstream slot $tag needs conflicts resolved"
+            body=$(printf '%s\n' \
+              "The scheduled sync merged **$tag** and hit conflicts. Nothing was pushed; the merge was aborted cleanly." \
+              "" \
+              "**Conflicted files:** \`${{ steps.merge.outputs.files }}\`" \
+              "" \
+              "Follow AGENTS.md section 5: for each file, diff the fork against the previous upstream tag before resolving. Bump \`build_info::UPSTREAM\` in the merge commit." \
+              "" \
+              "Run the full suite and the Flip build, then open a PR from a \`sync/$tag\` branch so \`pr-checks\` runs on the merged tree.")
+          else
+            title="Upstream slot $tag is ready to review"
+            body=$(printf '%s\n' \
+              "The scheduled sync merged **$tag** into \`$branch\` and it compiles (tests and the Flip feature check included)." \
+              "" \
+              "Compile state: **${{ steps.check.outputs.state }}**" \
+              "" \
+              "[Compare with flip](https://github.com/${{ github.repository }}/compare/flip...$branch?expand=1) · [Open the PR](https://github.com/${{ github.repository }}/compare/flip...$branch?expand=1)" \
+              "" \
+              "Still to do by hand: confirm every fork behaviour in AGENTS.md section 5, bump \`build_info::UPSTREAM\` if the merge did not, run the full suite and the card scripts, and run the release on the Flip.")
+          fi
+          number=$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi

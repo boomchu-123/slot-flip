@@ -1,4 +1,4 @@
-use slot_gfx::{Draw, TexId, OUT_H, OUT_W};
+use slot_gfx::{Canvas, Draw, TexId, OUT_H, OUT_W};
 use slot_ui::{draw_backdrop, draw_sticker, sticker_face, wallpaper_face, StickerFields};
 
 #[test]
@@ -6,18 +6,25 @@ fn render_about() {
     let Ok(out) = std::env::var("SCRATCH_PNG") else {
         return;
     };
+    let model = std::env::var("SCRATCH_MODEL").unwrap_or_default();
     let paper = std::env::var("SCRATCH_WALL")
         .ok()
-        .and_then(|p| wallpaper_face(std::path::Path::new(&p)));
+        .and_then(|p| wallpaper_face(std::path::Path::new(&p), OUT_W, OUT_H));
     let label = sticker_face(&StickerFields {
         battery: Some(87),
-        serial: "0473885",
-        dirty_digit: '0',
+        serial: "04738857",
+        version: "0.1.0",
+        upstream: "1.9.0",
+        model: &model,
     });
 
     let mut list = Vec::new();
-    draw_backdrop(paper.as_ref().map(|_| TexId::from_raw(0)), &mut list);
-    draw_sticker(Some(TexId::from_raw(1)), &mut list);
+    draw_backdrop(
+        Canvas::FRAMED,
+        paper.as_ref().map(|_| (TexId::from_raw(0), OUT_W)),
+        &mut list,
+    );
+    draw_sticker(Canvas::FRAMED, Some(TexId::from_raw(1)), &mut list);
 
     let (w, h) = (OUT_W as usize, OUT_H as usize);
     let mut px = vec![0u8; w * h * 4];

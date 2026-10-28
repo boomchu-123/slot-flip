@@ -1,0 +1,5 @@
+commit=aa74d79634cd230f65cce4180e92688e53883d2f
+source=https://github.com/libretro/Genesis-Plus-GX/archive/aa74d79634cd230f65cce4180e92688e53883d2f.tar.gz
+recipe=make -f Makefile.libretro platform=unix HAVE_CDROM=0
+device_cflags=-mcpu=cortex-a53
+shipped_source_omits=builds gx psp2 gcw0 sdl wiki

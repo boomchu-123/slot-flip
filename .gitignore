@@ -18,6 +18,8 @@
 /target-device
 /target-verify
 /dist-device
+/site/public
+/site/.cache
 
 # Parallel implementation worktrees, never content.
 /.worktrees
@@ -73,3 +75,4 @@ id_ed25519*
 
 # Source photos for tools/fit_bitmaps.py (personal art, not redistributable).
 /art-src/
+__pycache__/

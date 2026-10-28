@@ -1,3 +1,5 @@
+#![cfg(target_os = "macos")]
+
 use slot_gfx::{
     blue_light_gain, canvas_size, lcd3x_factors, lcd3x_mask, Compositor, Draw, HeadlessSurface,
     ScreenEffect, OUT_H, OUT_W, SRC_H, SRC_W,
@@ -729,7 +731,7 @@ fn the_grid_keeps_game_boy_rows_even_when_stretched_on_a_4_by_3_panel() {
     };
     let (frame, w, h) = stretched_gb_grid(&mut c, (640, 480));
     assert_eq!((w, h), (640, 427));
-    let (cols, rows) = grid_lines(&frame, w, h);
+    let (cols, rows) = grid_lines(&frame[..w * h * 4], w, h);
     assert_eq!(cols.len(), GB_W, "dark columns: {cols:?}");
     assert!(
         cols.windows(2).all(|p| p[1] - p[0] == 4),

@@ -23,6 +23,10 @@ impl ButtonMask {
     pub const X: u16 = 1 << 9;
     pub const L: u16 = 1 << 10;
     pub const R: u16 = 1 << 11;
+    pub const L2: u16 = 1 << 12;
+    pub const R2: u16 = 1 << 13;
+    pub const L3: u16 = 1 << 14;
+    pub const R3: u16 = 1 << 15;
 
     pub fn without_turbo(self) -> ButtonMask {
         ButtonMask(self.0 & !(Self::X | Self::Y))
@@ -83,7 +87,41 @@ pub trait RetroCore: Send {
     }
     fn set_option(&mut self, _key: &str, _value: &str) {}
     fn set_frame_skip(&mut self, _skip: bool) {}
+    /// The two analog sticks (left x, left y, right x, right y, each +-32767) for
+    /// player 1. Only a core with a pad that has sticks reads them.
+    fn set_analog(&mut self, _sticks: [i16; 4]) {}
+    /// Plug a DualShock (sticks, and a pad that rumbles) into port 1 instead of the
+    /// plain pad. Only a PlayStation core has one.
+    fn set_dualshock(&mut self, _on: bool) {}
+    /// How many discs the loaded game has: 0 for anything that is not a disc
+    /// core, 1 for a single disc. Only two or more can be changed.
+    fn disc_count(&self) -> usize {
+        0
+    }
+    /// The disc in the drive, or the one it is being changed to.
+    fn disc_index(&self) -> usize {
+        0
+    }
+    /// A disc change is still under way (the lid is open).
+    fn disc_changing(&self) -> bool {
+        false
+    }
+    /// Begin changing to disc `to` (0 is the first). The change finishes over
+    /// the frames that follow. False if it cannot be done.
+    fn change_disc(&mut self, _to: usize) -> bool {
+        false
+    }
     fn video_xrgb8888(&self) -> &[u8];
+    /// Width and height of what `video_xrgb8888` holds. Every core defaults to
+    /// the fixed GBA-sized canvas the Game Boy family is centred in; a core in
+    /// native-video mode reports the size it actually draws.
+    fn video_size(&self) -> (u32, u32) {
+        (GBA_W, GBA_H)
+    }
+    /// Keep each frame at the size the core draws it, instead of cropping or
+    /// centring it in the GBA-sized canvas. Off by default so the Game Boy
+    /// family is untouched; systems with larger pictures turn it on.
+    fn set_native_video(&mut self, _on: bool) {}
     fn take_audio(&mut self) -> Vec<i16>;
     fn serialize(&mut self) -> Result<Vec<u8>, CoreError>;
     fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError>;

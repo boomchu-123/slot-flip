@@ -1,29 +1,25 @@
+/// The upstream slot release this fork is based on. Set it in the same commit
+/// that merges that upstream tag (AGENTS section 5), because it is the only
+/// place an owner can see it: the About sticker prints it next to our version.
+pub const UPSTREAM: &str = "1.9.0";
+
 #[derive(Copy, Clone, Debug)]
 pub struct Build {
     pub version: &'static str,
     pub hash: &'static str,
-    pub dirty: bool,
     pub date: &'static str,
 }
 
 impl Build {
     pub fn current() -> Build {
         Build {
-            version: env!("CARGO_PKG_VERSION"),
+            version: env!("SLOT_VERSION"),
             hash: env!("SLOT_GIT_HASH"),
-            dirty: env!("SLOT_GIT_DIRTY") == "1",
             date: env!("SLOT_BUILD_DATE"),
         }
     }
 
     pub fn serial(&self) -> String {
         self.hash.to_uppercase()
-    }
-
-    pub fn dirty_digit(&self) -> char {
-        match self.dirty {
-            true => '1',
-            false => '0',
-        }
     }
 }

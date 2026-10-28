@@ -1,0 +1,4 @@
+commit=c8816799b50388e61cfe237fe2cdbb7d8175f20a
+source=https://github.com/libretro/pcsx_rearmed/archive/c8816799b50388e61cfe237fe2cdbb7d8175f20a.tar.gz
+recipe=make -f Makefile.libretro platform=unix
+device_cflags=-mcpu=cortex-a53

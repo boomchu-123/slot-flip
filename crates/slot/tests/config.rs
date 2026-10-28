@@ -1,10 +1,11 @@
-// End-to-end checks for the user-facing config added for the spec:
-// configurable background, starter files, and the INI button remap.
+// End-to-end checks for the user-facing config: starter files, carrying an old
+// pinned background across to the menu's wallpaper setting, and button names.
 
 use std::path::Path;
 
-use slot::wallpaper;
+use slot::wallpaper::carry_over_pin;
 use slot_input::Btn;
+use slot_store::{read_slot_state, SlotState, WallpaperPick};
 use tempfile::TempDir;
 
 fn empty_root() -> TempDir {
@@ -14,9 +15,16 @@ fn empty_root() -> TempDir {
 }
 
 fn write_png(root: &Path, name: &str) {
-    // Not a real PNG; wallpaper::pick only checks the extension and that the
-    // file exists, so a stub is enough to exercise selection.
+    // Not a real PNG; the migration only checks that the file exists.
     std::fs::write(root.join("Wallpapers").join(name), b"stub").expect("write wallpaper");
+}
+
+fn pin(root: &Path, text: &str) {
+    std::fs::write(root.join("Config/slot.ini"), text).expect("write slot.ini");
+}
+
+fn pinned(root: &Path) -> Option<String> {
+    slot_store::ini::value(root, "Config/slot.ini", "background")
 }
 
 #[test]
@@ -27,10 +35,11 @@ fn ensure_writes_documented_starter_configs() {
     assert!(slot_ini.is_file(), "slot.ini was not created");
     assert!(buttons_ini.is_file(), "buttons.ini was not created");
 
-    let slot_text = std::fs::read_to_string(&slot_ini).unwrap();
     assert!(
-        slot_text.contains("background = random"),
-        "slot.ini missing the documented default background"
+        std::fs::read_to_string(&slot_ini)
+            .unwrap()
+            .contains("Menu > General > Wallpaper"),
+        "slot.ini does not say where wallpapers are chosen"
     );
     assert!(
         std::fs::read_to_string(&buttons_ini)
@@ -54,66 +63,102 @@ fn ensure_never_clobbers_edited_config() {
 }
 
 #[test]
-fn background_honours_a_named_file() {
+fn an_old_pinned_background_becomes_the_menus_wallpaper() {
     let d = empty_root();
     write_png(d.path(), "alpha.png");
     write_png(d.path(), "beta.png");
-    std::fs::write(d.path().join("Config/slot.ini"), "background = beta.png\n").unwrap();
+    pin(d.path(), "background = beta.png\n");
 
-    // The seed would otherwise pick alpha (sorts first); the name wins.
-    let picked = wallpaper::pick(d.path(), 0).expect("a background");
-    assert_eq!(picked.file_name().unwrap(), "beta.png");
+    let mut state = SlotState::default();
+    assert!(
+        carry_over_pin(d.path(), &mut state),
+        "nothing was carried over"
+    );
+    assert_eq!(state.wallpaper, WallpaperPick::File("beta.png".into()));
 }
 
 #[test]
-fn background_random_deals_every_wallpaper_before_repeating() {
+fn the_pin_is_carried_over_only_once() {
     let d = empty_root();
-    for name in ["a.png", "b.png", "c.png"] {
-        write_png(d.path(), name);
+    write_png(d.path(), "beta.png");
+    pin(d.path(), "background = beta.png\n");
+
+    let mut state = SlotState::default();
+    assert!(carry_over_pin(d.path(), &mut state));
+    assert_eq!(
+        pinned(d.path()).as_deref(),
+        Some("random"),
+        "the key was not retired"
+    );
+
+    // The player later goes back to the default in the menu. The next boot must
+    // not undo that.
+    state.wallpaper = WallpaperPick::Default;
+    assert!(!carry_over_pin(d.path(), &mut state));
+    assert_eq!(state.wallpaper, WallpaperPick::Default);
+}
+
+#[test]
+fn a_choice_already_made_in_the_menu_wins_over_the_old_pin() {
+    let d = empty_root();
+    write_png(d.path(), "beta.png");
+    pin(d.path(), "background = beta.png\n");
+
+    let mut state = SlotState {
+        wallpaper: WallpaperPick::Random,
+        ..SlotState::default()
+    };
+    assert!(!carry_over_pin(d.path(), &mut state));
+    assert_eq!(state.wallpaper, WallpaperPick::Random);
+    assert_eq!(
+        pinned(d.path()).as_deref(),
+        Some("random"),
+        "left to undo a later choice"
+    );
+}
+
+#[test]
+fn random_empty_and_missing_pins_change_nothing() {
+    for text in [
+        "background = random\n",
+        "background = Random\n",
+        "background =\n",
+        "\n",
+    ] {
+        let d = empty_root();
+        write_png(d.path(), "beta.png");
+        pin(d.path(), text);
+        let mut state = SlotState::default();
+        assert!(!carry_over_pin(d.path(), &mut state), "{text:?}");
+        assert_eq!(state.wallpaper, WallpaperPick::Default, "{text:?}");
     }
-    std::fs::write(d.path().join("Config/slot.ini"), "background = random\n").unwrap();
-
-    // Upstream v1.6 deals a shuffled deck, so every wallpaper is shown once
-    // before any repeats.
-    let mut seen: Vec<String> = Vec::new();
-    for _ in 0..3 {
-        let name = wallpaper::pick(d.path(), 0)
-            .expect("a background")
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .into_owned();
-        assert!(!seen.contains(&name), "{name} repeated before the deck ran out");
-        seen.push(name);
-    }
-    seen.sort();
-    assert_eq!(seen, ["a.png", "b.png", "c.png"]);
-
-    // The deck refills once it is empty, so a fourth pick still works.
-    assert!(wallpaper::pick(d.path(), 0).is_some());
 }
 
 #[test]
-fn background_falls_back_when_named_file_is_missing() {
+fn a_pin_to_a_file_that_is_gone_is_left_alone() {
     let d = empty_root();
-    write_png(d.path(), "only.png");
-    std::fs::write(d.path().join("Config/slot.ini"), "background = gone.png\n").unwrap();
-    let picked = wallpaper::pick(d.path(), 0).expect("a fallback background");
-    assert_eq!(picked.file_name().unwrap(), "only.png");
+    pin(d.path(), "background = gone.png\n");
+    let mut state = SlotState::default();
+    assert!(!carry_over_pin(d.path(), &mut state));
+    assert_eq!(state.wallpaper, WallpaperPick::Default);
+    // Not retired, so it still applies if the file is put back.
+    assert_eq!(pinned(d.path()).as_deref(), Some("gone.png"));
+    write_png(d.path(), "gone.png");
+    assert!(carry_over_pin(d.path(), &mut state));
 }
 
 #[test]
-fn background_none_when_folder_is_empty() {
+fn booting_with_an_old_pin_saves_it_as_the_wallpaper_setting() {
     let d = empty_root();
-    assert!(wallpaper::pick(d.path(), 0).is_none());
-}
+    write_png(d.path(), "beta.png");
+    pin(d.path(), "background = beta.png\n");
 
-#[test]
-fn choices_lists_available_wallpapers_sorted() {
-    let d = empty_root();
-    write_png(d.path(), "zed.png");
-    write_png(d.path(), "amy.png");
-    assert_eq!(wallpaper::choices(d.path()), vec!["amy.png", "zed.png"]);
+    let _app = slot::app::App::boot(d.path());
+    assert_eq!(
+        read_slot_state(d.path()).wallpaper,
+        WallpaperPick::File("beta.png".into()),
+        "the pin did not reach slot.state"
+    );
 }
 
 #[test]

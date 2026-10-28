@@ -2,10 +2,11 @@ use std::ffi::{c_char, c_int, c_uint, c_void, CStr, CString};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use libloading::Library;
 
+use super::pacer::Pacer;
 use super::ring::Ring;
 use super::silence::Silence;
 use super::sink::{AudioError, AudioSink};
@@ -111,7 +112,8 @@ impl Alsa {
                 };
                 if err < 0 {
                     unsafe { (self.close)(pcm) };
-                    last = AudioError::Config(format!("{name} @ {try_rate}: {}", self.message(err)));
+                    last =
+                        AudioError::Config(format!("{name} @ {try_rate}: {}", self.message(err)));
                     continue; // this rate refused; try the next rate
                 }
                 eprintln!("slot: audio {name} at {try_rate} Hz");
@@ -227,30 +229,27 @@ struct Playback {
 
 fn play(ring: &Arc<Ring>, sample_rate: u32) -> Result<Playback, AudioError> {
     let alsa = Alsa::load()?;
-    // Prefer a rate the codec actually locks onto; the ring runs at that rate
-    // so the emulator's resampler converts the core's output to match.
-    let (pcm, actual_rate) = match alsa.open_pcm(sample_rate) {
-        Ok((pcm, rate)) => (Some(pcm), rate),
-        Err(e) => {
-            eprintln!("slot: audio: {e}, retrying");
-            (None, preferred_rates(sample_rate)[0])
-        }
-    };
-    ring.reopen(actual_rate);
+    // The device stays closed until there is something to play, so the OS can
+    // play its own startup sound. It opens at the first frames; the rate it
+    // locks onto then becomes the ring's rate.
+    ring.reopen(sample_rate);
     Ok(Playback {
         alsa,
-        pcm,
-        rate: actual_rate,
-        failing: pcm.is_none(),
+        pcm: None,
+        rate: sample_rate,
+        failing: false,
     })
 }
 
 impl Playback {
     fn run(&mut self, ring: &Ring, stop: &AtomicBool) {
         let mut buf = vec![0i16; PERIOD_FRAMES * CHANNELS as usize];
-        let span = Duration::from_secs_f64(PERIOD_FRAMES as f64 / self.rate as f64);
-        let mut silence = Silence::new(RELEASE_AFTER);
+        let mut silence = Silence::quiet(RELEASE_AFTER);
+        let mut pace = Pacer::new(Duration::from_secs_f64(
+            PERIOD_FRAMES as f64 / self.rate as f64,
+        ));
         while !stop.load(Ordering::Relaxed) {
+            let span = Duration::from_secs_f64(PERIOD_FRAMES as f64 / self.rate as f64);
             ring.fill(&mut buf);
             let hold = silence.hear(&buf, span);
             match (self.pcm, hold) {
@@ -259,7 +258,16 @@ impl Playback {
                     eprintln!("slot: audio released after silence");
                 }
                 (None, true) => match self.alsa.open_pcm(self.rate) {
-                    Ok((pcm, _rate)) => {
+                    Ok((pcm, rate)) => {
+                        // The codec may not take the rate we asked for; the ring
+                        // runs at what it did take, so the resampler converts to it.
+                        if rate != self.rate {
+                            self.rate = rate;
+                            ring.reopen(rate);
+                            pace = Pacer::new(Duration::from_secs_f64(
+                                PERIOD_FRAMES as f64 / rate as f64,
+                            ));
+                        }
                         eprintln!("slot: audio reopened at {:.1} ms", crate::boot_time::ms());
                         self.pcm = Some(pcm);
                         self.failing = false;
@@ -267,6 +275,7 @@ impl Playback {
                     Err(e) => {
                         if !self.failing {
                             eprintln!("slot: audio: {e}, retrying");
+                            log_holders();
                             self.failing = true;
                         }
                     }
@@ -275,11 +284,12 @@ impl Playback {
             }
             match self.pcm {
                 Some(pcm) => {
+                    pace.reset();
                     if !self.write(pcm, &buf) {
                         return;
                     }
                 }
-                None => std::thread::sleep(span),
+                None => std::thread::sleep(pace.wait(Instant::now())),
             }
         }
     }
@@ -321,5 +331,65 @@ impl Playback {
 impl Drop for Playback {
     fn drop(&mut self) {
         self.release();
+    }
+}
+
+/// Says which processes have `/dev/snd` open, once per run.
+///
+/// "Device or resource busy" is all ALSA says, and on a handheld it can mean
+/// two different things: a firmware daemon owns the card, or the vendor's own
+/// audio driver does and ALSA cannot open it at all. The answer decides whether
+/// slot should ask ALSA to try again later or talk to the vendor interface
+/// instead, so it belongs in the log rather than in instructions for the tester.
+/// Reading `/proc` costs nothing and runs only when audio has already failed.
+pub(crate) fn log_holders() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static ONCE: AtomicBool = AtomicBool::new(false);
+    if ONCE.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    let mut found = 0;
+    if let Ok(procs) = std::fs::read_dir("/proc") {
+        for proc in procs.flatten() {
+            let name = proc.file_name();
+            let Some(pid) = name
+                .to_str()
+                .filter(|p| p.chars().all(|c| c.is_ascii_digit()))
+            else {
+                continue;
+            };
+            let Ok(fds) = std::fs::read_dir(proc.path().join("fd")) else {
+                continue;
+            };
+            let mut held: Vec<String> = fds
+                .flatten()
+                .filter_map(|fd| std::fs::read_link(fd.path()).ok())
+                .map(|target| target.to_string_lossy().into_owned())
+                .filter(|target| target.starts_with("/dev/snd/"))
+                .collect();
+            if held.is_empty() {
+                continue;
+            }
+            held.sort();
+            held.dedup();
+            let comm = std::fs::read_to_string(proc.path().join("comm"))
+                .map(|c| c.trim().to_string())
+                .unwrap_or_default();
+            for device in held {
+                eprintln!("slot: audio: {device} is held by pid {pid} ({comm})");
+                found += 1;
+            }
+        }
+    }
+    if found == 0 {
+        eprintln!(
+            "slot: audio: no process holds /dev/snd; the card is busy at the driver, or a vendor \
+             daemon owns the audio path another way"
+        );
+    }
+    if let Ok(cards) = std::fs::read_to_string("/proc/asound/cards") {
+        for line in cards.lines().filter(|l| !l.trim().is_empty()) {
+            eprintln!("slot: audio: card{}", line);
+        }
     }
 }

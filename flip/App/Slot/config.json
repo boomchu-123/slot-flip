@@ -1,0 +1,9 @@
+{
+	"label": "slot.",
+	"icon": "icon.png",
+	"iconsel": "iconsel.png",
+	"launch": "launch.sh",
+	"description": "Cartridge shelf",
+	"autoflip": 0,
+	"noaudiofix": 0
+}

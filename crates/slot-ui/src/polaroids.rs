@@ -1,10 +1,9 @@
-use slot_gfx::{Draw, TexId, OUT_H, OUT_W};
+use slot_gfx::{Canvas, Draw, TexId};
 use slot_power::Battery;
 use slot_store::{parse_stamp, StateEntry};
 
 use crate::art;
-use crate::battery::{draw_gauge, GAUGE_H};
-use crate::footer::{draw_printed, Printed};
+use crate::footer::{draw_corners, Printed};
 use crate::hud::{PLATE, PLATE_H};
 use crate::plate::{hint_quad, hint_row, hint_width, Hint, HINT_GAP, HINT_H, TITLE_H, TITLE_W};
 
@@ -139,13 +138,39 @@ impl Polaroids {
         clock: Printed,
         out: &mut Vec<Draw>,
     ) {
-        self.draw_photo(out);
-        self.draw_top(battery, battery_percent, bolt, clock, out);
-        self.draw_bottom(out);
+        self.draw_photo(Canvas::FRAMED, out);
+        self.draw_chrome(Canvas::FRAMED, battery, battery_percent, bolt, clock, out);
     }
 
-    fn draw_photo(&self, out: &mut Vec<Draw>) {
-        let (w, h) = (OUT_W as f32, OUT_H as f32);
+    pub fn draw_chrome(
+        &self,
+        canvas: Canvas,
+        battery: Option<Battery>,
+        battery_percent: Printed,
+        bolt: Option<TexId>,
+        clock: Printed,
+        out: &mut Vec<Draw>,
+    ) {
+        let hints = self.hints();
+        draw_album_chrome(
+            canvas,
+            AlbumChrome {
+                title: self.title,
+                hints: &hints,
+                hint_faces: &self.hint_faces,
+                ways_out: WAYS_OUT,
+                dots: Some(self.dots()),
+            },
+            battery,
+            battery_percent,
+            bolt,
+            clock,
+            out,
+        );
+    }
+
+    pub fn draw_photo(&self, canvas: Canvas, out: &mut Vec<Draw>) {
+        let (w, h) = (canvas.w, canvas.h);
         out.push(match self.faces.get(self.index) {
             Some(tex) => Draw::Shot { tex: *tex },
             None => Draw::Rect {
@@ -163,81 +188,10 @@ impl Polaroids {
         });
     }
 
-    fn draw_top(
-        &self,
-        battery: Option<Battery>,
-        battery_percent: Printed,
-        bolt: Option<TexId>,
-        clock: Printed,
-        out: &mut Vec<Draw>,
-    ) {
-        out.push(plate(0.0));
-        if let Some(tex) = self.title {
-            out.push(Draw::Tex {
-                x: (OUT_W as f32 - TITLE_W as f32) / 2.0,
-                y: (PLATE_H - TITLE_H as f32) / 2.0,
-                w: TITLE_W as f32,
-                h: TITLE_H as f32,
-                tex,
-                alpha: 1.0,
-            });
-        }
-
-        draw_gauge(
-            MARGIN,
-            (PLATE_H - GAUGE_H) / 2.0,
-            battery,
-            battery_percent,
-            bolt,
-            out,
-        );
-        if clock.w > 0 {
-            let x = OUT_W as f32 - MARGIN - clock.w as f32;
-            draw_printed(x, (PLATE_H - HINT_H as f32) / 2.0, clock, out);
-        }
-    }
-
-    fn draw_bottom(&self, out: &mut Vec<Draw>) {
-        let top = OUT_H as f32 - PLATE_H;
-        out.push(plate(top));
-        let y = top + (PLATE_H - HINT_H as f32) / 2.0;
-        let hints = self.hints();
-        let widths: Vec<f32> = hints
-            .iter()
-            .map(|h| hint_width(h.key, &h.label) as f32)
-            .collect();
-        let tail = &widths[WAYS_OUT..];
-        let tail_w = tail.iter().sum::<f32>() + HINT_GAP * (tail.len() - 1) as f32;
-        let mut x = MARGIN;
-        for (i, w) in widths.iter().enumerate() {
-            if i == WAYS_OUT {
-                x = OUT_W as f32 - MARGIN - tail_w;
-            }
-            out.push(hint_quad(x, y, *w, self.hint_faces.get(i).copied()));
-            x += w + HINT_GAP;
-        }
-        self.draw_dots(top, out);
-    }
-
-    fn draw_dots(&self, top: f32, out: &mut Vec<Draw>) {
-        let n = self.entries.len();
-        let row = n as f32 * DOT + (n as f32 - 1.0).max(0.0) * DOT_GAP;
-        let mut x = (OUT_W as f32 - row) / 2.0;
-        for i in 0..n {
-            out.push(Draw::Rect {
-                x,
-                y: top + (PLATE_H - DOT) / 2.0,
-                w: DOT,
-                h: DOT,
-                colour: [1.0, 1.0, 1.0, if i == self.index { 1.0 } else { DOT_DIM }],
-            });
-            x += DOT + DOT_GAP;
-        }
-    }
-
     pub fn relative_time(stamp: &str, now: &str) -> String {
         const RELATIVE_WINDOW: i64 = 12 * 3600;
-        let (Some(then), Some(parsed)) = (parse_stamp(stamp), parse_stamp(now)) else {
+        let seconds = stamp.get(..19).unwrap_or(stamp);
+        let (Some(then), Some(parsed)) = (parse_stamp(seconds), parse_stamp(now)) else {
             return stamp.to_string();
         };
         let delta = parsed - then;
@@ -254,12 +208,81 @@ impl Polaroids {
     }
 }
 
-fn plate(y: f32) -> Draw {
+fn plate(canvas: Canvas, y: f32) -> Draw {
     Draw::Rect {
         x: 0.0,
         y,
-        w: OUT_W as f32,
+        w: canvas.w,
         h: PLATE_H,
         colour: PLATE,
+    }
+}
+
+pub struct AlbumChrome<'a> {
+    pub title: Option<TexId>,
+    pub hints: &'a [Hint],
+    pub hint_faces: &'a [TexId],
+    pub ways_out: usize,
+    pub dots: Option<(usize, usize)>,
+}
+
+pub fn draw_album_chrome(
+    canvas: Canvas,
+    chrome: AlbumChrome,
+    battery: Option<Battery>,
+    battery_percent: Printed,
+    bolt: Option<TexId>,
+    clock: Printed,
+    out: &mut Vec<Draw>,
+) {
+    out.push(plate(canvas, 0.0));
+    if let Some(tex) = chrome.title {
+        out.push(Draw::Tex {
+            x: canvas.centred(TITLE_W as f32),
+            y: (PLATE_H - TITLE_H as f32) / 2.0,
+            w: TITLE_W as f32,
+            h: TITLE_H as f32,
+            tex,
+            alpha: 1.0,
+        });
+    }
+    draw_corners(canvas, battery, battery_percent, bolt, clock, out);
+
+    let top = canvas.h - PLATE_H;
+    out.push(plate(canvas, top));
+    let y = top + (PLATE_H - HINT_H as f32) / 2.0;
+    let widths: Vec<f32> = chrome
+        .hints
+        .iter()
+        .map(|h| match h.key == crate::shot_viewer::PAN_KEY {
+            true => crate::plate::pad_hint_width(&h.label) as f32,
+            false => hint_width(h.key, &h.label) as f32,
+        })
+        .collect();
+    let tail = &widths[chrome.ways_out.min(widths.len())..];
+    let tail_w = tail.iter().sum::<f32>() + HINT_GAP * tail.len().saturating_sub(1) as f32;
+    let mut x = MARGIN;
+    for (i, w) in widths.iter().enumerate() {
+        if i == chrome.ways_out {
+            x = canvas.w - MARGIN - tail_w;
+        }
+        out.push(hint_quad(x, y, *w, chrome.hint_faces.get(i).copied()));
+        x += w + HINT_GAP;
+    }
+
+    let Some((n, index)) = chrome.dots else {
+        return;
+    };
+    let row = n as f32 * DOT + (n as f32 - 1.0).max(0.0) * DOT_GAP;
+    let mut x = canvas.centred(row);
+    for i in 0..n {
+        out.push(Draw::Rect {
+            x,
+            y: top + (PLATE_H - DOT) / 2.0,
+            w: DOT,
+            h: DOT,
+            colour: [1.0, 1.0, 1.0, if i == index { 1.0 } else { DOT_DIM }],
+        });
+        x += DOT + DOT_GAP;
     }
 }

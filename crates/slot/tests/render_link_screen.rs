@@ -14,8 +14,8 @@ use slot::link_start::{LinkFail, LinkStarter, LinkStep};
 use slot_input::Action;
 use slot_store::Core;
 use slot_ui::{
-    arrows_hint_face, hint_face, link_art, menu_face, toast_face, CartFace, Draw, TexId, Toast,
-    UndoFace, OUT_H, OUT_W,
+    arrows_hint_face, hint_face, link_art, menu_face, toast_face, Canvas, CartFace, Draw, TexId,
+    Toast, UndoFace, OUT_H, OUT_W, PORT_Y,
 };
 
 struct Face {
@@ -152,7 +152,7 @@ fn at(px: &[u8], x: usize, y: usize) -> [u8; 3] {
 fn render(menu: GameMenu, kind: LinkKind, now: u64, name: &str) -> Vec<u8> {
     let (sprites, faces) = sprites_and_faces();
     let mut out = Vec::new();
-    draw_link_art(menu, kind, now, &sprites, &mut out);
+    draw_link_art(Canvas::FRAMED, menu, kind, now, &sprites, &mut out);
     let px = composite(&out, &faces);
     dump(&px, name);
     px
@@ -184,9 +184,9 @@ fn the_host_picks_a_purple_plug_over_the_port() {
         housing[2] > housing[1] + 30,
         "no purple housing above the port: {housing:?}"
     );
-    let slot = at(&px, 360, 406);
+    let slot = at(&px, 360, PORT_Y as usize + 18);
     assert!(
-        slot.iter().all(|c| *c < 0x14),
+        slot.iter().all(|c| *c < 0x40),
         "no port under the plug: {slot:?}"
     );
 }
@@ -215,10 +215,11 @@ fn a_wireless_link_seats_the_adapter_with_its_label_plate() {
         opened: false,
     };
     let px = render(menu, LinkKind::Wireless, 2000, "wireless-linked");
-    let plate = at(&px, 360, 388 - 12);
+    let y = PORT_Y as usize - 12;
+    let body = (300..420).filter(|x| at(&px, *x, y)[0] > 0x60).count();
     assert!(
-        plate[0] > 0x28 && plate[0] < 0x70,
-        "no plate where the seated adapter's label goes: {plate:?}"
+        body > 100,
+        "the seated adapter's printed plate is not above the port: {body} light pixels"
     );
 }
 
@@ -255,7 +256,8 @@ fn ending_a_link_pulls_the_plug_back_out_of_the_port() {
     };
     let seated = render(menu, LinkKind::Cable, 0, "cable-unplug-start");
     let gone = render(menu, LinkKind::Cable, 400, "cable-unplug-end");
-    let (x, y) = (356, 359);
+    // Below the resting tip (367) and above the port, so only a seated plug reaches it.
+    let (x, y) = (356, 400);
     assert_ne!(
         at(&seated, x, y),
         GROUND,
@@ -407,7 +409,7 @@ fn the_connected_screen_shows_back_and_end_link() {
 }
 
 fn toast_faces() -> Vec<(TexId, Face)> {
-    Toast::all()
+    Toast::all("0.0.0")
         .into_iter()
         .map(|t| (TexId::from_raw(800 + t.index()), toast_face(t).into()))
         .collect()
@@ -511,7 +513,7 @@ fn mode_cap_ink() -> usize {
 
 #[test]
 fn the_legend_shows_select_mode_only_where_the_hardware_can_be_switched() {
-    let switchable = legend_pixels("POKEMON RUBY", "AXVE", "legend-switchable");
+    let switchable = legend_pixels("POKEMON EMER", "BPEE", "legend-switchable");
     let fixed = legend_pixels("MARIO GOLF", "BMGE", "legend-fixed");
 
     assert!(

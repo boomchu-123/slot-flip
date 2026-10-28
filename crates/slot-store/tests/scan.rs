@@ -157,3 +157,198 @@ fn the_same_stem_on_two_platforms_is_two_carts_with_two_labels() {
         "the GBA cart borrowed the Game Boy label"
     );
 }
+
+/// The label a cart ended up with, by ROM name, for the tests below.
+fn label_of(d: &TempDir, stem: &str) -> Option<String> {
+    let carts = scan(d.path()).unwrap();
+    let cart = carts.iter().find(|c| c.stem == stem).expect("cart scanned");
+    cart.label
+        .as_ref()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+}
+
+#[test]
+fn every_label_in_one_flat_folder_pairs_without_sorting_them_by_system() {
+    let d = tmp_root();
+    write_rom(&d, "GBA/Metroid Fusion.gba", "METROID");
+    std::fs::write(d.path().join("Games/GB/Tetris.gb"), vec![0u8; 0x150]).unwrap();
+    write_png(&d, "Metroid Fusion.png");
+    write_png(&d, "Tetris.png");
+
+    assert_eq!(
+        label_of(&d, "Metroid Fusion").as_deref(),
+        Some("Metroid Fusion.png")
+    );
+    assert_eq!(label_of(&d, "Tetris").as_deref(), Some("Tetris.png"));
+}
+
+#[test]
+fn the_systems_own_folder_beats_one_image_shoved_in_the_flat_one() {
+    let d = tmp_root();
+    write_rom(&d, "GBA/Metroid Fusion.gba", "METROID");
+    write_png(&d, "GBA/Metroid Fusion.png");
+    write_png(&d, "Metroid Fusion.png");
+
+    let carts = scan(d.path()).unwrap();
+    assert_eq!(
+        carts[0].label.as_deref(),
+        Some(d.path().join("Labels/GBA/Metroid Fusion.png").as_path())
+    );
+}
+
+#[test]
+fn a_label_named_after_the_game_ignores_region_and_revision_tags() {
+    let d = tmp_root();
+    write_rom(&d, "GBA/Kirby - Nightmare in Dream Land (USA).gba", "KIRBY");
+    write_png(&d, "GBA/Kirby - Nightmare in Dream Land.png");
+    std::fs::write(d.path().join("Games/GBC/Zelda.gbc"), vec![0u8; 0x150]).unwrap();
+    write_png(&d, "GBC/Zelda (USA, Europe) (Rev 2) (SGB Enhanced).png");
+
+    assert_eq!(
+        label_of(&d, "Kirby - Nightmare in Dream Land (USA)").as_deref(),
+        Some("Kirby - Nightmare in Dream Land.png")
+    );
+    assert_eq!(
+        label_of(&d, "Zelda").as_deref(),
+        Some("Zelda (USA, Europe) (Rev 2) (SGB Enhanced).png")
+    );
+}
+
+#[test]
+fn a_label_with_a_curly_apostrophe_pairs_with_a_rom_that_has_a_straight_one() {
+    let d = tmp_root();
+    std::fs::write(
+        d.path()
+            .join("Games/GB/Kirby's Dream Land (USA, Europe).gb"),
+        vec![0u8; 0x150],
+    )
+    .unwrap();
+    write_png(&d, "GB/Kirby\u{2019}s Dream Land.png");
+
+    assert_eq!(
+        label_of(&d, "Kirby's Dream Land (USA, Europe)").as_deref(),
+        Some("Kirby\u{2019}s Dream Land.png")
+    );
+}
+
+#[test]
+fn a_lowercase_system_folder_is_found_like_any_other() {
+    let d = tmp_root();
+    write_rom(&d, "GBA/Metroid Fusion.gba", "METROID");
+    write_png(&d, "gba/Metroid Fusion.png");
+
+    assert_eq!(
+        label_of(&d, "Metroid Fusion").as_deref(),
+        Some("Metroid Fusion.png")
+    );
+}
+
+#[test]
+fn artwork_for_another_game_is_never_borrowed() {
+    let d = tmp_root();
+    write_rom(&d, "GBA/Final Fantasy 6 Advance.gba", "FF6");
+    write_png(&d, "GBA/Final Fantasy 1 + 2 - Dawn of Souls.png");
+    write_png(&d, "GBA/Fire Emblem.png");
+
+    assert!(
+        label_of(&d, "Final Fantasy 6 Advance").is_none(),
+        "a cart took artwork for a different game"
+    );
+}
+
+#[test]
+fn an_image_that_is_not_a_png_is_left_alone() {
+    let d = tmp_root();
+    write_rom(&d, "GBA/Metroid Fusion.gba", "METROID");
+    std::fs::create_dir_all(d.path().join("Labels/GBA")).unwrap();
+    std::fs::write(d.path().join("Labels/GBA/Metroid Fusion.jpg"), b"junk").unwrap();
+
+    assert!(
+        label_of(&d, "Metroid Fusion").is_none(),
+        "a file the decoder cannot read was taken as a label"
+    );
+}
+
+fn write_file(d: &TempDir, rel: &str, body: &str) {
+    let path = d.path().join("Games").join(rel);
+    std::fs::create_dir_all(path.parent().expect("a parent")).expect("create dir");
+    std::fs::write(path, body).expect("write file");
+}
+
+fn stems(carts: &[slot_store::Cart]) -> Vec<&str> {
+    carts.iter().map(|c| c.stem.as_str()).collect()
+}
+
+#[test]
+fn a_playstation_game_is_shelved_by_its_disc_image_and_not_its_track_files() {
+    let d = tmp_root();
+    write_file(&d, "PS1/Crash.cue", "FILE \"Crash.bin\" BINARY\n");
+    write_file(&d, "PS1/Crash.bin", "not a cart");
+    write_file(&d, "PS1/Spyro.chd", "chd");
+    let carts = scan(d.path()).unwrap();
+    assert_eq!(stems(&carts), ["Crash", "Spyro"]);
+    assert!(carts.iter().all(|c| c.platform == Platform::Ps1));
+}
+
+#[test]
+fn a_multi_disc_game_is_one_cart_its_playlist_not_one_per_disc() {
+    let d = tmp_root();
+    write_file(&d, "PS1/FF7 (Disc 1).cue", "");
+    write_file(&d, "PS1/FF7 (Disc 2).cue", "");
+    write_file(&d, "PS1/FF7 (Disc 3).chd", "");
+    write_file(
+        &d,
+        "PS1/FF7.m3u",
+        "# three discs\nFF7 (Disc 1).cue\n\nFF7 (Disc 2).cue\r\nFF7 (Disc 3).chd\n",
+    );
+    write_file(&d, "PS1/Crash.cue", "");
+    let carts = scan(d.path()).unwrap();
+    assert_eq!(stems(&carts), ["Crash", "FF7"]);
+    assert!(carts[1].rom.to_string_lossy().ends_with("FF7.m3u"));
+}
+
+#[test]
+fn a_playlist_matches_its_discs_whatever_the_case_or_path_style() {
+    let d = tmp_root();
+    write_file(&d, "PS1/Game (Disc 1).CUE", "");
+    write_file(&d, "PS1/Game (Disc 2).cue", "");
+    write_file(
+        &d,
+        "PS1/Game.m3u",
+        "discs\\game (disc 1).cue\n./Game (Disc 2).cue\n",
+    );
+    let carts = scan(d.path()).unwrap();
+    assert_eq!(stems(&carts), ["Game"]);
+}
+
+#[test]
+fn a_disc_no_playlist_names_stays_on_the_shelf() {
+    let d = tmp_root();
+    write_file(&d, "PS1/A (Disc 1).cue", "");
+    write_file(&d, "PS1/A.m3u", "A (Disc 1).cue\n");
+    write_file(&d, "PS1/B.cue", "");
+    let carts = scan(d.path()).unwrap();
+    assert_eq!(stems(&carts), ["A", "B"]);
+}
+
+#[test]
+fn a_playlist_in_another_systems_folder_hides_nothing() {
+    let d = tmp_root();
+    write_file(&d, "GBA/Emerald.gba", "x");
+    write_file(&d, "GB/Tetris.gb", "x");
+    write_file(&d, "GB/Tetris.m3u", "Emerald.gba\n");
+    let carts = scan(d.path()).unwrap();
+    assert_eq!(stems(&carts), ["Emerald", "Tetris"]);
+}
+
+#[test]
+fn a_disc_image_is_not_read_as_a_game_boy_rom() {
+    let d = tmp_root();
+    // Bytes at the Game Boy title offset that would read as a title if misread.
+    let mut body = vec![b' '; 0x200];
+    body[0x134..0x13d].copy_from_slice(b"NOT A GB!");
+    write_file(&d, "PS1/Crash.cue", &String::from_utf8(body).unwrap());
+    let mut cart = scan(d.path()).unwrap().remove(0);
+    cart.read_header();
+    assert_eq!(cart.title, "", "a disc image has no header to read");
+}

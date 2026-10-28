@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use slot::audio::{ring_capacity, AudioSink, Ring, StubSink, GBA_HZ};
+use slot::audio::{ring_capacity, AudioSink, Ring, StubSink, OUTPUT_HZ};
 use slot::emu::{CoreState, EmuHandle, Speed};
 use slot_retro::MockCore;
 
@@ -232,7 +232,7 @@ fn a_cart_sound_is_not_held_back_by_the_cushion() {
 #[test]
 fn a_rewinding_core_does_not_report_the_device_as_starved() {
     let mut sink = StubSink::new();
-    sink.open(GBA_HZ).expect("the stub refused to open");
+    sink.open(OUTPUT_HZ).expect("the stub refused to open");
     let ring = sink.ring();
     let emu = EmuHandle::spawn(
         Box::new(MockCore::new()),
@@ -269,12 +269,12 @@ fn a_rewinding_core_does_not_report_the_device_as_starved() {
 #[test]
 fn the_cushion_at_an_odd_capacity_still_ends_on_a_frame() {
     assert_eq!(
-        ring_capacity(GBA_HZ) % 2,
+        ring_capacity(32_768) % 2,
         1,
         "this rate no longer has an odd capacity, so it no longer exercises the bug"
     );
-    let r = Ring::new(ring_capacity(GBA_HZ));
-    r.reopen(GBA_HZ);
+    let r = Ring::new(ring_capacity(32_768));
+    r.reopen(32_768);
 
     let mut cushion = vec![1i16; r.queued_frames() * 2];
     r.fill(&mut cushion);
@@ -306,4 +306,67 @@ fn silence_releases_the_device_only_after_three_quiet_seconds() {
         "sound did not reclaim the device"
     );
     assert!(s.hear(&quiet, period), "one sound did not restart the wait");
+}
+
+#[test]
+fn a_quiet_start_holds_no_device_until_the_first_sound() {
+    let mut s = slot::audio::Silence::quiet(Duration::from_secs(3));
+    let period = Duration::from_millis(500);
+    let quiet = [0i16; 64];
+    for _ in 0..10 {
+        assert!(
+            !s.hear(&quiet, period),
+            "silence claimed the device at boot"
+        );
+    }
+    assert!(
+        s.hear(&[0, 0, 3, 0], period),
+        "the first sound did not claim the device"
+    );
+}
+
+#[test]
+fn a_released_device_drains_at_the_audio_clock_despite_late_wakeups() {
+    let span = Duration::from_secs_f64(512.0 / OUTPUT_HZ as f64);
+    let mut pace = slot::audio::Pacer::new(span);
+    let start = Instant::now();
+    let mut now = start;
+    let periods = 1_000u32;
+    for _ in 0..periods {
+        now += Duration::from_micros(200);
+        now += pace.wait(now) + Duration::from_micros(500);
+    }
+    let drift = (now - start).abs_diff(span * periods);
+    assert!(
+        drift < span,
+        "{periods} periods took {drift:?} longer than the audio they drained"
+    );
+}
+
+#[test]
+fn a_released_device_resyncs_after_a_long_stall_instead_of_bursting() {
+    let span = Duration::from_millis(10);
+    let mut pace = slot::audio::Pacer::new(span);
+    let start = Instant::now();
+    assert_eq!(pace.wait(start), span);
+    assert_eq!(
+        pace.wait(start + span * 2),
+        Duration::ZERO,
+        "a short lag was not caught up"
+    );
+    assert_eq!(
+        pace.wait(start + Duration::from_secs(2)),
+        span,
+        "a stall was paid back by draining without sleeping"
+    );
+}
+
+#[test]
+fn reopening_the_device_forgets_the_released_schedule() {
+    let span = Duration::from_millis(10);
+    let mut pace = slot::audio::Pacer::new(span);
+    let start = Instant::now();
+    pace.wait(start);
+    pace.reset();
+    assert_eq!(pace.wait(start + span * 3), span);
 }

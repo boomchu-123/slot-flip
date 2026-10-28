@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -10,7 +11,7 @@ use super::evdev::{
     decode, device_name, pick_devices, to_raw, Ev, Hat, EVENT_BYTES, EV_ABS, EV_KEY, EV_SYN,
 };
 #[cfg(feature = "flip")]
-use super::evdev::Stick;
+use super::evdev::{LeftStick, Stick};
 use super::trace;
 
 const DEV: &str = "/dev/input";
@@ -21,6 +22,7 @@ const LID_POLL_MS: Millis = 150;
 
 pub struct DeviceInput {
     pending: Arc<Mutex<Vec<RawEvent>>>,
+    stick: Arc<AtomicBool>,
     hall: Option<PathBuf>,
     lid_shut: Option<bool>,
     next_lid_poll: Millis,
@@ -38,6 +40,7 @@ impl DeviceInput {
 
     fn open_traced(dev: &Path, sys: &Path, trace: Option<Arc<Trace>>) -> Self {
         let pending: Arc<Mutex<Vec<RawEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let stick = Arc::new(AtomicBool::new(false));
         for node in pick_devices(dev, sys) {
             eprintln!(
                 "slot: input {} ({})",
@@ -46,26 +49,44 @@ impl DeviceInput {
             );
             quicken_poll(sys, &node);
             let queue = pending.clone();
+            let steers = stick.clone();
             let name = node.display().to_string();
             let trace = trace.clone();
             #[cfg(feature = "flip")]
-            let stick_only = super::evdev::is_gamepad_node(&sys.join(node.file_name().unwrap()).join("device"));
+            let stick_only =
+                super::evdev::is_gamepad_node(&sys.join(node.file_name().unwrap()).join("device"));
             #[cfg(not(feature = "flip"))]
             let stick_only = false;
             let spawned = std::thread::Builder::new()
                 .name(format!("slot-input-{name}"))
-                .spawn(move || read_node(&node, &queue, trace.as_deref(), stick_only));
+                .spawn(move || read_node(&node, &queue, &steers, trace.as_deref(), stick_only));
             if let Err(e) = spawned {
                 eprintln!("slot: input {name}: {e}");
             }
         }
         DeviceInput {
             pending,
+            stick,
             hall: find_hall(Path::new(PSY)),
             lid_shut: None,
             next_lid_poll: 0,
         }
     }
+}
+
+/// The two stick clicks, which only the gamepad node reports.
+///
+/// The gamepad node also repeats START (0x13b), MENU (0x13c, BTN_MODE) and SELECT
+/// (0x13a). Those must stay unmapped here: the keyboard node already reports them,
+/// and a second button arriving with MENU held reads as a chord and cancels the tap
+/// and the hold that ejects.
+#[cfg_attr(not(feature = "flip"), allow(dead_code))]
+fn click(code: u16) -> Option<Btn> {
+    Some(match code {
+        0x13d => Btn::L3, // BTN_THUMBL
+        0x13e => Btn::R3, // BTN_THUMBR
+        _ => return None,
+    })
 }
 
 const POLL_MS: u32 = 10;
@@ -92,7 +113,13 @@ fn quicken_poll(sys: &Path, node: &Path) {
     }
 }
 
-fn read_node(node: &Path, queue: &Mutex<Vec<RawEvent>>, trace: Option<&Trace>, stick_only: bool) {
+fn read_node(
+    node: &Path,
+    queue: &Mutex<Vec<RawEvent>>,
+    steers: &AtomicBool,
+    trace: Option<&Trace>,
+    stick_only: bool,
+) {
     let _ = stick_only;
     let label = node
         .file_name()
@@ -101,6 +128,8 @@ fn read_node(node: &Path, queue: &Mutex<Vec<RawEvent>>, trace: Option<&Trace>, s
     let mut hat = Hat::default();
     #[cfg(feature = "flip")]
     let mut stick = Stick::default();
+    #[cfg(feature = "flip")]
+    let mut left = LeftStick::default();
     let mut file = match File::open(node) {
         Ok(f) => f,
         Err(e) => {
@@ -129,15 +158,31 @@ fn read_node(node: &Path, queue: &Mutex<Vec<RawEvent>>, trace: Option<&Trace>, s
             }
             #[cfg(feature = "flip")]
             if stick_only {
-                // Gamepad node: contribute only the right stick (fast-forward).
-                // Its buttons and hat duplicate the gpio keyboard node.
+                // Gamepad node: its buttons and hat duplicate the gpio keyboard node,
+                // so only the right stick (fast-forward) and the two stick clicks come
+                // from here; nothing else reports those.
+                if ev.kind == EV_KEY {
+                    if let Some(btn) = click(ev.code) {
+                        match ev.value {
+                            1 => events.push(RawEvent::Down(btn)),
+                            0 => events.push(RawEvent::Up(btn)),
+                            _ => {}
+                        }
+                    }
+                }
                 if ev.kind == EV_ABS {
+                    super::sticks::feed(ev.code, ev.value);
                     events.extend(stick.feed(ev));
+                    // The left stick as a D-pad, unless a game is reading the
+                    // sticks itself.
+                    let steering = steers.load(Ordering::Relaxed) && !super::sticks::taken();
+                    events.extend(left.feed(ev, steering));
                 }
                 continue;
             }
             match ev.kind {
                 EV_ABS => {
+                    hat.steer_with_stick(steers.load(Ordering::Relaxed));
                     events.extend(hat.feed(ev));
                 }
                 _ => events.extend(to_raw(ev)),
@@ -160,7 +205,9 @@ struct Trace {
 
 impl Trace {
     fn start(root: &Path, dev: &Path, sys: &Path) -> Option<Arc<Trace>> {
-        let path = root.join(trace::TRACE_FILE);
+        let dir = crate::root::logs_dir(root);
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join(trace::TRACE_FILE);
         let mut file = match File::create(&path) {
             Ok(f) => f,
             Err(e) => {
@@ -191,6 +238,10 @@ impl Trace {
 }
 
 impl DeviceInput {
+    pub fn steer_with_stick(&self, on: bool) {
+        self.stick.store(on, Ordering::Relaxed);
+    }
+
     fn read_lid(&self) -> Option<bool> {
         let raw = std::fs::read_to_string(self.hall.as_ref()?).ok()?;
         match raw.trim() {
@@ -240,4 +291,20 @@ fn find_hall(psy: &Path) -> Option<PathBuf> {
         .into_iter()
         .map(|d| d.join("hallkey"))
         .find(|p| p.is_file())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_stick_clicks_are_read_from_the_gamepad_node() {
+        assert_eq!(click(0x13d), Some(Btn::L3));
+        assert_eq!(click(0x13e), Some(Btn::R3));
+        // SELECT, START and MENU (BTN_MODE) arrive here as well; mapping any of them
+        // would put a second button down while MENU is held.
+        for code in [0x13a, 0x13b, 0x13c] {
+            assert_eq!(click(code), None, "{code:#x} is not a stick click");
+        }
+    }
 }

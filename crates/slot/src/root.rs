@@ -1,16 +1,25 @@
 use std::path::{Path, PathBuf};
 
-pub const DIRS: [&str; 20] = [
+pub const DIRS: [&str; 29] = [
     "BIOS",
+    "Bezels",
+    "Bezels/GBA",
+    "Bezels/GB",
+    "Bezels/GBC",
     "Config",
     "Games",
     "Games/GBA",
     "Games/GB",
     "Games/GBC",
+    "Games/PS1",
+    "Games/NES",
     "Labels",
     "Labels/GBA",
     "Labels/GB",
     "Labels/GBC",
+    "Labels/PS1",
+    "Labels/NES",
+    "Logs",
     "Saves",
     "Saves/GBA",
     "Saves/GB",
@@ -50,14 +59,15 @@ fn write_starter(root: &Path, rel: &str, body: &str) {
 const STARTER_SLOT_INI: &str = "\
 # Slot settings. Lines beginning with # are ignored.
 
-# Background image. Put PNG files in the Wallpapers folder next to this one,
-# then name the file you want here. Use `random` (or leave it) to shuffle
-# through every wallpaper on each boot.
-background = random
+# Nothing is needed here. Put PNG files in the Wallpapers folder next to this
+# one, then choose one in Slot under Menu > General > Wallpaper.
 ";
 
 const STARTER_BUTTONS_INI: &str = "\
 # Button remap for Slot.
+#
+# You do not need to edit this by hand: open Menu > Controls > Key Map in Slot, pick a
+# button and press the key you want for it. Slot writes this file for you.
 #
 # Each line is: <kernel-key-code> = <button>
 # Codes may be decimal (109) or hex (0x135). Any code you do NOT list keeps the
@@ -65,6 +75,7 @@ const STARTER_BUTTONS_INI: &str = "\
 #
 # Button names:
 #   up down left right  a b x y  l1 r1 l2 r2  start select menu  volup voldown
+# Use `none` to switch a key off:   57 = none
 #
 # To find your device's codes, run the input trace build and read the log, or
 # check your platform's evdev key codes.
@@ -74,6 +85,12 @@ const STARTER_BUTTONS_INI: &str = "\
 #   109 = r1
 #   104 = l2
 ";
+
+pub fn sweep_temps(root: &Path) {
+    for sub in ["Config", "Saves", "States"] {
+        slot_store::sweep_temps(&root.join(sub));
+    }
+}
 
 pub fn bios_dir(root: &Path) -> PathBuf {
     root.join("BIOS")
@@ -93,6 +110,10 @@ pub fn has_real_bios(root: &Path) -> bool {
     }
     let mut first = [0u8; 1];
     std::io::Read::read_exact(&mut f, &mut first).is_ok() && first[0] == BIOS_FIRST_BYTE
+}
+
+pub fn logs_dir(root: &Path) -> PathBuf {
+    root.join("Logs")
 }
 
 pub fn saves_dir(root: &Path) -> PathBuf {

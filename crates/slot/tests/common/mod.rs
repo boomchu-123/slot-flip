@@ -55,6 +55,19 @@ pub fn tmp_root_with_gb_carts(stems: &[&str]) -> TempDir {
     d
 }
 
+pub fn tmp_root_with_gbc_carts(stems: &[&str]) -> TempDir {
+    let d = tmp_root_with_gb_carts(&[]);
+    for stem in stems {
+        let title = stem.to_uppercase();
+        let mut rom = vec![0u8; 0x150];
+        rom[0x134..0x134 + title.len().min(11)]
+            .copy_from_slice(&title.as_bytes()[..title.len().min(11)]);
+        rom[0x143] = 0x80;
+        std::fs::write(cart_path(&d, CartPlatform::Gbc, stem), rom).expect("write rom");
+    }
+    d
+}
+
 pub fn write_gb_cart(d: &TempDir, stem: &str, title: &str) {
     assert!(
         title.len() <= 11,
@@ -98,6 +111,13 @@ pub fn write_retail_header(d: &TempDir, stem: &str, title: &str, code: &str) {
     rom[0xa0..0xa0 + title.len()].copy_from_slice(title.as_bytes());
     rom[0xac..0xac + code.len()].copy_from_slice(code.as_bytes());
     rom[0xb2] = 0x96;
+    std::fs::write(rom_path(d, stem), rom).expect("write rom");
+}
+
+pub fn write_hack_header(d: &TempDir, stem: &str, title: &str, code: &str) {
+    write_retail_header(d, stem, title, code);
+    let mut rom = std::fs::read(rom_path(d, stem)).expect("read rom");
+    rom[0xb2] = 0;
     std::fs::write(rom_path(d, stem), rom).expect("write rom");
 }
 
@@ -284,6 +304,7 @@ pub struct StubPlatform {
     led_writes: Arc<AtomicUsize>,
     headphones: Arc<std::sync::atomic::AtomicBool>,
     read_only: Arc<std::sync::atomic::AtomicBool>,
+    card_log: Option<PathBuf>,
 }
 
 pub fn led_code(state: LedState) -> u8 {
@@ -362,6 +383,7 @@ fn rig_with_led(
         led_writes: led_writes.clone(),
         headphones: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         read_only: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        card_log: None,
     };
     (
         Power::new(Box::new(platform), timeout),
@@ -451,6 +473,14 @@ impl Platform for StubPlatform {
     fn card_read_only(&self) -> bool {
         self.read_only.load(Ordering::Relaxed)
     }
+
+    fn card_log(&self) -> Option<PathBuf> {
+        self.card_log.clone()
+    }
+
+    fn card_kernel_lines(&self) -> Vec<String> {
+        vec![STUB_KERNEL_LINE.to_owned()]
+    }
 }
 
 pub fn clocked(root: &Path) {
@@ -481,12 +511,23 @@ pub fn app_playing_with_jack(root: &Path, stem: &str) -> (App, Arc<std::sync::at
         led_writes: Arc::new(AtomicUsize::new(0)),
         headphones: jack.clone(),
         read_only: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        card_log: None,
     };
     a.set_power(Power::new(Box::new(platform), Duration::from_secs(300)));
     (a, jack)
 }
 
+pub const STUB_KERNEL_LINE: &str = "FAT-fs (mmcblk0p7): error, invalid access to FAT";
+
 pub fn app_playing_with_card(root: &Path, stem: &str) -> (App, Arc<std::sync::atomic::AtomicBool>) {
+    app_playing_with_card_log(root, stem, None)
+}
+
+pub fn app_playing_with_card_log(
+    root: &Path,
+    stem: &str,
+    card_log: Option<PathBuf>,
+) -> (App, Arc<std::sync::atomic::AtomicBool>) {
     let mut a = app_playing_with(root, stem, StubSnapshot::boxed());
     let read_only = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let platform = StubPlatform {
@@ -499,6 +540,7 @@ pub fn app_playing_with_card(root: &Path, stem: &str) -> (App, Arc<std::sync::at
         led_writes: Arc::new(AtomicUsize::new(0)),
         headphones: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         read_only: read_only.clone(),
+        card_log,
     };
     a.set_power(Power::new(Box::new(platform), Duration::from_secs(300)));
     (a, read_only)
@@ -571,4 +613,126 @@ fn seated(root: &Path, snapshot: Box<dyn Snapshot>, state: SlotState) -> App {
         a.update(1.0 / 60.0);
     }
     a
+}
+
+pub fn through(a: &mut App, btn: slot_input::Btn) {
+    let now = a.now();
+    feed_through(a, btn, now, |a, action| a.apply(action));
+}
+
+pub fn through_at(a: &mut App, btn: slot_input::Btn, at: slot_input::Millis) {
+    feed_through(a, btn, at, |a, action| a.apply_at(action, at));
+}
+
+fn feed_through(
+    a: &mut App,
+    btn: slot_input::Btn,
+    now: slot_input::Millis,
+    apply: impl Fn(&mut App, slot_input::Action),
+) {
+    let mut g = slot_input::Gestures::new();
+    g.set_entries(a.binding_table().entries());
+    for ev in [
+        slot_input::RawEvent::Down(btn),
+        slot_input::RawEvent::Up(btn),
+    ] {
+        g.set_context(a.input_context());
+        for action in g.feed(ev, now) {
+            apply(a, action);
+        }
+    }
+}
+
+/// The PlayStation core built by `cores/pcsx/build.sh`, when it has been.
+pub fn vendored_pcsx() -> Option<PathBuf> {
+    let p = repo_root().join(format!(
+        "vendor/pcsx_rearmed_libretro.{}",
+        std::env::consts::DLL_EXTENSION
+    ));
+    if !p.exists() {
+        eprintln!("no pcsx_rearmed core built, skipping");
+    }
+    p.exists().then_some(p)
+}
+
+/// A PlayStation executable that only loops, so a core has content without
+/// anyone's game or a BIOS.
+pub fn spin_exe(dir: &Path) -> PathBuf {
+    let put = |b: &mut Vec<u8>, at: usize, v: u32| b[at..at + 4].copy_from_slice(&v.to_le_bytes());
+    let mut exe = vec![0u8; 2048 * 2];
+    exe[..8].copy_from_slice(b"PS-X EXE");
+    put(&mut exe, 0x10, 0x8001_0000);
+    put(&mut exe, 0x18, 0x8001_0000);
+    put(&mut exe, 0x1c, 2048);
+    put(&mut exe, 0x30, 0x801f_fff0);
+    let region = b"Sony Computer Entertainment Inc. for North America area";
+    exe[0x4c..0x4c + region.len()].copy_from_slice(region);
+    put(&mut exe, 2048, 0x0800_4000);
+    let path = dir.join("spin.exe");
+    std::fs::write(&path, exe).unwrap();
+    path
+}
+
+/// `n` tiny discs (a `.cue` and a `.bin` each: just enough ISO 9660 for a core to
+/// accept them, booting the do-nothing program) and an `.m3u` naming them in
+/// order. Nothing of anyone's game.
+pub fn blank_discs(dir: &Path, n: usize) -> PathBuf {
+    const SECTOR: usize = 2352;
+    const DATA: usize = 24;
+    let exe = std::fs::read(spin_exe(dir)).unwrap();
+    let mut list = String::new();
+    for i in 1..=n {
+        let mut disc = vec![0u8; SECTOR * 300];
+        for s in disc.chunks_exact_mut(SECTOR) {
+            s[1..11].fill(0xff);
+            s[15] = 2;
+            s[18] = 8;
+            s[22] = 8;
+        }
+        let put = |disc: &mut Vec<u8>, lba: usize, at: usize, bytes: &[u8]| {
+            let o = lba * SECTOR + DATA + at;
+            disc[o..o + bytes.len()].copy_from_slice(bytes);
+        };
+        put(
+            &mut disc,
+            4,
+            60,
+            b"Sony Computer Entertainment Inc. for North America area",
+        );
+        put(&mut disc, 16, 0, &[1]);
+        put(&mut disc, 16, 1, b"CD001");
+        put(&mut disc, 16, 40, format!("BLANK{i}").as_bytes());
+        let mut root = [0u8; 34];
+        root[0] = 34;
+        root[2..6].copy_from_slice(&20u32.to_le_bytes());
+        root[10..14].copy_from_slice(&4096u32.to_le_bytes());
+        root[25] = 2;
+        root[32] = 1;
+        put(&mut disc, 16, 156, &root);
+        let name = b"PSX.EXE;1";
+        let mut file = vec![0u8; 33 + name.len() + 1];
+        file[0] = file.len() as u8;
+        file[2..6].copy_from_slice(&22u32.to_le_bytes());
+        file[10..14].copy_from_slice(&4096u32.to_le_bytes());
+        file[32] = name.len() as u8;
+        file[33..33 + name.len()].copy_from_slice(name);
+        put(&mut disc, 20, 0, &file);
+        put(&mut disc, 22, 0, &exe[..2048]);
+        put(&mut disc, 23, 0, &exe[2048..4096]);
+
+        let (bin, cue) = (
+            format!("Blank (Disc {i}).bin"),
+            format!("Blank (Disc {i}).cue"),
+        );
+        std::fs::write(dir.join(&bin), disc).unwrap();
+        std::fs::write(
+            dir.join(&cue),
+            format!("FILE \"{bin}\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n"),
+        )
+        .unwrap();
+        list.push_str(&format!("{cue}\n"));
+    }
+    let m3u = dir.join("Blank.m3u");
+    std::fs::write(&m3u, list).unwrap();
+    m3u
 }

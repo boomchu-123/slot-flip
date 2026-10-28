@@ -33,9 +33,10 @@ attribute vec2 a_pos;
 uniform vec4 u_rect;
 uniform vec2 u_target;
 uniform vec2 u_turn;
+uniform vec4 u_src;
 varying vec2 v_uv;
 void main() {
-    v_uv = a_pos;
+    v_uv = u_src.xy + a_pos * u_src.zw;
     vec2 mid = u_rect.zw * 0.5;
     vec2 local = a_pos * u_rect.zw - mid;
     vec2 turned = vec2(u_turn.x * local.x - u_turn.y * local.y,
@@ -58,6 +59,7 @@ uniform vec4 u_uv;
 uniform float u_bright;
 uniform float u_mode;
 uniform float u_paper_size;
+uniform vec2 u_origin;
 uniform vec4 u_rect;
 uniform vec2 u_fbo;
 uniform vec4 u_pic;
@@ -87,7 +89,7 @@ void main() {
         float luma = dot(c, luma_coeff);
         w = w * luma;
         c = mix(c, vec3(1.0), w);
-        vec3 bg = vec3(texture2D(u_paper, (floor(gl_FragCoord.xy) + 0.5) / u_paper_size).r) * c;
+        vec3 bg = vec3(texture2D(u_paper, (floor(gl_FragCoord.xy - u_origin) + 0.5) / u_paper_size).r) * c;
         c = mix(c, bg, dot(c, luma_coeff));
     } else if (u_mode > 2.5) {
         float bloom = mix(1.05, 0.95, dot(c, vec3(0.30, 0.59, 0.11)));
@@ -152,17 +154,5 @@ uniform vec3 u_gain;
 varying vec2 v_uv;
 void main() {
     FRAG_COLOR = vec4(texture2D(u_tex, v_uv).rgb * u_gain, 1.0);
-}
-"#;
-
-pub const BEZEL_FRAG: &str = r#"
-precision mediump float;
-uniform sampler2D u_tex;
-uniform vec3 u_gain;
-uniform float u_alpha;
-varying vec2 v_uv;
-void main() {
-    vec4 c = texture2D(u_tex, v_uv);
-    FRAG_COLOR = vec4(c.rgb * u_gain, c.a * u_alpha);
 }
 "#;

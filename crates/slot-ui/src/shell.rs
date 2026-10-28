@@ -90,6 +90,13 @@ pub fn shell_for(cart: &Cart) -> Shell {
     match cart.platform {
         Platform::Gba => gba_shell_for(&gba_code(cart)),
         Platform::Gb | Platform::Gbc => gb_shell_for(&cart.rom),
+        // A neutral dark shell: there is no cart header to colour it from.
+        Platform::Ps1 => shell([0x2e, 0x2f, 0x34], Finish::Solid),
+        // The grey of the plastic; the Game Pak is drawn, and has no shell to colour.
+        Platform::Nes => shell([0x9a, 0x99, 0x95], Finish::Solid),
+        Platform::Snes => shell([0xa6, 0xa5, 0xa1], Finish::Solid),
+        // Black plastic; the cart is drawn, so this only colours the plain fallback.
+        Platform::Md | Platform::Sms | Platform::Gg => shell([0x2e, 0x2e, 0x32], Finish::Solid),
     }
 }
 
@@ -113,7 +120,7 @@ pub fn gba_shell_for(code: &str) -> Shell {
 }
 
 fn gb_shell_for(rom: &Path) -> Shell {
-    let Some(h) = slot_store::gb::header(rom) else {
+    let Some(h) = slot_store::gb::cached_header(rom) else {
         return flag_shell(slot_store::gb::class(rom));
     };
     let by_title = || {
@@ -137,6 +144,37 @@ fn flag_shell(class: Class) -> Shell {
 
 pub fn table_keys() -> Vec<&'static str> {
     EXACT.iter().map(|(k, _)| *k).collect()
+}
+
+pub fn gba_plastics() -> Vec<[u8; 3]> {
+    let mut colours = vec![DEFAULT_SHELL.colour, FAMILY[0].1.colour];
+    colours.extend(EXACT.iter().map(|(_, s)| s.colour));
+    unique(colours)
+}
+
+pub fn gb_plastics() -> Vec<[u8; 3]> {
+    let mut colours = vec![
+        DMG_SHELL.colour,
+        DUAL_MODE_SHELL.colour,
+        GB_CLEAR_SHELL.colour,
+    ];
+    colours.extend(
+        GB_CODES
+            .iter()
+            .chain(GB_OVERSEAS_TITLES)
+            .map(|(_, s)| s.colour),
+    );
+    unique(colours)
+}
+
+fn unique(colours: Vec<[u8; 3]>) -> Vec<[u8; 3]> {
+    let mut out = Vec::new();
+    for colour in colours {
+        if !out.contains(&colour) {
+            out.push(colour);
+        }
+    }
+    out
 }
 
 pub fn gb_table_shells() -> Vec<Shell> {

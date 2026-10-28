@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 use slot::input::DeviceInput;
 #[cfg(not(feature = "miyoomini"))]
 use slot::frontend::Frontend;
+#[cfg(not(feature = "miyoomini"))]
+use slot::panel_turn::{panel_turn, PanelTurn};
 #[cfg(not(any(feature = "flip", feature = "miyoomini")))]
 use slot_gfx::FbdevSurface;
 #[cfg(feature = "flip")]
@@ -25,6 +27,9 @@ const STEP_TIMEOUT: Duration = Duration::from_millis(12);
 #[cfg(not(feature = "miyoomini"))]
 #[cfg(not(feature = "miyoomini"))]
 const MARGIN: Duration = Duration::from_micros(1500);
+
+#[cfg(not(feature = "miyoomini"))]
+const LOG_SYNC: Duration = Duration::from_secs(1);
 
 #[cfg(not(feature = "miyoomini"))]
 struct Pacer {
@@ -145,17 +150,26 @@ fn run_gles(
     };
     slot::boot_time::mark("compositor");
     let panel = surface.window_size();
-    let turned = panel.0 < panel.1;
+    let env = |key| std::env::var(key).ok();
+    let turn = panel_turn(
+        panel,
+        slot::baseos::var("BASEOS_PANEL_ROTATION_CCW").as_deref(),
+        env("SLOT_ROTATE").as_deref(),
+    );
+    let turned = turn != PanelTurn::None;
     let window = if turned { (panel.1, panel.0) } else { panel };
-    let ccw = std::env::var("SLOT_ROTATE")
-        .map(|v| v.trim().eq_ignore_ascii_case("ccw"))
-        .unwrap_or(false);
     eprintln!(
-        "slot: panel {}x{}, canvas {}x{}, turned {turned}, ccw {ccw}",
+        "slot: baseos target {}, model {}, rotation ccw {}",
+        slot::baseos::var("BASEOS_TARGET").unwrap_or_default(),
+        slot::baseos::var("BASEOS_MODEL").unwrap_or_default(),
+        slot::baseos::var("BASEOS_PANEL_ROTATION_CCW").unwrap_or_default()
+    );
+    eprintln!(
+        "slot: panel {}x{}, canvas {}x{}, turn {turn:?}",
         panel.0, panel.1, window.0, window.1
     );
     if turned {
-        if let Err(e) = compositor.set_panel_turn(panel, ccw) {
+        if let Err(e) = compositor.set_panel_turn(panel, turn == PanelTurn::Ccw) {
             eprintln!("slot: {e}");
             return;
         }
@@ -173,6 +187,10 @@ fn run_gles(
     slot::input::keymap::load(&root);
     let mut frontend = Frontend::boot_with(Box::new(platform), sink);
     slot::boot_time::mark("frontend");
+    let target = slot::baseos::var("BASEOS_TARGET").unwrap_or_default();
+    // The Flip has a left stick, but its target string is empty here, so the list of
+    // devices that have one never names it.
+    frontend.set_left_stick(cfg!(feature = "flip") || slot::input::evdev::has_left_stick(&target));
     frontend.upload_boot_faces(&mut compositor);
     slot::boot_time::mark("faces");
     frontend.upload_bezel(&mut compositor, window);
@@ -182,7 +200,13 @@ fn run_gles(
     let card = root.clone();
     let _ = std::thread::Builder::new()
         .name("slot-bootlogo".into())
-        .spawn(move || slot::bootlogo::refresh(&card));
+        .spawn(move || {
+            slot::bootlogo::refresh(&card);
+            slot::root::sweep_temps(&card);
+        });
+    let _ = std::thread::Builder::new()
+        .name("slot-logsync".into())
+        .spawn(sync_log_writes);
     let mut drawn = false;
     frontend.drive_emulator();
     let mut pacer = Pacer::new();
@@ -192,12 +216,21 @@ fn run_gles(
     loop {
         pacer.wait();
         let began = Instant::now();
+        input.steer_with_stick(frontend.app().left_stick_dpad());
         frontend.advance(&mut input);
         if frontend.restarting() {
             frontend.restart();
         }
+        if frontend.repairing() {
+            frontend.repair();
+        }
         if frontend.powering_off() {
             frontend.poweroff();
+            return;
+        }
+        if slot::crash::stopping() {
+            eprintln!("slot: told to stop, saving first");
+            frontend.stop();
             return;
         }
         frontend.step_emulator(pacer.period, STEP_TIMEOUT);
@@ -206,6 +239,7 @@ fn run_gles(
         let work = swap - began;
         if let Err(e) = surface.swap() {
             eprintln!("slot: {e}");
+            frontend.stop();
             return;
         }
         let swap_took = swap.elapsed();
@@ -240,6 +274,14 @@ fn run_gles(
                     pacer.period.as_secs_f64() * 1e3,
                 );
                 heartbeat = (Instant::now(), 0, published);
+                // Only worth a line while sticks are the game's: how often the core
+                // asked for them and the furthest it was given.
+                let (reads, [lx, ly, rx, ry]) = slot_retro::analog_stats();
+                if reads > 0 {
+                    eprintln!(
+                        "slot: analog: the core read the sticks {reads} times, peaks lx {lx} ly {ly} rx {rx} ry {ry}"
+                    );
+                }
             }
         }
         if !drawn {
@@ -249,6 +291,25 @@ fn run_gles(
         }
         if let Some(left) = MIN_FRAME.checked_sub(began.elapsed()) {
             std::thread::sleep(left);
+        }
+    }
+}
+
+#[cfg(not(feature = "miyoomini"))]
+fn sync_log_writes() {
+    let mut synced = 0;
+    loop {
+        std::thread::sleep(LOG_SYNC);
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        if unsafe { libc::fstat(2, &mut st) } != 0 {
+            return;
+        }
+        if st.st_size != synced {
+            #[cfg(target_os = "linux")]
+            unsafe {
+                libc::syncfs(2);
+            }
+            synced = st.st_size;
         }
     }
 }

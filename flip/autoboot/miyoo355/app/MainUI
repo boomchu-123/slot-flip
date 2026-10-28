@@ -1,0 +1,48 @@
+#!/bin/sh
+# Boot straight into Slot on the Flip's own firmware, without changing the
+# device. Stock runs <card>/miyoo355/app/MainUI in place of its own launcher
+# whenever that folder exists on the card, so this hands over to Slot.
+#
+# Slot needs exactly one of the firmware's daemons: miyoo_inputd, which creates
+# the gamepad node ("MIYOO Player1") that carries the analog sticks and their
+# clicks. Without it there are no sticks at all.
+#
+# It must NOT start keymon. Slot routes its own audio and owns the lid, the LEDs,
+# the volume and the power button, and keymon fought it: it switched the light off
+# on lid close and injected a phantom volume-down when the lid opened. keymon is
+# started only for the stock menu, which depends on it.
+SD="${SDCARD_PATH:-/mnt/sdcard}"
+export LD_LIBRARY_PATH="/usr/miyoo/lib:/usr/lib:$LD_LIBRARY_PATH"
+
+log() { echo "slot-boot: $*" >> "$SD/slot-launch.log"; }
+
+start_daemon() { # name binary
+	[ -x "$2" ] || return 0
+	[ -n "$(pgrep "$1")" ] || { "$2" >/dev/null 2>&1 & log "started $1"; }
+}
+
+stock_menu() {
+	# The stock launcher expects what stock starts before it.
+	start_daemon keymon /usr/miyoo/bin/keymon
+	start_daemon miyoo_inputd /usr/miyoo/bin/miyoo_inputd
+	exec /usr/miyoo/bin/MainUI
+}
+
+log "miyoo355/app/MainUI at $(cat /proc/uptime)"
+
+# Escape hatch: create <card>/Slot/Config/boot-menu and the stock menu starts
+# instead; delete it to come straight back into Slot. The same applies when the
+# pak is not on the card at all: never leave someone looking at a device that
+# boots to nothing. (Stock re-runs this script after Slot exits.)
+if [ -f "$SD/Slot/Config/boot-menu" ]; then
+	log "boot-menu flag set, starting the stock launcher"
+	stock_menu
+fi
+
+if [ ! -x "$SD/Tools/my355/Slot.pak/launch.sh" ]; then
+	log "no pak at $SD/Tools/my355/Slot.pak; starting the stock launcher"
+	stock_menu
+fi
+
+start_daemon miyoo_inputd /usr/miyoo/bin/miyoo_inputd
+exec "$SD/Tools/my355/Slot.pak/launch.sh"

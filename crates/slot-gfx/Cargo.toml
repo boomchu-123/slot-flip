@@ -21,3 +21,7 @@ glutin = { workspace = true, optional = true }
 glutin-winit = { workspace = true, optional = true }
 raw-window-handle = { workspace = true, optional = true }
 winit = { workspace = true, optional = true }
+
+[[example]]
+name = "flip_smoke"
+required-features = ["flip"]

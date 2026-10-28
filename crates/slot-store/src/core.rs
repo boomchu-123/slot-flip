@@ -10,15 +10,35 @@ pub enum Core {
     #[default]
     Mgba,
     Gpsp,
+    Pcsx,
+    Fceumm,
+    Snes9x,
+    Genesis,
 }
 
 impl Core {
+    /// The cores the picker board offers a choice between. A PlayStation disc has
+    /// one core and nothing to pick, so `Pcsx` is not here; see [`Core::EVERY`].
     pub const ALL: [Core; 2] = [Core::Mgba, Core::Gpsp];
+
+    /// Every core slot can run, pickable or not.
+    pub const EVERY: [Core; 6] = [
+        Core::Mgba,
+        Core::Gpsp,
+        Core::Pcsx,
+        Core::Fceumm,
+        Core::Snes9x,
+        Core::Genesis,
+    ];
 
     pub fn as_str(&self) -> &'static str {
         match self {
             Core::Mgba => "mgba",
             Core::Gpsp => "gpsp",
+            Core::Pcsx => "pcsx",
+            Core::Fceumm => "fceumm",
+            Core::Snes9x => "snes9x",
+            Core::Genesis => "genesis",
         }
     }
 
@@ -30,6 +50,10 @@ impl Core {
         match self {
             Core::Mgba => "mGBA",
             Core::Gpsp => "gpSP",
+            Core::Pcsx => "PCSX-ReARMed",
+            Core::Fceumm => "fceumm",
+            Core::Snes9x => "Snes9x 2005 Plus",
+            Core::Genesis => "Genesis Plus GX",
         }
     }
 
@@ -37,15 +61,16 @@ impl Core {
         match s.trim().to_ascii_lowercase().as_str() {
             "mgba" => Some(Core::Mgba),
             "gpsp" => Some(Core::Gpsp),
+            "pcsx" => Some(Core::Pcsx),
+            "fceumm" => Some(Core::Fceumm),
+            "snes9x" => Some(Core::Snes9x),
+            "genesis" => Some(Core::Genesis),
             _ => None,
         }
     }
 
     pub fn runs(self, platform: Platform) -> bool {
-        match self {
-            Core::Mgba => true,
-            Core::Gpsp => platform == Platform::Gba,
-        }
+        platform.spec().cores.contains(&self)
     }
 
     pub fn default_for(platform: Platform) -> Core {
@@ -56,9 +81,7 @@ impl Core {
         if platform == Platform::Gba {
             return Core::Gpsp;
         }
-        match platform {
-            Platform::Gba | Platform::Gb | Platform::Gbc => Core::Mgba,
-        }
+        platform.spec().cores[0]
     }
 }
 

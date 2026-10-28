@@ -42,3 +42,42 @@ fn buffers_are_recycled_rather_than_reallocated_per_frame() {
         f.allocated()
     );
 }
+
+#[test]
+fn a_frame_published_without_a_size_is_the_gba_canvas() {
+    let f = Frames::new(4);
+    publish(&f, 7, 4);
+    let latest = f.latest().expect("a published frame should be readable");
+    assert_eq!(latest.size(), (slot_retro::GBA_W, slot_retro::GBA_H));
+}
+
+#[test]
+fn a_frame_carries_the_size_it_was_published_at() {
+    let f = Frames::new(4);
+    let mut buf = f.take_write();
+    buf.clear();
+    buf.resize(320 * 240 * 4, 1);
+    f.publish_sized(buf, (320, 240));
+    let latest = f.latest().expect("a published frame should be readable");
+    assert_eq!(latest.size(), (320, 240));
+    assert_eq!(latest.len(), 320 * 240 * 4);
+}
+
+#[test]
+fn the_newest_frame_brings_its_own_size_even_when_it_replaces_an_unread_one() {
+    let f = Frames::new(4);
+    let mut a = f.take_write();
+    a.clear();
+    a.resize(8, 1);
+    f.publish_sized(a, (2, 1));
+    let mut b = f.take_write();
+    b.clear();
+    b.resize(16, 2);
+    f.publish_sized(b, (2, 2));
+    let latest = f.latest().expect("a published frame should be readable");
+    assert_eq!(
+        (latest.size(), latest[0]),
+        ((2, 2), 2),
+        "stale size or data"
+    );
+}

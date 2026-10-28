@@ -1,9 +1,9 @@
 use std::cell::Cell;
-use std::ffi::{c_char, c_int, c_uint, c_void, CString};
+use std::ffi::{c_char, c_int, c_uint, c_void, CStr, CString};
 use std::marker::PhantomData;
 use std::path::Path;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 
 use libloading::Library;
 
@@ -16,6 +16,32 @@ const VIDEO_BYTES: usize = (GBA_W * GBA_H * 4) as usize;
 
 static LIVE: AtomicBool = AtomicBool::new(false);
 
+/// How many of a core's own on-screen messages go to the log. They are rare (PCSX
+/// says "ANALOG ON" when the pad is switched), but a core that chatters every frame
+/// must not fill the card's log.
+static MESSAGES: AtomicU32 = AtomicU32::new(0);
+const MESSAGE_LOG_LIMIT: u32 = 64;
+
+/// How many times the core asked for a stick axis, and the furthest value it was
+/// given on each, since `analog_stats` was last called. A core only asks while its
+/// pad is a DualShock in analog mode, so a count of zero means the sticks are not
+/// reaching the game however they are moved, and the peaks say what it was handed.
+static ANALOG_READS: AtomicU32 = AtomicU32::new(0);
+static ANALOG_PEAKS: [AtomicI32; 4] = [
+    AtomicI32::new(0),
+    AtomicI32::new(0),
+    AtomicI32::new(0),
+    AtomicI32::new(0),
+];
+
+/// The core's stick reads since the last call: how many, and the furthest value on
+/// left x, left y, right x and right y. Starts the next count from zero.
+pub fn analog_stats() -> (u32, [i16; 4]) {
+    let reads = ANALOG_READS.swap(0, Ordering::Relaxed);
+    let peaks = std::array::from_fn(|i| ANALOG_PEAKS[i].swap(0, Ordering::Relaxed) as i16);
+    (reads, peaks)
+}
+
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum PixelFormat {
     Xrgb8888,
@@ -24,9 +50,19 @@ enum PixelFormat {
 
 struct Host {
     video: Vec<u8>,
+    /// What `video` holds. Always the GBA canvas unless `native` is on.
+    video_size: (u32, u32),
+    native: bool,
+    /// Environment commands the core has asked for that we do not handle, so each
+    /// is reported once and not on every frame.
+    unhandled: std::collections::HashSet<c_uint>,
+    /// Core log lines already shown, so a core that repeats one is not repeated.
+    logged: std::collections::HashSet<String>,
     format: PixelFormat,
     audio: Vec<i16>,
     inputs: [u16; 2],
+    /// Left x, left y, right x, right y, for port 1.
+    analog: [i16; 4],
     system_dir: CString,
     save_dir: CString,
     rumble: Rumble,
@@ -38,6 +74,8 @@ struct Host {
     options: std::collections::HashMap<String, std::ffi::CString>,
     options_dirty: bool,
     declared: std::collections::HashMap<String, Vec<String>>,
+    /// What the core gave us to change discs with, if it is a disc core.
+    disk: Option<DiskControl>,
 }
 
 thread_local! {
@@ -67,7 +105,32 @@ unsafe fn with_host<R>(f: impl FnOnce(&mut Host) -> R) -> Option<R> {
     Some(f(&mut *p))
 }
 
-unsafe extern "C" fn log_noop(_level: c_uint, _fmt: *const c_char) {}
+/// Whether to show a core's routine chatter (debug and info), not only its
+/// warnings and errors. Off unless `SLOT_CORE_LOG` is set.
+fn core_log_all() -> bool {
+    static ALL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ALL.get_or_init(|| std::env::var_os("SLOT_CORE_LOG").is_some())
+}
+
+/// What a core says about itself. libretro's callback is variadic (`printf`
+/// style), which stable Rust cannot define, so this takes the two fixed
+/// arguments and prints the format string as written: `%s` and all, which is
+/// enough to name what went wrong. Without this a core that refuses a file does so
+/// silently and nothing can be diagnosed. Each distinct message is shown once,
+/// because the log is a file on the SD card.
+unsafe extern "C" fn log_forward(level: c_uint, fmt: *const c_char) {
+    // RETRO_LOG_DEBUG 0, INFO 1, WARN 2, ERROR 3.
+    if fmt.is_null() || (level < 2 && !core_log_all()) {
+        return;
+    }
+    let text = std::ffi::CStr::from_ptr(fmt).to_string_lossy();
+    let text = text.trim_end();
+    let first =
+        with_host(|h| h.logged.len() < 64 && h.logged.insert(text.to_string())).unwrap_or(true);
+    if first {
+        eprintln!("slot: core[{level}]: {text}");
+    }
+}
 
 unsafe extern "C" fn set_rumble_state(port: c_uint, effect: c_uint, strength: u16) -> bool {
     with_host(|h| h.rumble.set(port, effect, strength)).unwrap_or(false)
@@ -200,7 +263,7 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
             if data.is_null() {
                 return false;
             }
-            (*(data as *mut LogCallback)).log = log_noop as *const c_void;
+            (*(data as *mut LogCallback)).log = log_forward as *const c_void;
             true
         }
         SET_AUDIO_BUFFER_STATUS_CALLBACK => {
@@ -209,6 +272,29 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
             }
             let cb = std::ptr::read(data as *const AudioBufferStatusCallback);
             with_host(|h| h.audio_status = cb.callback).is_some()
+        }
+        GET_DISK_CONTROL_INTERFACE_VERSION => {
+            if data.is_null() {
+                return false;
+            }
+            // Version 1 is the one with labels and paths, which is what we read.
+            *(data as *mut c_uint) = 1;
+            true
+        }
+        SET_DISK_CONTROL_INTERFACE | SET_DISK_CONTROL_EXT_INTERFACE => {
+            if data.is_null() {
+                return with_host(|h| h.disk = None).is_some();
+            }
+            // The older struct is only the first seven members; reading past it
+            // would be reading whatever the core had next to it.
+            let bytes = if cmd == SET_DISK_CONTROL_INTERFACE {
+                DISK_CONTROL_BASE_BYTES
+            } else {
+                std::mem::size_of::<DiskControl>()
+            };
+            let mut control: DiskControl = std::mem::zeroed();
+            ptr::copy_nonoverlapping(data as *const u8, &mut control as *mut _ as *mut u8, bytes);
+            with_host(|h| h.disk = Some(control)).is_some()
         }
         SET_NETPACKET_INTERFACE => {
             if data.is_null() {
@@ -219,8 +305,26 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
             })
             .is_some()
         }
+        SET_MESSAGE => {
+            // `struct retro_message { const char *msg; unsigned frames; }`. Slot shows
+            // no core messages, but it used to drop them without a word, which hid
+            // whether a DualShock had been switched between analog and digital.
+            if !data.is_null() {
+                let msg = *(data as *const *const c_char);
+                if !msg.is_null() && MESSAGES.fetch_add(1, Ordering::Relaxed) < MESSAGE_LOG_LIMIT {
+                    eprintln!("slot: core says: {}", CStr::from_ptr(msg).to_string_lossy());
+                }
+            }
+            true
+        }
         other => {
-            eprintln!("slot: env unhandled cmd {other}");
+            // A core can ask the same thing every frame (PCSX asks for a software
+            // framebuffer 60 times a second), and the log is a file on the SD card.
+            // Say it once.
+            let first = with_host(|h| h.unhandled.insert(other)).unwrap_or(true);
+            if first {
+                eprintln!("slot: env unhandled cmd {other}");
+            }
             false
         }
     }
@@ -330,6 +434,10 @@ unsafe extern "C" fn video_refresh(
         return;
     }
     with_host(|h| {
+        if h.native {
+            copy_native(h, data as *const u8, width, height, pitch);
+            return;
+        }
         let cols = width.min(GBA_W) as usize;
         let rows = height.min(GBA_H) as usize;
         let ox = (GBA_W as usize - cols) / 2;
@@ -340,26 +448,62 @@ unsafe extern "C" fn video_refresh(
         for y in 0..rows {
             let src = (data as *const u8).add(y * pitch);
             let row = ((y + oy) * GBA_W as usize + ox) * 4;
-            match h.format {
-                PixelFormat::Xrgb8888 => {
-                    ptr::copy_nonoverlapping(src, h.video.as_mut_ptr().add(row), cols * 4);
-                }
-                PixelFormat::Rgb565 => {
-                    for x in 0..cols {
-                        let p = ptr::read_unaligned((src as *const u16).add(x));
-                        let r = ((p >> 11) & 0x1f) as u8;
-                        let g = ((p >> 5) & 0x3f) as u8;
-                        let b = (p & 0x1f) as u8;
-                        let o = row + x * 4;
-                        h.video[o] = (b << 3) | (b >> 2);
-                        h.video[o + 1] = (g << 2) | (g >> 4);
-                        h.video[o + 2] = (r << 3) | (r >> 2);
-                        h.video[o + 3] = 0;
-                    }
-                }
-            }
+            copy_row(&mut h.video, h.format, src, row, cols);
         }
     });
+}
+
+/// The largest picture a core may report in native-video mode. PS1 tops out
+/// at 640x480 (a little more in PAL), so this only guards a core that reports
+/// nonsense from making the host allocate without limit.
+const MAX_NATIVE: u32 = 1024;
+
+/// Keep the frame at the size the core drew it: nothing is cropped or
+/// centred, and the buffer follows the core when it changes resolution.
+unsafe fn copy_native(h: &mut Host, src: *const u8, width: c_uint, height: c_uint, pitch: usize) {
+    let cols = width.min(MAX_NATIVE) as usize;
+    let rows = height.min(MAX_NATIVE) as usize;
+    if cols == 0 || rows == 0 {
+        return;
+    }
+    let need = cols * rows * 4;
+    if h.video.len() != need {
+        h.video.clear();
+        h.video.resize(need, 0);
+    }
+    h.video_size = (cols as u32, rows as u32);
+    for y in 0..rows {
+        copy_row(
+            &mut h.video,
+            h.format,
+            src.add(y * pitch),
+            y * cols * 4,
+            cols,
+        );
+    }
+}
+
+/// One scanline of `cols` pixels from the core into `video` at byte `row`,
+/// as XRGB8888 whichever format the core uses.
+unsafe fn copy_row(video: &mut [u8], format: PixelFormat, src: *const u8, row: usize, cols: usize) {
+    match format {
+        PixelFormat::Xrgb8888 => {
+            ptr::copy_nonoverlapping(src, video.as_mut_ptr().add(row), cols * 4);
+        }
+        PixelFormat::Rgb565 => {
+            for x in 0..cols {
+                let p = ptr::read_unaligned((src as *const u16).add(x));
+                let r = ((p >> 11) & 0x1f) as u8;
+                let g = ((p >> 5) & 0x3f) as u8;
+                let b = (p & 0x1f) as u8;
+                let o = row + x * 4;
+                video[o] = (b << 3) | (b >> 2);
+                video[o + 1] = (g << 2) | (g >> 4);
+                video[o + 2] = (r << 3) | (r >> 2);
+                video[o + 3] = 0;
+            }
+        }
+    }
 }
 
 unsafe extern "C" fn audio_sample(left: i16, right: i16) {
@@ -378,7 +522,26 @@ unsafe extern "C" fn audio_batch(data: *const i16, frames: usize) -> usize {
 
 unsafe extern "C" fn input_poll() {}
 
-unsafe extern "C" fn input_state(port: c_uint, device: c_uint, _index: c_uint, id: c_uint) -> i16 {
+unsafe extern "C" fn input_state(port: c_uint, device: c_uint, index: c_uint, id: c_uint) -> i16 {
+    if device == DEVICE_ANALOG {
+        // Only port 1 has sticks; the axes are the two sticks' x and y.
+        if port != 0 {
+            return 0;
+        }
+        let at = match (index, id) {
+            (ANALOG_LEFT, ANALOG_X) => 0,
+            (ANALOG_LEFT, ANALOG_Y) => 1,
+            (ANALOG_RIGHT, ANALOG_X) => 2,
+            (ANALOG_RIGHT, ANALOG_Y) => 3,
+            _ => return 0,
+        };
+        let value = with_host(|h| h.analog[at]).unwrap_or(0);
+        ANALOG_READS.fetch_add(1, Ordering::Relaxed);
+        if i32::from(value).abs() > ANALOG_PEAKS[at].load(Ordering::Relaxed).abs() {
+            ANALOG_PEAKS[at].store(i32::from(value), Ordering::Relaxed);
+        }
+        return value;
+    }
     if device != DEVICE_JOYPAD {
         return 0;
     }
@@ -402,7 +565,53 @@ pub struct LibretroCore {
     rom_path: Option<CString>,
     av: AvInfo,
     loaded: bool,
+    state_size: Option<(usize, usize)>,
+    swap: Option<Swap>,
+    dualshock: bool,
     _lib: Library,
+}
+
+/// A disc change in progress. The lid is opened, held open while the game
+/// notices, the disc is switched while it is open, and only then closed: a game
+/// polls the drive, so an instant swap is often not seen at all.
+struct Swap {
+    target: usize,
+    frames: u32,
+}
+
+/// Frames the lid stays open before the disc is switched, and before it is closed.
+/// At 60 fps that is three quarters of a second and then one and a half.
+pub const SWAP_SWITCH_FRAME: u32 = 45;
+pub const SWAP_CLOSE_FRAME: u32 = 90;
+
+/// What a core says about itself before any content is loaded.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SystemInformation {
+    pub name: String,
+    pub version: String,
+    /// The file extensions the core opens, lower case and without the dot.
+    pub extensions: Vec<String>,
+    /// The core opens its content itself, by path, rather than from memory.
+    pub need_fullpath: bool,
+}
+
+unsafe fn text(p: *const c_char) -> String {
+    if p.is_null() {
+        return String::new();
+    }
+    std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned()
+}
+
+/// The bytes to hand a core for `path`. A core that sets `need_fullpath`
+/// (disc images, in practice) opens the files itself and may ignore `data`, so
+/// reading a multi-hundred-megabyte image into RAM for it is waste and can
+/// exhaust memory on a handheld. It still gets a missing file reported here.
+fn content_bytes(path: &Path, need_fullpath: bool) -> std::io::Result<Vec<u8>> {
+    if need_fullpath {
+        std::fs::metadata(path)?;
+        return Ok(Vec::new());
+    }
+    std::fs::read(path)
 }
 
 fn cdir(path: &Path) -> Result<CString, CoreError> {
@@ -422,6 +631,28 @@ impl LibretroCore {
         }
         Self::open_inner(dylib, system_dir, save_dir)
             .inspect_err(|_| LIVE.store(false, Ordering::SeqCst))
+    }
+
+    pub fn system_info(&self) -> SystemInformation {
+        let mut sys = SystemInfo::default();
+        unsafe { (self.api.get_system_info)(&mut sys) };
+        let (name, version, extensions) = unsafe {
+            (
+                text(sys.library_name),
+                text(sys.library_version),
+                text(sys.valid_extensions),
+            )
+        };
+        SystemInformation {
+            name,
+            version,
+            extensions: extensions
+                .split('|')
+                .filter(|e| !e.is_empty())
+                .map(|e| e.to_ascii_lowercase())
+                .collect(),
+            need_fullpath: sys.need_fullpath,
+        }
     }
 
     pub fn reported_system_dir(&self) -> String {
@@ -482,9 +713,14 @@ impl LibretroCore {
         }
         let mut host = Box::new(Host {
             video: vec![0; VIDEO_BYTES],
+            video_size: (GBA_W, GBA_H),
+            native: false,
+            unhandled: std::collections::HashSet::new(),
+            logged: std::collections::HashSet::new(),
             format: PixelFormat::Xrgb8888,
             audio: Vec::new(),
             inputs: [0; 2],
+            analog: [0; 4],
             system_dir: cdir(system_dir)?,
             save_dir: cdir(save_dir)?,
             rumble: Rumble::default(),
@@ -496,6 +732,7 @@ impl LibretroCore {
             options: std::collections::HashMap::new(),
             options_dirty: false,
             declared: std::collections::HashMap::new(),
+            disk: None,
         });
         unsafe {
             let _a = Active::bind(&mut host);
@@ -517,17 +754,119 @@ impl LibretroCore {
                 sample_rate: 0.0,
             },
             loaded: false,
+            state_size: None,
+            swap: None,
+            dualshock: false,
             _lib: lib,
         })
     }
 
+    /// How many discs the loaded game has. One (or none) means there is nothing
+    /// to change, so the caller need not offer it.
+    pub fn disc_count(&self) -> usize {
+        let Some(count) = self.host.disk.and_then(|d| d.get_num_images) else {
+            return 0;
+        };
+        unsafe { count() as usize }
+    }
+
+    /// The disc in the drive, or the one it is being changed to.
+    pub fn disc_index(&self) -> usize {
+        if let Some(swap) = &self.swap {
+            return swap.target;
+        }
+        let Some(index) = self.host.disk.and_then(|d| d.get_image_index) else {
+            return 0;
+        };
+        unsafe { index() as usize }
+    }
+
+    /// Whether a disc change is still under way.
+    pub fn disc_changing(&self) -> bool {
+        self.swap.is_some()
+    }
+
+    /// Start changing to disc `to`. The change finishes over the next frames, so
+    /// the game sees the lid open and close. False if there is no such disc or
+    /// the game has only the one; asking again mid-change just retargets it.
+    pub fn change_disc(&mut self, to: usize) -> bool {
+        if !self.loaded || self.disc_count() < 2 || to >= self.disc_count() {
+            return false;
+        }
+        if let Some(swap) = &mut self.swap {
+            swap.target = to;
+            return true;
+        }
+        if to == self.disc_index() {
+            return true;
+        }
+        let Some(eject) = self.host.disk.and_then(|d| d.set_eject_state) else {
+            return false;
+        };
+        let _a = Active::bind(&mut self.host);
+        if !unsafe { eject(true) } {
+            return false;
+        }
+        self.swap = Some(Swap {
+            target: to,
+            frames: 0,
+        });
+        true
+    }
+
+    fn advance_swap(&mut self) {
+        let Some(swap) = &mut self.swap else { return };
+        swap.frames += 1;
+        let (frames, target) = (swap.frames, swap.target);
+        let Some(control) = self.host.disk else {
+            self.swap = None;
+            return;
+        };
+        let _a = Active::bind(&mut self.host);
+        if frames == SWAP_SWITCH_FRAME {
+            if let Some(set) = control.set_image_index {
+                if !unsafe { set(target as c_uint) } {
+                    eprintln!("slot-retro: the core would not switch to disc {target}");
+                }
+            }
+        }
+        if frames >= SWAP_CLOSE_FRAME {
+            if let Some(eject) = control.set_eject_state {
+                unsafe { eject(false) };
+            }
+            self.swap = None;
+        }
+    }
+
+    /// The pad plugged into port 1: a plain one, or a DualShock when sticks are wanted.
+    /// A core forgets it when a game loads, so this is said again after every load.
+    fn plug_in_pad(&mut self) {
+        let device = if self.dualshock {
+            DEVICE_PSE_DUALSHOCK
+        } else {
+            DEVICE_JOYPAD
+        };
+        let _a = Active::bind(&mut self.host);
+        unsafe { (self.api.set_controller_port_device)(0, device) };
+    }
+
     fn unload(&mut self) {
+        self.swap = None;
         if !self.loaded {
             return;
         }
         let _a = Active::bind(&mut self.host);
         unsafe { (self.api.unload_game)() };
         self.loaded = false;
+    }
+
+    fn serialize_at(&mut self, size: usize) -> Option<Vec<u8>> {
+        let mut buf = vec![0u8; size];
+        let ok = {
+            let _a = Active::bind(&mut self.host);
+            unsafe { (self.api.serialize)(buf.as_mut_ptr() as *mut c_void, size) }
+        };
+        ok.then_some(buf)
     }
 
     fn memory(&self, id: c_uint) -> Option<&[u8]> {
@@ -567,14 +906,21 @@ impl RetroCore for LibretroCore {
 
     fn load(&mut self, rom: &Path) -> Result<(), CoreError> {
         self.unload();
-        self.rom = std::fs::read(rom)?;
+        self.state_size = None;
+        let mut sys = SystemInfo::default();
+        unsafe { (self.api.get_system_info)(&mut sys) };
+        self.rom = content_bytes(rom, sys.need_fullpath)?;
         self.rom_path = Some(
             CString::new(rom.as_os_str().as_encoded_bytes())
                 .map_err(|_| CoreError::Load("rom path contains a nul".into()))?,
         );
         let info = GameInfo {
             path: self.rom_path.as_ref().map_or(ptr::null(), |p| p.as_ptr()),
-            data: self.rom.as_ptr() as *const c_void,
+            data: if self.rom.is_empty() {
+                ptr::null()
+            } else {
+                self.rom.as_ptr() as *const c_void
+            },
             size: self.rom.len(),
             meta: ptr::null(),
         };
@@ -594,7 +940,7 @@ impl RetroCore for LibretroCore {
             fps: av.timing.fps,
             sample_rate: av.timing.sample_rate,
         };
-        unsafe { (self.api.set_controller_port_device)(0, DEVICE_JOYPAD) };
+        self.plug_in_pad();
         Ok(())
     }
 
@@ -606,9 +952,43 @@ impl RetroCore for LibretroCore {
         if !self.loaded {
             return;
         }
+        self.advance_swap();
         self.host.inputs = [p1.0, p2.0];
         let _a = Active::bind(&mut self.host);
         unsafe { (self.api.run)() };
+    }
+
+    fn set_analog(&mut self, sticks: [i16; 4]) {
+        self.host.analog = sticks;
+    }
+
+    fn set_dualshock(&mut self, on: bool) {
+        if self.dualshock == on {
+            return;
+        }
+        self.dualshock = on;
+        if self.loaded {
+            self.plug_in_pad();
+        }
+        if !on {
+            self.host.analog = [0; 4];
+        }
+    }
+
+    fn disc_count(&self) -> usize {
+        LibretroCore::disc_count(self)
+    }
+
+    fn disc_index(&self) -> usize {
+        LibretroCore::disc_index(self)
+    }
+
+    fn disc_changing(&self) -> bool {
+        LibretroCore::disc_changing(self)
+    }
+
+    fn change_disc(&mut self, to: usize) -> bool {
+        LibretroCore::change_disc(self, to)
     }
 
     fn set_frame_skip(&mut self, skip: bool) {
@@ -620,28 +1000,49 @@ impl RetroCore for LibretroCore {
         &self.host.video
     }
 
+    fn video_size(&self) -> (u32, u32) {
+        self.host.video_size
+    }
+
+    fn set_native_video(&mut self, on: bool) {
+        if self.host.native == on {
+            return;
+        }
+        self.host.native = on;
+        // Back to the fixed canvas, blank, so the next frame starts clean. Turning
+        // it on needs nothing: the buffer is resized by the first frame.
+        if !on {
+            self.host.video = vec![0; VIDEO_BYTES];
+            self.host.video_size = (GBA_W, GBA_H);
+        }
+    }
+
     fn take_audio(&mut self) -> Vec<i16> {
         std::mem::take(&mut self.host.audio)
     }
 
     fn serialize(&mut self) -> Result<Vec<u8>, CoreError> {
+        let chip = unsafe { (self.api.get_memory_size)(MEMORY_SAVE_RAM) };
+        if let Some(buf) = self
+            .state_size
+            .filter(|&(_, at)| at == chip)
+            .and_then(|(size, _)| self.serialize_at(size))
+        {
+            return Ok(buf);
+        }
         let size = unsafe { (self.api.serialize_size)() };
+        self.state_size = (size > 0).then_some((size, chip));
         if size == 0 {
             return Err(CoreError::State("core reports no state".into()));
         }
-        let mut buf = vec![0u8; size];
-        let ok = {
-            let _a = Active::bind(&mut self.host);
-            unsafe { (self.api.serialize)(buf.as_mut_ptr() as *mut c_void, size) }
-        };
-        if ok {
-            Ok(buf)
-        } else {
-            Err(CoreError::State("serialize refused".into()))
-        }
+        self.serialize_at(size)
+            .ok_or_else(|| CoreError::State("serialize refused".into()))
     }
 
     fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
+        if data.is_empty() {
+            return Err(CoreError::State("empty state".into()));
+        }
         let ok = {
             let _a = Active::bind(&mut self.host);
             unsafe { (self.api.unserialize)(data.as_ptr() as *const c_void, data.len()) }
@@ -713,9 +1114,14 @@ mod tests {
     fn host_with(options: HashMap<String, CString>, options_dirty: bool) -> Box<Host> {
         Box::new(Host {
             video: vec![0; VIDEO_BYTES],
+            video_size: (GBA_W, GBA_H),
+            native: false,
+            unhandled: std::collections::HashSet::new(),
+            logged: std::collections::HashSet::new(),
             format: PixelFormat::Xrgb8888,
             audio: Vec::new(),
             inputs: [0; 2],
+            analog: [0; 4],
             system_dir: CString::new(".").unwrap(),
             save_dir: CString::new(".").unwrap(),
             rumble: Rumble::default(),
@@ -727,6 +1133,7 @@ mod tests {
             options,
             options_dirty,
             declared: HashMap::new(),
+            disk: None,
         })
     }
 
@@ -1559,6 +1966,14 @@ mod tests {
         TEST_DISCONNECTED_CLIENT.with(|c| assert_eq!(c.get(), None, "nothing was ever connected"));
     }
 
+    /// The stick-read counters are process-wide, and tests run in parallel: the ones
+    /// that read sticks take turns.
+    static STICK_COUNTERS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn sticks_turn() -> std::sync::MutexGuard<'static, ()> {
+        STICK_COUNTERS.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn input_state_answers_each_port_from_its_own_mask() {
         let mut host = host_with(HashMap::new(), false);
@@ -1579,6 +1994,255 @@ mod tests {
         let button = |id| unsafe { input_state(1, DEVICE_JOYPAD, 0, id) };
         assert_eq!(button(0), 1, "B is bit 0 of the libretro joypad");
         assert_eq!(button(8), 0, "A is not held on port 1");
+    }
+
+    #[test]
+    fn input_state_answers_each_stick_axis_on_port_1() {
+        let _turn = sticks_turn();
+        let mut host = host_with(HashMap::new(), false);
+        host.analog = [100, -200, 300, -400];
+        let _active = Active::bind(&mut host);
+
+        let axis = |port, index, id| unsafe { input_state(port, DEVICE_ANALOG, index, id) };
+        assert_eq!(axis(0, ANALOG_LEFT, ANALOG_X), 100);
+        assert_eq!(axis(0, ANALOG_LEFT, ANALOG_Y), -200);
+        assert_eq!(axis(0, ANALOG_RIGHT, ANALOG_X), 300);
+        assert_eq!(axis(0, ANALOG_RIGHT, ANALOG_Y), -400);
+    }
+
+    #[test]
+    fn the_cores_stick_reads_are_counted_with_their_furthest_values() {
+        let _turn = sticks_turn();
+        let mut host = host_with(HashMap::new(), false);
+        host.analog = [100, -20_000, 300, -400];
+        let _active = Active::bind(&mut host);
+        let _ = analog_stats();
+        for _ in 0..3 {
+            unsafe { input_state(0, DEVICE_ANALOG, ANALOG_LEFT, ANALOG_Y) };
+        }
+        unsafe { input_state(0, DEVICE_ANALOG, ANALOG_LEFT, ANALOG_X) };
+        let (reads, peaks) = analog_stats();
+        assert_eq!(reads, 4);
+        assert_eq!(peaks, [100, -20_000, 0, 0]);
+        // Reading resets it, and a button read is not a stick read.
+        unsafe { input_state(0, DEVICE_JOYPAD, 0, JOYPAD_MASK) };
+        assert_eq!(analog_stats(), (0, [0; 4]));
+    }
+
+    #[test]
+    fn input_state_has_no_sticks_past_port_1_or_past_the_two_sticks() {
+        let _turn = sticks_turn();
+        let mut host = host_with(HashMap::new(), false);
+        host.analog = [1, 2, 3, 4];
+        let _active = Active::bind(&mut host);
+
+        assert_eq!(
+            unsafe { input_state(1, DEVICE_ANALOG, ANALOG_LEFT, ANALOG_X) },
+            0
+        );
+        assert_eq!(
+            unsafe { input_state(0, DEVICE_ANALOG, 2, ANALOG_X) },
+            0,
+            "no third stick"
+        );
+        assert_eq!(
+            unsafe { input_state(0, DEVICE_ANALOG, ANALOG_LEFT, 2) },
+            0,
+            "no z axis"
+        );
+    }
+
+    #[test]
+    fn the_dualshock_is_the_playstation_cores_own_device_number() {
+        // PCSX-ReARMed defines it as RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1).
+        assert_eq!(DEVICE_PSE_DUALSHOCK, 517);
+        assert_eq!(DEVICE_PSE_DUALSHOCK & 0xff, DEVICE_ANALOG);
+    }
+
+    fn native_host() -> Box<Host> {
+        let mut host = host_with(HashMap::new(), false);
+        host.native = true;
+        host
+    }
+
+    /// A frame where every pixel differs from its neighbours, so a crop, a
+    /// shift or a wrong stride changes the bytes.
+    fn numbered(w: usize, h: usize) -> Vec<u8> {
+        (0..(w * h) as u32).flat_map(|i| i.to_le_bytes()).collect()
+    }
+
+    #[test]
+    fn a_core_warning_is_shown_once_and_its_chatter_is_not_shown_at_all() {
+        let mut host = host_with(HashMap::new(), false);
+        let _active = Active::bind(&mut host);
+        let warn = CString::new("CD image is not usable: %s\n").unwrap();
+        let chatter = CString::new("loading %s\n").unwrap();
+        for _ in 0..40 {
+            unsafe { log_forward(2, warn.as_ptr()) };
+            unsafe { log_forward(1, chatter.as_ptr()) };
+        }
+        unsafe { log_forward(3, ptr::null()) };
+        let shown = unsafe { with_host(|h| h.logged.iter().cloned().collect::<Vec<_>>()) }.unwrap();
+        assert_eq!(shown, ["CD image is not usable: %s"]);
+    }
+
+    #[test]
+    fn a_command_the_core_keeps_asking_for_is_reported_once() {
+        let mut host = host_with(HashMap::new(), false);
+        let _active = Active::bind(&mut host);
+        for _ in 0..60 {
+            assert!(!unsafe { environment(65576, ptr::null_mut()) });
+        }
+        assert!(!unsafe { environment(63, ptr::null_mut()) });
+        let seen = unsafe { with_host(|h| h.unhandled.len()) }.unwrap();
+        assert_eq!(seen, 2, "each distinct command is remembered once");
+    }
+
+    #[test]
+    fn a_native_picture_keeps_its_size_and_is_not_cropped() {
+        let mut host = native_host();
+        let _active = Active::bind(&mut host);
+        let frame = numbered(320, 240);
+        unsafe { video_refresh(frame.as_ptr() as *const c_void, 320, 240, 320 * 4) };
+
+        let (size, video) = unsafe { with_host(|h| (h.video_size, h.video.clone())) }.unwrap();
+        assert_eq!(size, (320, 240));
+        assert_eq!(video, frame, "every pixel arrives where the core drew it");
+    }
+
+    #[test]
+    fn the_buffer_follows_the_core_when_it_changes_resolution() {
+        let mut host = native_host();
+        let _active = Active::bind(&mut host);
+        for (w, h) in [(320usize, 240usize), (640, 480), (256, 240)] {
+            let frame = numbered(w, h);
+            unsafe { video_refresh(frame.as_ptr() as *const c_void, w as _, h as _, w * 4) };
+            let (size, video) = unsafe { with_host(|h| (h.video_size, h.video.clone())) }.unwrap();
+            assert_eq!(size, (w as u32, h as u32));
+            assert_eq!(video, frame, "{w}x{h}");
+        }
+    }
+
+    #[test]
+    fn a_padded_pitch_is_skipped_not_drawn() {
+        let mut host = native_host();
+        let _active = Active::bind(&mut host);
+        let (w, h, pitch) = (64usize, 8usize, 96 * 4);
+        let mut padded = vec![0xEEu8; pitch * h];
+        let expect = numbered(w, h);
+        for y in 0..h {
+            padded[y * pitch..y * pitch + w * 4].copy_from_slice(&expect[y * w * 4..][..w * 4]);
+        }
+        unsafe { video_refresh(padded.as_ptr() as *const c_void, w as _, h as _, pitch) };
+
+        let video = unsafe { with_host(|h| h.video.clone()) }.unwrap();
+        assert_eq!(
+            video, expect,
+            "the padding at the end of a row is not picture"
+        );
+    }
+
+    #[test]
+    fn a_native_565_picture_is_widened_to_xrgb() {
+        let mut host = native_host();
+        host.format = PixelFormat::Rgb565;
+        let _active = Active::bind(&mut host);
+        // red, green, blue, white
+        let frame: Vec<u8> = [0xF800u16, 0x07E0, 0x001F, 0xFFFF]
+            .iter()
+            .flat_map(|p| p.to_le_bytes())
+            .collect();
+        unsafe { video_refresh(frame.as_ptr() as *const c_void, 2, 2, 2 * 2) };
+
+        let video = unsafe { with_host(|h| h.video.clone()) }.unwrap();
+        assert_eq!(video.len(), 2 * 2 * 4);
+        // Stored B, G, R, unused.
+        assert_eq!(&video[0..4], &[0, 0, 255, 0], "red");
+        assert_eq!(&video[4..8], &[0, 255, 0, 0], "green");
+        assert_eq!(&video[8..12], &[255, 0, 0, 0], "blue");
+        assert_eq!(&video[12..16], &[255, 255, 255, 0], "white");
+    }
+
+    #[test]
+    fn a_nonsense_size_is_capped_rather_than_allocated() {
+        let mut host = native_host();
+        let _active = Active::bind(&mut host);
+        let (w, h) = (MAX_NATIVE as usize + 76, MAX_NATIVE as usize + 76);
+        let frame = vec![0x55u8; w * h * 4];
+        unsafe { video_refresh(frame.as_ptr() as *const c_void, w as _, h as _, w * 4) };
+
+        let (size, len) = unsafe { with_host(|h| (h.video_size, h.video.len())) }.unwrap();
+        assert_eq!(size, (MAX_NATIVE, MAX_NATIVE));
+        assert_eq!(len, (MAX_NATIVE * MAX_NATIVE * 4) as usize);
+    }
+
+    #[test]
+    fn an_empty_native_frame_changes_nothing() {
+        let mut host = native_host();
+        let _active = Active::bind(&mut host);
+        let frame = numbered(32, 32);
+        unsafe {
+            video_refresh(frame.as_ptr() as *const c_void, 32, 32, 32 * 4);
+            video_refresh(frame.as_ptr() as *const c_void, 0, 0, 0);
+        }
+        let (size, video) = unsafe { with_host(|h| (h.video_size, h.video.clone())) }.unwrap();
+        assert_eq!(size, (32, 32));
+        assert_eq!(video, frame);
+    }
+
+    #[test]
+    fn without_native_video_a_big_picture_is_still_cropped_to_the_canvas() {
+        let mut host = host_with(HashMap::new(), false);
+        let _active = Active::bind(&mut host);
+        let frame = numbered(320, 240);
+        unsafe { video_refresh(frame.as_ptr() as *const c_void, 320, 240, 320 * 4) };
+
+        let (size, len) = unsafe { with_host(|h| (h.video_size, h.video.len())) }.unwrap();
+        assert_eq!(
+            size,
+            (GBA_W, GBA_H),
+            "the Game Boy family path must not change"
+        );
+        assert_eq!(len, VIDEO_BYTES);
+    }
+
+    #[test]
+    fn input_state_answers_the_second_shoulders_and_stick_clicks() {
+        let mut host = host_with(HashMap::new(), false);
+        host.inputs = [
+            ButtonMask::L2 | ButtonMask::R3,
+            ButtonMask::R2 | ButtonMask::L3,
+        ];
+        let _active = Active::bind(&mut host);
+
+        let button = |port, id| unsafe { input_state(port, DEVICE_JOYPAD, 0, id) };
+        // libretro joypad ids 12..15 are L2, R2, L3, R3.
+        assert_eq!((button(0, 12), button(0, 13)), (1, 0), "L2 held, R2 not");
+        assert_eq!((button(0, 14), button(0, 15)), (0, 1), "R3 held, L3 not");
+        assert_eq!((button(1, 12), button(1, 13)), (0, 1), "R2 on port 1");
+        assert_eq!((button(1, 14), button(1, 15)), (1, 0), "L3 on port 1");
+    }
+
+    #[test]
+    fn a_core_that_needs_a_path_is_not_handed_the_file_in_memory() {
+        let dir = std::env::temp_dir().join(format!("slot-content-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let image = dir.join("disc.bin");
+        std::fs::write(&image, vec![7u8; 4096]).unwrap();
+
+        assert!(
+            content_bytes(&image, true).unwrap().is_empty(),
+            "a path-only core must not have the image read into RAM"
+        );
+        assert_eq!(content_bytes(&image, false).unwrap().len(), 4096);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_missing_file_is_still_reported_for_a_path_only_core() {
+        let missing = std::env::temp_dir().join("slot-content-does-not-exist.cue");
+        assert!(content_bytes(&missing, true).is_err());
+        assert!(content_bytes(&missing, false).is_err());
     }
 
     #[test]

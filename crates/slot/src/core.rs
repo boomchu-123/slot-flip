@@ -1,18 +1,21 @@
 use std::path::{Path, PathBuf};
 
 use slot_retro::{LibretroCore, MockCore, RetroCore};
-use slot_store::{Core, GbPalette, Platform};
+use slot_store::{Core, GbColors, Platform};
 
 use crate::root;
 
 const CORE_ENV: &str = "SLOT_CORE";
 
 pub fn dylib_name(core: Core) -> String {
-    format!(
-        "{}_libretro.{}",
-        core.as_str(),
-        std::env::consts::DLL_EXTENSION
-    )
+    let library = match core {
+        // The core's short name is `pcsx`; the library keeps its upstream name.
+        Core::Pcsx => "pcsx_rearmed",
+        Core::Snes9x => "snes9x2005_plus",
+        Core::Genesis => "genesis_plus_gx",
+        other => other.as_str(),
+    };
+    format!("{library}_libretro.{}", std::env::consts::DLL_EXTENSION)
 }
 
 fn candidates(root: &Path, core: Core) -> Vec<PathBuf> {
@@ -40,13 +43,14 @@ pub struct Opened {
 pub fn open_core(
     root: &Path,
     core: Core,
+    platform: Platform,
     serial: &str,
     colour: bool,
-    palette: Option<GbPalette>,
+    palette: Option<GbColors>,
     link: Option<u8>,
 ) -> Opened {
     let paths = candidates(root, core);
-    match open_named(root, core, serial, colour, palette, link, &paths) {
+    match open_named(root, core, platform, serial, colour, palette, link, &paths) {
         Some(core) => Opened { core, named: true },
         None => {
             report_missing(core, &paths);
@@ -65,29 +69,32 @@ pub fn open_core_for(
     colour: bool,
     paths: &[PathBuf],
 ) -> Box<dyn RetroCore> {
-    open_core_for_palette(root, core, serial, colour, None, paths)
+    open_core_for_palette(root, core, Platform::Gba, serial, colour, None, paths)
 }
 
 pub fn open_core_for_palette(
     root: &Path,
     core: Core,
+    platform: Platform,
     serial: &str,
     colour: bool,
-    palette: Option<GbPalette>,
+    palette: Option<GbColors>,
     paths: &[PathBuf],
 ) -> Box<dyn RetroCore> {
-    open_named(root, core, serial, colour, palette, None, paths).unwrap_or_else(|| {
+    open_named(root, core, platform, serial, colour, palette, None, paths).unwrap_or_else(|| {
         report_missing(core, paths);
         Box::new(MockCore::new())
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn open_named(
     root: &Path,
     core: Core,
+    platform: Platform,
     serial: &str,
     colour: bool,
-    palette: Option<GbPalette>,
+    palette: Option<GbColors>,
     link: Option<u8>,
     paths: &[PathBuf],
 ) -> Option<Box<dyn RetroCore>> {
@@ -99,9 +106,13 @@ fn open_named(
         }
         match LibretroCore::open_with(path, &bios, &saves) {
             Ok(mut opened) => {
+                // A PlayStation or NES picture is not the GBA canvas the Game Boy
+                // family is drawn into, so it keeps the size the core draws it at.
+                opened.set_native_video(platform.native_video());
                 apply_core_options(
                     &mut opened,
                     core,
+                    platform,
                     serial,
                     root::has_real_bios(root),
                     colour,
@@ -120,12 +131,14 @@ fn open_named(
 }
 
 pub fn palette_for(
-    chosen: Option<GbPalette>,
+    chosen: GbColors,
     platform: Platform,
     rom: &Path,
     link: Option<u8>,
-) -> Option<GbPalette> {
-    chosen.filter(|_| link.is_none() && platform != Platform::Gba && dmg_only(rom))
+) -> Option<GbColors> {
+    // Only a Game Boy cart has a header to ask; a disc image's bytes are not one.
+    (link.is_none() && matches!(platform, Platform::Gb | Platform::Gbc) && dmg_only(rom))
+        .then_some(chosen)
 }
 
 pub fn dmg_only(rom: &Path) -> bool {
@@ -148,13 +161,28 @@ fn report_missing(core: Core, paths: &[PathBuf]) {
     );
 }
 
-pub fn colour_option(which: Core, on: bool) -> Option<(&'static str, &'static str)> {
+pub fn colour_option(
+    which: Core,
+    platform: Platform,
+    on: bool,
+) -> Option<(&'static str, &'static str)> {
     match which {
-        Core::Mgba => Some(("mgba_color_correction", if on { "Auto" } else { "OFF" })),
+        Core::Mgba => Some((
+            "mgba_color_correction",
+            if on && platform == Platform::Gb {
+                "GBC"
+            } else if on {
+                "Auto"
+            } else {
+                "OFF"
+            },
+        )),
         Core::Gpsp => Some((
             "gpsp_color_correction",
             if on { "enabled" } else { "disabled" },
         )),
+        // A console picture has no handheld-LCD colour to correct.
+        Core::Pcsx | Core::Fceumm | Core::Snes9x | Core::Genesis => None,
     }
 }
 
@@ -167,15 +195,59 @@ pub fn apply_link_options(core: &mut LibretroCore, which: Core, player: u8) {
     eprintln!("slot: core: link mode on, player {player}");
 }
 
+/// What PCSX-ReARMed is told, every time. A core's own default never applies here:
+/// slot answers "no value" for an option it has not set, and the core then keeps
+/// its zero, which is not its documented default. That has already cost PlayStation
+/// its memory cards (v0.11) and its analog toggle, so each option that matters is
+/// named, and `pcsx_options_name_what_matters` fails if one goes missing.
+pub fn pcsx_options() -> &'static [(&'static str, &'static str)] {
+    &[
+        // The dynarec is what lets these handhelds run PlayStation games at full
+        // speed (without one mGBA ran ~20x slower), so say so rather than trust a
+        // default.
+        ("pcsx_rearmed_drc", "enabled"),
+        // A real BIOS from BIOS/ when there is one, the built-in replacement when not.
+        ("pcsx_rearmed_bios", "auto"),
+        // Card 1 is handed to the frontend as save RAM, so it is kept per game with
+        // the other saves. Left unset, the core asks for the option, gets nothing and
+        // exposes no save RAM at all, so a game's save never reaches the saves
+        // folder. Card 2 is off, not the core's shared file, which would write into
+        // the saves folder outside anything the frontend tracks.
+        ("pcsx_rearmed_memcard1", "libretro"),
+        ("pcsx_rearmed_memcard2", "none"),
+        // A DualShock starts in digital mode, where the core ignores the sticks until
+        // the game switches the pad to analog. This is the combination that switches
+        // it by hand, as on a real pad's analog button: both sticks pressed in. Left
+        // unset the combination is dead (the core's own default, L1+R1+SELECT, never
+        // applies), and L1+R1+SELECT would collide with slot's SELECT shortcuts
+        // anyway. It does nothing unless Analog Sticks is on, because only then is
+        // the pad a DualShock.
+        ("pcsx_rearmed_analog_combo", "l3+r3"),
+        // Left unset, the core assumes "square" bounds: it scales each axis by 1.27
+        // and clips, so full deflection arrives at about 79% of the stick's travel
+        // and steering is coarse. Slot already applies a round dead zone and keeps
+        // the stick's own range, which is what "circle" passes through untouched.
+        ("pcsx_rearmed_analog_axis_modifier", "circle"),
+    ]
+}
+
 pub fn apply_core_options(
     core: &mut LibretroCore,
     which: Core,
+    platform: Platform,
     serial: &str,
     bios: bool,
     colour: bool,
-    palette: Option<GbPalette>,
+    palette: Option<GbColors>,
 ) {
-    core.set_option(&format!("{}_frameskip", which.as_str()), "auto");
+    // PCSX-ReARMed names and values this differently, and fceumm has no such option;
+    // a console runs at full speed on the Flip, so each keeps its own defaults.
+    if !matches!(
+        which,
+        Core::Pcsx | Core::Fceumm | Core::Snes9x | Core::Genesis
+    ) {
+        core.set_option(&format!("{}_frameskip", which.as_str()), "auto");
+    }
     if which == Core::Mgba {
         core.set_option("mgba_sgb_borders", "OFF");
         core.set_option("mgba_force_gbp", "ON");
@@ -191,7 +263,12 @@ pub fn apply_core_options(
                 core.set_option("mgba_gb_colors", "GBC Dark Green →A");
             }
         }
-        if let Some((key, value)) = colour_option(which, colour) {
+        if let Some((key, value)) = colour_option(which, platform, colour) {
+            core.set_option(key, value);
+        }
+    }
+    if which == Core::Pcsx {
+        for (key, value) in pcsx_options() {
             core.set_option(key, value);
         }
     }
@@ -201,7 +278,7 @@ pub fn apply_core_options(
         if bios {
             core.set_option("gpsp_boot_mode", "bios");
         }
-        if let Some((key, value)) = colour_option(which, colour) {
+        if let Some((key, value)) = colour_option(which, platform, colour) {
             core.set_option(key, value);
         }
     }
@@ -215,22 +292,72 @@ mod tests {
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
+    fn pcsx_options_name_what_matters() {
+        let has = |k: &str, v: &str| pcsx_options().contains(&(k, v));
+        assert!(has("pcsx_rearmed_memcard1", "libretro"), "memory cards");
+        assert!(has("pcsx_rearmed_memcard2", "none"));
+        assert!(has("pcsx_rearmed_drc", "enabled"), "the dynarec");
+        assert!(
+            has("pcsx_rearmed_analog_combo", "l3+r3"),
+            "the DualShock analog toggle is dead unless it is set explicitly"
+        );
+        assert!(
+            has("pcsx_rearmed_analog_axis_modifier", "circle"),
+            "unset, the core clips the sticks at 79% of their travel"
+        );
+    }
+
+    #[test]
+    fn no_pcsx_option_is_set_twice() {
+        let mut keys: Vec<_> = pcsx_options().iter().map(|(k, _)| *k).collect();
+        keys.sort_unstable();
+        let n = keys.len();
+        keys.dedup();
+        assert_eq!(
+            keys.len(),
+            n,
+            "an option is listed twice, so the last wins silently"
+        );
+    }
+
+    #[test]
+    fn the_playstation_core_keeps_its_upstream_library_name() {
+        assert!(dylib_name(Core::Pcsx).starts_with("pcsx_rearmed_libretro."));
+        assert!(dylib_name(Core::Mgba).starts_with("mgba_libretro."));
+        assert!(dylib_name(Core::Gpsp).starts_with("gpsp_libretro."));
+    }
+
+    #[test]
+    fn a_console_core_has_no_colour_correction_to_set() {
+        assert_eq!(colour_option(Core::Pcsx, Platform::Ps1, true), None);
+        assert_eq!(colour_option(Core::Pcsx, Platform::Ps1, false), None);
+    }
+
+    #[test]
     fn each_core_spells_colour_correction_its_own_way() {
         assert_eq!(
-            colour_option(Core::Mgba, true),
+            colour_option(Core::Mgba, Platform::Gba, true),
             Some(("mgba_color_correction", "Auto"))
         );
         assert_eq!(
-            colour_option(Core::Mgba, false),
+            colour_option(Core::Mgba, Platform::Gba, false),
             Some(("mgba_color_correction", "OFF"))
         );
         assert_eq!(
-            colour_option(Core::Gpsp, true),
+            colour_option(Core::Gpsp, Platform::Gba, true),
             Some(("gpsp_color_correction", "enabled"))
         );
         assert_eq!(
-            colour_option(Core::Gpsp, false),
+            colour_option(Core::Gpsp, Platform::Gba, false),
             Some(("gpsp_color_correction", "disabled"))
+        );
+    }
+
+    #[test]
+    fn mgba_uses_gbc_correction_for_game_boy_games() {
+        assert_eq!(
+            colour_option(Core::Mgba, Platform::Gb, true),
+            Some(("mgba_color_correction", "GBC"))
         );
     }
 

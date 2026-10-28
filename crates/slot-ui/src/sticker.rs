@@ -1,15 +1,17 @@
 use slot_gfx::{Draw, TexId};
 
-use crate::art::render_svg;
 use crate::barcode::{code39, CODE39_NARROW, CODE39_WIDE};
+use crate::bitmaps;
 use crate::plate::UndoFace;
 use crate::text;
 
-const STICKER_SVG: &str = include_str!("../assets/sticker.svg");
-
-const WORDMARK_SVG: &str = include_str!("../assets/wordmark.svg");
-
-const WORDMARK_W: u32 = 250;
+/// Upstream's sticker carries the wordmark of the handheld it was designed for.
+/// This fork runs on the Miyoo Flip, so the sticker says that instead: another
+/// maker's name on the device would be wrong, and the model number is the
+/// handset's own (the platform slug MinUI uses for it).
+const WORDMARK: &str = "MIYOO FLIP";
+const WORDMARK_PX: f32 = 25.0;
+const WORDMARK_MAX_W: f32 = 250.0;
 
 pub const STICKER_W: u32 = 660;
 pub const STICKER_H: u32 = 228;
@@ -33,10 +35,18 @@ const SMALL_PX: f32 = 9.0;
 pub struct StickerFields<'a> {
     pub battery: Option<u8>,
     pub serial: &'a str,
-    pub dirty_digit: char,
+    pub version: &'a str,
+    /// The upstream slot release this build is based on, for owners comparing
+    /// against upstream's release notes.
+    pub upstream: &'a str,
+    /// The model the OS reports. The sticker's own model is fixed to the Flip, so
+    /// this is kept for the shared About code and for ports that want it.
+    pub model: &'a str,
 }
 
-pub const CREDITS: [&str; 10] = [
+pub const CREDITS: [&str; 11] = [
+    "THE EXQUISITE SKEUOMORPHIC",
+    "ARTWORK MADE BY MARKUS.",
     "EMULATION POWERED BY MGBA",
     "AND GPSP. UNDERLYING OS IS",
     "BASEOS BY PVAIBHAV. TYPE IS",
@@ -45,19 +55,20 @@ pub const CREDITS: [&str; 10] = [
     "THE PANEL MASK IS DERIVED",
     "FROM GIGAHERZ'S LCD3X. THE",
     "CART SOUNDS ARE MY CHILDHOOD",
-    "GAMEBOY. I WASTED WATER",
-    "BUILDING THIS WITH CLAUDE.",
+    "GAMEBOY.",
 ];
 
 pub const ORIGIN: [&str; 2] = ["S/LOT-USA", "MADE IN ITHACA"];
 
 pub const COPYRIGHT: &str = "\u{a9} 2026 BRANDON T. KOWALSKI";
 
-pub const HOME: &str = "SEE README.";
+/// Where an owner can read the notes for a build, and see whether a newer one
+/// exists. Upstream's "SEE README" points at a file this pak does not ship.
+pub const HOME: &str = "GITHUB.COM/BOOMCHU-123/SLOT-FLIP";
 
 pub fn head_rows(f: &StickerFields) -> [String; 3] {
     [
-        "MODEL NO. AGS-102".into(),
+        "MODEL NO. MY355".into(),
         format!("INPUT : 5V{DC}1.5A"),
         match f.battery {
             Some(p) => format!("BATTERY : LI-ION ({p}%)"),
@@ -66,12 +77,23 @@ pub fn head_rows(f: &StickerFields) -> [String; 3] {
     ]
 }
 
+fn split_check(serial: &str) -> (&str, &str) {
+    let at = serial.char_indices().last().map_or(0, |(i, _)| i);
+    serial.split_at(at)
+}
+
+fn version_line(f: &StickerFields) -> String {
+    format!("VERSION {} (SLOT {})", f.version, f.upstream)
+}
+
 pub fn sticker_lines(f: &StickerFields) -> Vec<String> {
     let mut out: Vec<String> = head_rows(f).into();
     out.extend(CREDITS.iter().map(|s| s.to_string()));
     out.extend(ORIGIN.iter().map(|s| s.to_string()));
-    out.push(format!("{} {}", f.serial, f.dirty_digit));
+    let (body, check) = split_check(f.serial);
+    out.push(format!("{body} {check}"));
     out.push(COPYRIGHT.to_string());
+    out.push(version_line(f));
     out.push(HOME.to_string());
     out
 }
@@ -84,8 +106,11 @@ struct Canvas {
 
 impl Canvas {
     fn shape(w: u32, h: u32) -> Canvas {
-        let px = render_svg(STICKER_SVG, w, h).unwrap_or_else(|| vec![0; (w * h * 4) as usize]);
-        Canvas { px, w, h }
+        Canvas {
+            px: bitmaps::sticker().to_vec(),
+            w,
+            h,
+        }
     }
 
     fn set(&mut self, x: u32, y: u32, c: [u8; 3], a: u8) {
@@ -137,27 +162,6 @@ impl Canvas {
         bar_w
     }
 
-    fn blit(&mut self, x: u32, y: u32, src: &[u8], sw: u32, sh: u32) {
-        for row in 0..sh {
-            for col in 0..sw {
-                let s = ((row * sw + col) * 4) as usize;
-                let a = src[s + 3] as u32;
-                if a == 0 {
-                    continue;
-                }
-                let (dx, dy) = (x + col, y + row);
-                if dx >= self.w || dy >= self.h {
-                    continue;
-                }
-                let d = ((dy * self.w + dx) * 4) as usize;
-                for k in 0..3 {
-                    let under = self.px[d + k] as u32;
-                    self.px[d + k] = ((src[s + k] as u32 * a + under * (255 - a)) / 255) as u8;
-                }
-                self.px[d + 3] = 255;
-            }
-        }
-    }
 
     fn outline(&mut self, x: f32, y: f32, w: f32, h: f32, t: f32, c: [u8; 3]) {
         let (x, y, w, h, t) = (x as u32, y as u32, w as u32, h as u32, t as u32);
@@ -234,18 +238,27 @@ pub fn sticker_face(f: &StickerFields) -> UndoFace {
 
     let bars_y = panel_y + 14;
     let bars_h = 62;
-    let payload = format!("SLOT-{}-{}", f.serial, f.dirty_digit);
+    let payload = format!("SLOT-{}", f.serial);
     if let Some(run) = code39(&format!("*{payload}*")) {
         let syms = run.len() as f32 / 9.0;
         let per_sym = 3.0 * CODE39_WIDE + 7.0 * CODE39_NARROW;
         let scale = ((panel_w as f32 - 12.0) / (syms * per_sym + 20.0 * CODE39_NARROW)).min(2.0);
-        let narrow = ((CODE39_NARROW * scale).round() as u32).max(1);
-        let wide = ((CODE39_WIDE * scale).round() as u32).max(narrow * 2);
-        let total: u32 = run
-            .iter()
-            .map(|w| if *w { wide } else { narrow })
-            .sum::<u32>()
-            + (run.len() as u32 / 9) * narrow;
+        let total_for = |narrow: u32, wide: u32| -> u32 {
+            run.iter()
+                .map(|w| if *w { wide } else { narrow })
+                .sum::<u32>()
+                + (run.len() as u32 / 9) * narrow
+        };
+        let top = ((CODE39_NARROW * scale).round() as u32).max(1);
+        let (narrow, wide, total) = (1..=top)
+            .rev()
+            .flat_map(|n| {
+                let w = ((CODE39_WIDE * n as f32).round() as u32).max(n * 2);
+                (n * 2..=w).rev().map(move |w| (n, w))
+            })
+            .map(|(n, w)| (n, w, total_for(n, w)))
+            .find(|&(n, _, t)| t + 20 * n <= panel_w)
+            .unwrap_or((1, 2, total_for(1, 2)));
         let mut x = panel_x + panel_w.saturating_sub(total) / 2;
         for chunk in run.chunks_exact(9) {
             for (n, is_wide) in chunk.iter().enumerate() {
@@ -260,35 +273,25 @@ pub fn sticker_face(f: &StickerFields) -> UndoFace {
     }
 
     let sy = (bars_y + bars_h + 4) as f32;
-    let hash_w = c.print_measure(f.serial, SERIAL_PX);
+    let (body, check) = split_check(f.serial);
+    let hash_w = c.print_measure(body, SERIAL_PX);
     let box_w = SERIAL_PX * 0.9;
     let total = hash_w + 10.0 + box_w;
     let sx = panel_x as f32 + (panel_w as f32 - total) / 2.0;
-    c.print(sx, sy, f.serial, SERIAL_PX, BLACK);
+    c.print(sx, sy, body, SERIAL_PX, BLACK);
     let bx = sx + hash_w + 10.0;
     c.outline(bx, sy + 1.0, box_w, SERIAL_PX * 1.25, 2.0, BLACK);
-    c.print(
-        bx + box_w * 0.28,
-        sy + 2.0,
-        &f.dirty_digit.to_string(),
-        SERIAL_PX * 0.85,
-        BLACK,
-    );
+    c.print(bx + box_w * 0.28, sy + 2.0, check, SERIAL_PX * 0.85, BLACK);
 
     let mut ry = panel_y as f32 + panel_h as f32 + 10.0;
     let right_edge = (panel_x + panel_w) as f32;
-    if let Some(mark) = wordmark(WORDMARK_W) {
-        let (mw, mh) = mark.1;
-        c.blit(
-            (right_edge - mw as f32 - 10.0) as u32,
-            ry as u32,
-            &mark.0,
-            mw,
-            mh,
-        );
-        ry += mh as f32 + 4.0;
-    }
-    for line in [COPYRIGHT, HOME] {
+    let wide = c.print_measure(WORDMARK, WORDMARK_PX).max(1.0);
+    let px = (WORDMARK_PX * WORDMARK_MAX_W / wide).min(WORDMARK_PX);
+    let mark_w = c.print_measure(WORDMARK, px);
+    ry = c.print(right_edge - mark_w - 10.0, ry, WORDMARK, px, WHITE);
+    ry += 1.0;
+    let version = version_line(f);
+    for line in [COPYRIGHT, version.as_str(), HOME] {
         let lw = c.print_measure(line, SMALL_PX);
         ry = c.print(right_edge - lw - 10.0, ry, line, SMALL_PX, WHITE);
     }
@@ -300,22 +303,31 @@ pub fn sticker_face(f: &StickerFields) -> UndoFace {
     }
 }
 
-fn wordmark(w: u32) -> Option<(Vec<u8>, (u32, u32))> {
-    let tree = usvg::Tree::from_str(WORDMARK_SVG, &usvg::Options::default()).ok()?;
-    let size = tree.size();
-    let h = (w as f32 * size.height() / size.width()).round() as u32;
-    Some((render_svg(WORDMARK_SVG, w, h)?, (w, h)))
+const STICKER_MARGIN: f32 = 16.0;
+
+pub fn sticker_rect(canvas: slot_gfx::Canvas) -> (f32, f32, f32, f32) {
+    let (w, h) = (STICKER_W as f32, STICKER_H as f32);
+    let room = canvas.w - 2.0 * STICKER_MARGIN;
+    let scale = (room / w).min(1.0);
+    let (w, h) = ((w * scale).round(), (h * scale).round());
+    (
+        canvas.centred(w).round(),
+        ((slot_gfx::OUT_H as f32 - h) / 2.0).round(),
+        w,
+        h,
+    )
 }
 
-pub fn draw_sticker(face: Option<TexId>, out: &mut Vec<Draw>) {
+pub fn draw_sticker(canvas: slot_gfx::Canvas, face: Option<TexId>, out: &mut Vec<Draw>) {
     let Some(tex) = face else {
         return;
     };
+    let (x, y, w, h) = sticker_rect(canvas);
     out.push(Draw::Tex {
-        x: (slot_gfx::OUT_W as f32 - STICKER_W as f32) / 2.0,
-        y: (slot_gfx::OUT_H as f32 - STICKER_H as f32) / 2.0,
-        w: STICKER_W as f32,
-        h: STICKER_H as f32,
+        x,
+        y,
+        w,
+        h,
         tex,
         alpha: 1.0,
     });

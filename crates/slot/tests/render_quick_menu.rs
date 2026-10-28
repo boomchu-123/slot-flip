@@ -9,7 +9,7 @@ use slot::frontend::Frontend;
 use slot_gfx::{Compositor, HeadlessSurface, OUT_H, OUT_W};
 use slot_input::{Btn, InputSource, Millis, RawEvent};
 use slot_power::SimPlatform;
-use slot_ui::{QuickRow, QUICK_PITCH, QUICK_TOP};
+use slot_ui::{quick_row_top, quick_row_top_at, quick_scroll, QuickRow, QUICK_VISIBLE};
 
 struct Script(VecDeque<Vec<RawEvent>>);
 
@@ -32,8 +32,57 @@ fn at(px: &[u8], x: usize, y: usize) -> [u8; 3] {
 }
 
 fn inked(px: &[u8], xs: std::ops::Range<usize>, top: usize) -> Vec<usize> {
-    xs.filter(|&x| (top + 8..top + 44).any(|y| at(px, x, y)[0] > 0x80))
+    xs.filter(|&x| (top + 8..top + 44).any(|y| at(px, x, y).iter().all(|c| *c > 0x80)))
         .collect()
+}
+
+struct Pointer {
+    last: usize,
+    mid: f32,
+    label_first: usize,
+    label_mid: f32,
+}
+
+fn lit(px: &[u8], x: usize, y: usize) -> bool {
+    at(px, x, y).iter().all(|c| *c > 0xe0)
+}
+
+fn lit_rows(px: &[u8], xs: std::ops::Range<usize>, top: usize) -> f32 {
+    let rows: Vec<usize> = (top..top + 52)
+        .filter(|&y| xs.clone().any(|x| lit(px, x, y)))
+        .collect();
+    (rows[0] + rows[rows.len() - 1]) as f32 / 2.0
+}
+
+fn pointer(px: &[u8], top: usize) -> Option<Pointer> {
+    let cols: Vec<usize> = (0..OUT_W as usize)
+        .filter(|&x| (top..top + 52).any(|y| lit(px, x, y)))
+        .collect();
+    let split = cols.windows(2).position(|w| w[1] - w[0] >= 18)?;
+    let (last, label_first) = (cols[split], cols[split + 1]);
+    Some(Pointer {
+        last,
+        mid: lit_rows(px, last..last + 1, top),
+        label_first,
+        label_mid: lit_rows(px, label_first..label_first + 60, top),
+    })
+}
+
+fn beside(name: &str, p: Option<Pointer>) -> Pointer {
+    let p = p.unwrap_or_else(|| panic!("{name}: no pointer"));
+    assert!(
+        p.label_first - p.last < 30,
+        "{name}: the pointer ends at {}, {} px short of its label",
+        p.last,
+        p.label_first - p.last
+    );
+    assert!(
+        (p.mid - p.label_mid).abs() <= 1.0,
+        "{name}: the pointer's tip is at row {} and the letters are centred on {}",
+        p.mid,
+        p.label_mid
+    );
+    p
 }
 
 fn composed(f: &mut Frontend, c: &mut Compositor, name: &str) -> Vec<u8> {
@@ -69,64 +118,97 @@ fn the_quick_menu_renders_full_screen() {
     let mut input = Script(VecDeque::new());
     tap(&mut f, &mut input, Btn::Menu);
 
-    let bar = [0x4d, 0x4d, 0x57];
-    let ground = [0x05, 0x05, 0x08];
+    let flat = [0x05, 0x05, 0x08];
     let mut bar_on = QuickRow::MAIN[0];
+    let mut tips = Vec::new();
     for (name, selected) in [
+        ("general", QuickRow::General),
         ("screen", QuickRow::Screen),
         ("game", QuickRow::Game),
-        ("date-time", QuickRow::DateTime),
+        ("buttons", QuickRow::Buttons),
         ("about", QuickRow::About),
     ] {
-        for _ in bar_on.position()..selected.position() {
+        for _ in bar_on.position(&[])..selected.position(&[]) {
             tap(&mut f, &mut input, Btn::Down);
         }
         bar_on = selected;
         let px = composed(&mut f, &mut c, name);
 
-        let top = (QUICK_TOP + QUICK_PITCH * selected.position() as f32) as usize;
-        for x in [1, OUT_W as usize - 2] {
-            assert_eq!(at(&px, x, top + 26), bar, "{name}: no bar at x {x}");
-        }
-        assert!(
-            (0..OUT_W as usize).all(|x| at(&px, x, top + 26) != ground),
-            "{name}: the bar breaks somewhere across the row"
-        );
-        assert_eq!(
-            at(&px, 360, top + 1),
-            ground,
-            "{name}: the bar is not inset"
-        );
-        assert_eq!(
+        assert_ne!(
             at(&px, 2, OUT_H as usize - 2),
-            ground,
-            "{name}: not on the ground"
+            flat,
+            "{name}: the menu is on the flat ground, not the wallpaper"
         );
 
+        let mut spans = Vec::new();
         for row in QuickRow::MAIN {
-            let top = (QUICK_TOP + QUICK_PITCH * row.position() as f32) as usize;
-            let label = inked(&px, 0..360, top);
-            let first = *label.first().expect("a row with no label");
-            assert!(
-                (32..=36).contains(&first),
-                "{name}: {row:?}'s label starts at x {first}"
-            );
-            if matches!(
+            let top = quick_row_top(row, &[]) as usize;
+            let from = match row == selected {
+                true => {
+                    let p = beside(name, pointer(&px, top));
+                    tips.push(p.last);
+                    p.label_first
+                }
+                false => {
+                    assert!(
+                        pointer(&px, top).is_none(),
+                        "{name}: a pointer at {row:?} as well"
+                    );
+                    0
+                }
+            };
+            let ink = inked(&px, from..OUT_W as usize, top);
+            spans.push((
                 row,
-                QuickRow::About | QuickRow::Screen | QuickRow::Game | QuickRow::Buttons
-            ) {
-                continue;
-            }
-            let value = inked(&px, 360..OUT_W as usize, top);
-            let last = *value.last().expect("a row with no value");
+                *ink.first().expect("a row with no label"),
+                *ink.last().expect("a row with no label"),
+            ));
+        }
+        let start = spans[0].1;
+        for (row, first, _) in &spans {
             assert!(
-                (679..=688).contains(&last),
-                "{name}: {row:?}'s value ends at x {last}"
+                first.abs_diff(start) <= 3,
+                "{name}: {row:?} starts at {first}, not in line with the others at {start}"
             );
         }
+        let (row, first, last) = spans
+            .iter()
+            .max_by_key(|(_, first, last)| last - first)
+            .expect("rows");
+        let mid = (first + last) as f32 / 2.0;
+        assert!(
+            (mid - OUT_W as f32 / 2.0).abs() <= 2.0,
+            "{name}: the column is centred on {mid}, by its widest row {row:?}"
+        );
     }
+    assert!(
+        tips.iter().all(|t| t.abs_diff(tips[0]) <= 1),
+        "the pointer moves from row to row: {tips:?}"
+    );
 
-    tap(&mut f, &mut input, Btn::Up);
+    for _ in QuickRow::General.position(&[])..QuickRow::About.position(&[]) {
+        tap(&mut f, &mut input, Btn::Up);
+    }
+    tap(&mut f, &mut input, Btn::A);
+    let px = composed(&mut f, &mut c, "shelf-page");
+    let hidden = &f.app().hidden_rows();
+    for row in QuickRow::Theme
+        .shown(hidden)
+        .into_iter()
+        .take(QUICK_VISIBLE)
+    {
+        let top = quick_row_top_at(row, QuickRow::Theme, hidden) as usize;
+        let first = *inked(&px, 56..360, top)
+            .first()
+            .unwrap_or_else(|| panic!("{row:?} has no label"));
+        assert!(
+            (64..=68).contains(&first),
+            "{row:?}'s label starts at x {first}"
+        );
+    }
+    for _ in 0..QuickRow::DateTime.position(&f.app().hidden_rows()) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
     tap(&mut f, &mut input, Btn::A);
     let px = composed(&mut f, &mut c, "clock");
     assert!(
@@ -149,12 +231,14 @@ fn every_fast_forward_speed_sits_on_the_rows_right_edge_and_clears_the_label() {
     f.upload_faces(&mut c);
     let mut input = Script(VecDeque::new());
     tap(&mut f, &mut input, Btn::Menu);
-    tap(&mut f, &mut input, Btn::Down);
+    for _ in 0..QuickRow::Game.position(&[]) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
     tap(&mut f, &mut input, Btn::A);
     tap(&mut f, &mut input, Btn::Left);
     tap(&mut f, &mut input, Btn::Left);
 
-    let top = ((OUT_H as f32 - QUICK_PITCH * QuickRow::GAME.len() as f32) / 2.0) as usize;
+    let top = quick_row_top(QuickRow::FastForward, &f.app().hidden_rows()) as usize;
     for name in ["2x", "3x", "4x", "6x", "8x"] {
         let px = composed(&mut f, &mut c, name);
         let value = inked(&px, 360..OUT_W as usize, top);
@@ -169,12 +253,12 @@ fn every_fast_forward_speed_sits_on_the_rows_right_edge_and_clears_the_label() {
             inked(&px, 350..370, top).is_empty(),
             "{name} and its arrows reach the middle of the row"
         );
-        let label = inked(&px, 0..350, top);
+        let label = inked(&px, 56..350, top);
         let first = *label
             .first()
             .unwrap_or_else(|| panic!("{name}: the Fast Forward row has no label"));
         assert!(
-            (32..=36).contains(&first),
+            (64..=68).contains(&first),
             "the label moved to x {first} to make room for {name}"
         );
         tap(&mut f, &mut input, Btn::Right);
@@ -182,7 +266,7 @@ fn every_fast_forward_speed_sits_on_the_rows_right_edge_and_clears_the_label() {
 }
 
 #[test]
-fn the_screen_page_sets_gb_palettes_in_line_with_the_rows_above() {
+fn the_game_boy_page_shows_the_palette_by_name() {
     let Ok(surface) = HeadlessSurface::new() else {
         return;
     };
@@ -195,24 +279,134 @@ fn the_screen_page_sets_gb_palettes_in_line_with_the_rows_above() {
     f.upload_faces(&mut c);
     let mut input = Script(VecDeque::new());
     tap(&mut f, &mut input, Btn::Menu);
+    for _ in 0..QuickRow::Screen.position(&[]) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
     tap(&mut f, &mut input, Btn::A);
-    for _ in 0..QuickRow::GbPalettes.position() {
+    for _ in 0..QuickRow::ScreenGb.position(&[]) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
+    tap(&mut f, &mut input, Btn::A);
+    for _ in 0..QuickRow::GbPalette.position(&[]) {
         tap(&mut f, &mut input, Btn::Down);
     }
     let px = composed(&mut f, &mut c, "screen-page");
 
-    let top = (QUICK_TOP + QUICK_PITCH * QuickRow::GbPalettes.position() as f32) as usize;
-    assert_eq!(
-        at(&px, 1, top + 26),
-        [0x4d, 0x4d, 0x57],
-        "the bar is not on GB Palettes"
-    );
-    for row in QuickRow::SCREEN {
-        let top = (QUICK_TOP + QUICK_PITCH * row.position() as f32) as usize;
-        let label = inked(&px, 0..360, top);
+    let top = quick_row_top(QuickRow::GbPalette, &[]) as usize;
+    beside("Palette", pointer(&px, top));
+    for row in QuickRow::SCREEN_GB {
+        let top = quick_row_top(row, &[]) as usize;
+        if row != QuickRow::GbPalette {
+            assert!(pointer(&px, top).is_none(), "a pointer at {row:?} as well");
+        }
+        let label = inked(&px, 56..360, top);
         let first = *label.first().expect("a row with no label");
         assert!(
-            (32..=36).contains(&first),
+            (64..=68).contains(&first),
+            "{row:?}'s label starts at x {first}"
+        );
+        if row.opens() {
+            continue;
+        }
+        let value = inked(&px, 360..OUT_W as usize, top);
+        let last = *value.last().expect("a row with no value");
+        assert!(
+            (679..=688).contains(&last),
+            "{row:?}'s value ends at x {last}"
+        );
+    }
+}
+
+#[test]
+fn the_about_label_is_on_the_tinted_wallpaper() {
+    let Ok(surface) = HeadlessSurface::new() else {
+        return;
+    };
+    let Ok(mut c) = Compositor::new(&surface) else {
+        return;
+    };
+    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
+    clocked(d.path());
+    let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
+    f.upload_faces(&mut c);
+    let mut input = Script(VecDeque::new());
+    tap(&mut f, &mut input, Btn::Menu);
+    for _ in 0..QuickRow::About.position(&[]) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
+    let menu = composed(&mut f, &mut c, "about-row");
+    tap(&mut f, &mut input, Btn::A);
+    let about = composed(&mut f, &mut c, "about-label");
+    for (x, y) in [(4, 4), (OUT_W as usize - 4, 4), (4, OUT_H as usize - 4)] {
+        assert_eq!(
+            at(&about, x, y),
+            at(&menu, x, y),
+            "the About label's ground at {x},{y} is not the menu's tinted ground"
+        );
+    }
+}
+
+#[test]
+fn the_general_page_renders() {
+    let Ok(surface) = HeadlessSurface::new() else {
+        return;
+    };
+    let Ok(mut c) = Compositor::new(&surface) else {
+        return;
+    };
+    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
+    clocked(d.path());
+    let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
+    f.upload_faces(&mut c);
+    let mut input = Script(VecDeque::new());
+    tap(&mut f, &mut input, Btn::Menu);
+    for _ in 0..QuickRow::General.position(&[]) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
+    composed(&mut f, &mut c, "main");
+    tap(&mut f, &mut input, Btn::A);
+    assert_eq!(f.app().quick_menu(), Some(QuickRow::Theme));
+    composed(&mut f, &mut c, "general");
+    for _ in 0..QuickRow::DateTime.position(&f.app().hidden_rows()) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
+    assert_eq!(f.app().quick_menu(), Some(QuickRow::DateTime));
+    composed(&mut f, &mut c, "general-bottom");
+}
+
+#[test]
+fn the_general_screen_page_renders() {
+    let Ok(surface) = HeadlessSurface::new() else {
+        return;
+    };
+    let Ok(mut c) = Compositor::new(&surface) else {
+        return;
+    };
+    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
+    clocked(d.path());
+    let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
+    f.upload_faces(&mut c);
+    let mut input = Script(VecDeque::new());
+    tap(&mut f, &mut input, Btn::Menu);
+    for _ in 0..QuickRow::Screen.position(&[]) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
+    tap(&mut f, &mut input, Btn::A);
+    assert_eq!(f.app().quick_menu(), Some(QuickRow::ScreenGeneral));
+    composed(&mut f, &mut c, "screen-pages");
+    tap(&mut f, &mut input, Btn::A);
+    assert_eq!(f.app().quick_menu(), Some(QuickRow::Brightness));
+    let px = composed(&mut f, &mut c, "screen-general");
+    beside(
+        "Brightness",
+        pointer(&px, quick_row_top(QuickRow::Brightness, &[]) as usize),
+    );
+    for row in QuickRow::SCREEN_GENERAL {
+        let top = quick_row_top(row, &[]) as usize;
+        let label = inked(&px, 56..360, top);
+        let first = *label.first().expect("a row with no label");
+        assert!(
+            (64..=68).contains(&first),
             "{row:?}'s label starts at x {first}"
         );
         let value = inked(&px, 360..OUT_W as usize, top);
@@ -222,4 +416,193 @@ fn the_screen_page_sets_gb_palettes_in_line_with_the_rows_above() {
             "{row:?}'s value ends at x {last}"
         );
     }
+}
+
+#[test]
+fn the_controls_pages_render() {
+    let Ok(surface) = HeadlessSurface::new() else {
+        return;
+    };
+    let Ok(mut c) = Compositor::new(&surface) else {
+        return;
+    };
+    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
+    clocked(d.path());
+    let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
+    f.upload_faces(&mut c);
+    let mut input = Script(VecDeque::new());
+    tap(&mut f, &mut input, Btn::Menu);
+    for _ in 0..QuickRow::Controls.position(&[]) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
+    tap(&mut f, &mut input, Btn::A);
+    assert_eq!(f.app().quick_menu(), Some(QuickRow::ControlsShelf));
+    composed(&mut f, &mut c, "controls");
+    tap(&mut f, &mut input, Btn::A);
+    assert_eq!(f.app().quick_menu(), Some(QuickRow::ShelfPrev));
+    composed(&mut f, &mut c, "controls-shelf");
+    tap(&mut f, &mut input, Btn::B);
+    tap(&mut f, &mut input, Btn::Up);
+    tap(&mut f, &mut input, Btn::A);
+    assert_eq!(f.app().quick_menu(), Some(QuickRow::GameUp));
+    composed(&mut f, &mut c, "controls-in-game");
+    tap(&mut f, &mut input, Btn::Y);
+    assert!(!f.app().reset_prompt());
+    tap(&mut f, &mut input, Btn::X);
+    composed(&mut f, &mut c, "controls-in-game-changed");
+    tap(&mut f, &mut input, Btn::Y);
+    assert!(f.app().reset_prompt());
+    composed(&mut f, &mut c, "controls-reset");
+    tap(&mut f, &mut input, Btn::B);
+    tap(&mut f, &mut input, Btn::B);
+    tap(&mut f, &mut input, Btn::Up);
+    tap(&mut f, &mut input, Btn::A);
+    assert_eq!(f.app().quick_menu(), Some(QuickRow::ScSave));
+    composed(&mut f, &mut c, "controls-shortcuts");
+    tap(&mut f, &mut input, Btn::X);
+    tap(&mut f, &mut input, Btn::Y);
+    composed(&mut f, &mut c, "controls-shortcuts-reset");
+    tap(&mut f, &mut input, Btn::B);
+}
+
+#[test]
+fn the_shortcuts_page_renders() {
+    let Ok(surface) = HeadlessSurface::new() else {
+        return;
+    };
+    let Ok(mut c) = Compositor::new(&surface) else {
+        return;
+    };
+    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
+    clocked(d.path());
+    let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
+    f.upload_faces(&mut c);
+    let mut input = Script(VecDeque::new());
+    tap(&mut f, &mut input, Btn::Menu);
+    for _ in 0..QuickRow::Controls.position(&[]) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
+    tap(&mut f, &mut input, Btn::A);
+    tap(&mut f, &mut input, Btn::Down);
+    tap(&mut f, &mut input, Btn::A);
+    assert_eq!(f.app().quick_menu(), Some(QuickRow::ScSave));
+    let px = composed(&mut f, &mut c, "shortcuts");
+    let bar = quick_scroll(QuickRow::ScSave, &f.app().hidden_rows()).expect("the page scrolls");
+    let x = OUT_W as usize - 14;
+    let lum = |y: f32| {
+        at(&px, x, y as usize)
+            .iter()
+            .map(|&c| u32::from(c))
+            .sum::<u32>()
+    };
+    let thumb = lum(bar.thumb_y + bar.thumb_h / 2.0);
+    let track = lum(bar.thumb_y + bar.thumb_h + 20.0);
+    let clear = lum(bar.y - 20.0);
+    assert!(
+        thumb > track && track > clear,
+        "no scroll bar at the right edge: thumb {thumb}, track {track}, above it {clear}"
+    );
+}
+
+#[test]
+fn the_left_stick_row_keeps_its_label_clear_of_its_value() {
+    let Ok(surface) = HeadlessSurface::new() else {
+        return;
+    };
+    let Ok(mut c) = Compositor::new(&surface) else {
+        return;
+    };
+    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
+    clocked(d.path());
+    let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
+    f.set_left_stick(true);
+    f.upload_faces(&mut c);
+    let mut input = Script(VecDeque::new());
+    tap(&mut f, &mut input, Btn::Menu);
+    for _ in 0..QuickRow::Game.position(&[]) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
+    tap(&mut f, &mut input, Btn::A);
+    let hidden = f.app().hidden_rows();
+    for _ in 0..QuickRow::LeftStick.position(&hidden) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
+    assert_eq!(f.app().quick_menu(), Some(QuickRow::LeftStick));
+    let top = quick_row_top(QuickRow::LeftStick, &hidden) as usize;
+    let px = composed(&mut f, &mut c, "left-stick");
+    let ink = inked(&px, 56..OUT_W as usize, top);
+    assert!(!ink.is_empty(), "the Left Stick row drew nothing");
+    let gap = ink.windows(2).map(|w| w[1] - w[0]).max().unwrap_or(0);
+    assert!(
+        gap >= 24,
+        "the label runs into the value, widest gap {gap} px"
+    );
+}
+
+#[test]
+fn a_duplicate_binding_shows_a_warning_naming_the_other_row() {
+    let Ok(surface) = HeadlessSurface::new() else {
+        return;
+    };
+    let Ok(mut c) = Compositor::new(&surface) else {
+        return;
+    };
+    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
+    clocked(d.path());
+    let mut f = Frontend::boot(Box::new(SimPlatform::at(d.path().to_path_buf())));
+    f.upload_faces(&mut c);
+    let mut input = Script(VecDeque::new());
+    tap(&mut f, &mut input, Btn::Menu);
+    for _ in 0..QuickRow::Controls.position(&[]) {
+        tap(&mut f, &mut input, Btn::Down);
+    }
+    tap(&mut f, &mut input, Btn::A);
+    tap(&mut f, &mut input, Btn::Down);
+    tap(&mut f, &mut input, Btn::A);
+    tap(&mut f, &mut input, Btn::A);
+    assert!(f.app().capturing());
+    tap(&mut f, &mut input, Btn::A);
+    assert!(!f.app().capturing());
+    assert_eq!(
+        f.app().toast(),
+        Some(slot_ui::Toast::Duplicate(QuickRow::GameA))
+    );
+    let px = composed(&mut f, &mut c, "duplicate-toast");
+    let (x, y, w, h) =
+        slot_ui::toast_rect(f.app().canvas(), slot_ui::Toast::Duplicate(QuickRow::GameA));
+    let ink: Vec<usize> = (x as usize..(x + w) as usize)
+        .filter(|&px_x| {
+            (y as usize..(y + h) as usize).any(|py| at(&px, px_x, py).iter().all(|c| *c > 0xc0))
+        })
+        .collect();
+    assert!(
+        ink.len() > 100,
+        "the toast has almost no ink: {}",
+        ink.len()
+    );
+    let gaps: Vec<usize> = ink
+        .windows(2)
+        .filter(|p| p[1] - p[0] > 4)
+        .map(|p| p[1] - p[0])
+        .collect();
+    assert!(
+        !gaps.is_empty() && ink[0] < (x + w / 2.0) as usize - 100,
+        "no icon set apart ahead of the words: first ink {} gaps {gaps:?}",
+        ink[0]
+    );
+    let amber = |p: [u8; 3]| p[0] > 0xd0 && (0x80..0xd0).contains(&p[1]) && p[2] < 0x70;
+    let amber_in = |xs: std::ops::Range<usize>, ys: std::ops::Range<usize>| {
+        ys.flat_map(|py| xs.clone().map(move |px_x| (px_x, py)))
+            .filter(|&(px_x, py)| amber(at(&px, px_x, py)))
+            .count()
+    };
+    assert!(
+        amber_in(x as usize..(x + w) as usize, y as usize..(y + h) as usize) > 20,
+        "the warning triangle is not amber"
+    );
+    let width = f.app().canvas().w as usize;
+    assert!(
+        amber_in(width / 2..width, (y + h) as usize + 20..400) > 40,
+        "no amber triangle marks the clashing rows"
+    );
 }

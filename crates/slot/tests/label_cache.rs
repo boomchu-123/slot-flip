@@ -37,7 +37,8 @@ fn a_scaled_label_is_cached_outside_the_studio_folder_and_read_back() {
     assert!(cached.starts_with(d.path().join("System")));
     assert!(cached.is_file(), "the scaled label was not cached");
     let (w, h) = label_size(&cart);
-    assert_eq!(first.len(), (w * h * 4) as usize);
+    assert_eq!((first.w, first.h), (w, h));
+    assert_eq!(first.rgba.len(), (w * h * 4) as usize);
     assert_eq!(label_art(d.path(), &cart), Some(first));
 }
 
@@ -49,7 +50,7 @@ fn a_redrawn_label_replaces_its_cached_copy() {
     label_png(cart.label.as_ref().unwrap(), 600, 330, [10, 10, 200]);
     let blue = label_art(d.path(), &cart).unwrap();
     assert_ne!(red, blue, "the old label came back from the cache");
-    assert_eq!(&blue[..3], &[10, 10, 200]);
+    assert_eq!(&blue.rgba[..3], &[10, 10, 200]);
 }
 
 #[test]
@@ -107,4 +108,120 @@ fn a_rebuild_caches_every_stale_label_and_counts_to_the_end() {
     }
     assert_eq!((rebuild.done(), rebuild.total()), (6, 6));
     assert!(stale(d.path(), carts.iter()).is_empty());
+}
+
+fn nes_cart_with_label(root: &Path, w: u32, h: u32) -> Cart {
+    let label = root.join("Labels/NES/Contra.png");
+    label_png(&label, w, h, [30, 120, 200]);
+    Cart {
+        platform: Platform::Nes,
+        stem: "Contra".into(),
+        rom: root.join("Games/NES/Contra.nes"),
+        label: Some(label),
+        title: String::new(),
+        code: String::new(),
+        shell: None,
+    }
+}
+
+#[test]
+fn a_label_scan_is_cached_at_its_own_shape_and_read_back_the_same() {
+    let d = tempfile::tempdir().unwrap();
+    // Twice as wide as it is tall: much wider than the NES recess.
+    let cart = nes_cart_with_label(d.path(), 600, 300);
+    let (bw, bh) = label_size(&cart);
+    let first = label_art(d.path(), &cart).expect("art");
+    assert_eq!(first.w, bw, "a wide scan fills the recess's width");
+    assert!(
+        first.h < bh,
+        "and keeps its shape, so it is shorter: {}x{}",
+        first.w,
+        first.h
+    );
+    assert_eq!(first.rgba.len(), (first.w * first.h * 4) as usize);
+    assert!(fresh(d.path(), &cart));
+    assert_eq!(label_art(d.path(), &cart), Some(first));
+}
+
+#[test]
+fn a_cache_from_before_labels_kept_their_shape_is_rebuilt_not_shown() {
+    let d = tempfile::tempdir().unwrap();
+    let cart = nes_cart_with_label(d.path(), 600, 300);
+    let (bw, bh) = label_size(&cart);
+    let good = label_art(d.path(), &cart).unwrap();
+    // What the old code wrote: no version word, then the stamp, then the room's own
+    // size and a crop that fills it.
+    let cached = cache_path(d.path(), &cart);
+    let meta = std::fs::metadata(cart.label.as_ref().unwrap()).unwrap();
+    let mtime = meta
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let mut old = Vec::new();
+    old.extend_from_slice(&meta.len().to_le_bytes());
+    old.extend_from_slice(&mtime.to_le_bytes());
+    old.extend_from_slice(&bw.to_le_bytes());
+    old.extend_from_slice(&bh.to_le_bytes());
+    old.extend(std::iter::repeat_n(7u8, (bw * bh * 4) as usize));
+    std::fs::write(&cached, old).unwrap();
+    assert!(
+        !fresh(d.path(), &cart),
+        "an old-format cache counted as fresh"
+    );
+    assert_eq!(label_art(d.path(), &cart), Some(good));
+}
+
+#[test]
+fn art_that_would_not_fit_the_room_is_never_taken_from_the_cache() {
+    let d = tempfile::tempdir().unwrap();
+    let cart = nes_cart_with_label(d.path(), 600, 300);
+    let good = label_art(d.path(), &cart).unwrap();
+    // A header claiming a size larger than the label has room for.
+    let cached = cache_path(d.path(), &cart);
+    let mut bytes = std::fs::read(&cached).unwrap();
+    bytes[24..28].copy_from_slice(&(good.w + 40).to_le_bytes());
+    std::fs::write(&cached, &bytes).unwrap();
+    assert!(!fresh(d.path(), &cart));
+    assert_eq!(label_art(d.path(), &cart), Some(good));
+}
+
+#[test]
+fn a_rebuild_that_stops_moving_lets_the_shelf_come_up() {
+    let d = tempfile::tempdir().unwrap();
+    let mut cart = cart_with_label(d.path(), [10, 10, 10]);
+    let stuck = d.path().join("Labels/GBA/Stuck.png");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&stuck)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    cart.stem = "Stuck".into();
+    cart.label = Some(stuck);
+    let mut rebuild =
+        Rebuild::start_with_stall(d.path(), vec![cart], std::time::Duration::from_millis(300));
+    let began = std::time::Instant::now();
+    while !rebuild.stalled() {
+        assert!(
+            began.elapsed().as_secs() < 5,
+            "a label read that never returned held the screen"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(!rebuild.finished());
+}
+
+#[test]
+fn a_rebuild_that_keeps_moving_is_not_stalled() {
+    let d = tempfile::tempdir().unwrap();
+    let cart = cart_with_label(d.path(), [10, 10, 10]);
+    let mut rebuild =
+        Rebuild::start_with_stall(d.path(), vec![cart], std::time::Duration::from_secs(5));
+    let began = std::time::Instant::now();
+    while !rebuild.finished() {
+        assert!(began.elapsed().as_secs() < 30, "the rebuild never finished");
+        assert!(!rebuild.stalled());
+        std::thread::yield_now();
+    }
 }

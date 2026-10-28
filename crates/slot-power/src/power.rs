@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::{Battery, Charge, LedState, LidPolicy, Platform};
@@ -46,6 +47,14 @@ impl Power {
         self.platform.card_read_only()
     }
 
+    pub fn card_log(&self) -> Option<PathBuf> {
+        self.platform.card_log()
+    }
+
+    pub fn card_kernel_lines(&self) -> Vec<String> {
+        self.platform.card_kernel_lines()
+    }
+
     pub fn set_led(&mut self, state: LedState) {
         self.platform.set_led(state)
     }
@@ -64,6 +73,14 @@ impl Power {
 
     pub fn restart(&mut self) -> ! {
         self.platform.restart()
+    }
+
+    pub fn repair_card(&mut self) -> ! {
+        self.platform.repair_card()
+    }
+
+    pub fn take_repair_result(&mut self) -> Option<crate::RepairResult> {
+        self.platform.take_repair_result()
     }
 
     pub fn now(&self) -> i64 {

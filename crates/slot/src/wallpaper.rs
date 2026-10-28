@@ -1,54 +1,20 @@
 use std::path::{Path, PathBuf};
 
-use slot_store::ini;
+use slot_store::{SlotState, WallpaperPick};
 
-/// Settings file holding the user's general Slot preferences.
-pub const SETTINGS_FILE: &str = "Config/slot.ini";
-/// Key in SETTINGS_FILE naming the background image to use.
-pub const BACKGROUND_KEY: &str = "background";
-
-fn is_png(p: &Path) -> bool {
-    !slot_store::is_hidden(p) && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("png"))
-}
-
-fn all(root: &Path) -> Vec<PathBuf> {
-    let mut files: Vec<PathBuf> = std::fs::read_dir(root.join("Wallpapers"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| is_png(p))
-        .collect();
-    files.sort();
+pub fn list(root: &Path) -> Vec<String> {
+    let mut files = pngs(&root.join("Wallpapers"));
+    files.sort_by(|a, b| {
+        a.to_lowercase()
+            .cmp(&b.to_lowercase())
+            .then_with(|| a.cmp(b))
+    });
     files
 }
 
-/// Pick the background image to show.
-///
-/// If `Config/slot.ini` names a `background` (a filename under `Wallpapers/`),
-/// that image is used. The special value `random` (or a missing key) falls back
-/// to upstream's shuffled deck, so none repeats until all have been shown.
 pub fn pick(root: &Path, seed: u64) -> Option<PathBuf> {
-    if let Some(choice) = ini::value(root, SETTINGS_FILE, BACKGROUND_KEY) {
-        let choice = choice.trim();
-        if !choice.is_empty() && !choice.eq_ignore_ascii_case("random") {
-            let named = root.join("Wallpapers").join(choice);
-            if named.is_file() {
-                return Some(named);
-            }
-            // Named file is gone: fall through to the shuffle rather than
-            // showing nothing.
-        }
-    }
     let dir = root.join("Wallpapers");
-    let mut files: Vec<String> = std::fs::read_dir(&dir)
-        .ok()?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| !slot_store::is_hidden(p))
-        .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")))
-        .filter_map(|p| Some(p.file_name()?.to_str()?.to_owned()))
-        .collect();
+    let mut files = pngs(&dir);
     if files.is_empty() {
         return None;
     }
@@ -82,6 +48,19 @@ pub fn pick(root: &Path, seed: u64) -> Option<PathBuf> {
         eprintln!("slot: wallpaper.deck: {e}");
     }
     Some(dir.join(next))
+}
+
+fn pngs(dir: &Path) -> Vec<String> {
+    std::fs::read_dir(dir)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| !slot_store::is_hidden(p))
+        .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")))
+        .filter_map(|p| Some(p.file_name()?.to_str()?.to_owned()))
+        .collect()
 }
 
 fn read_deck(path: &Path) -> (Vec<String>, Vec<String>) {
@@ -122,11 +101,37 @@ impl Rng {
     }
 }
 
-/// List the available background filenames (just the file names, not full
-/// paths) so a settings menu can offer them.
-pub fn choices(root: &Path) -> Vec<String> {
-    all(root)
-        .iter()
-        .filter_map(|p| p.file_name().and_then(|n| n.to_str()).map(str::to_string))
-        .collect()
+/// Where fork releases up to v0.3.0 kept a pinned wallpaper: `background = <file>`.
+const LEGACY_FILE: &str = "Config/slot.ini";
+const LEGACY_KEY: &str = "background";
+
+/// Wallpapers are chosen in the menu now and kept in `slot.state`. Carry an
+/// older `background = <file>` pin across once so an upgrade does not quietly
+/// change someone's wallpaper.
+///
+/// The pin is only applied when the player has not already picked something in
+/// the menu, and the key is reset either way: left in place, choosing Default
+/// later would be undone by the next boot. `random`, a missing key and a file
+/// that no longer exists are all left to the menu's own defaults.
+///
+/// Returns true when `state` changed and should be saved.
+pub fn carry_over_pin(root: &Path, state: &mut SlotState) -> bool {
+    let Some(pinned) = slot_store::ini::value(root, LEGACY_FILE, LEGACY_KEY) else {
+        return false;
+    };
+    let pinned = pinned.trim();
+    if pinned.is_empty() || pinned.eq_ignore_ascii_case("random") {
+        return false;
+    }
+    if !root.join("Wallpapers").join(pinned).is_file() {
+        return false;
+    }
+    if let Err(e) = slot_store::ini::write(root, LEGACY_FILE, LEGACY_KEY, "random") {
+        eprintln!("slot: slot.ini: {e}");
+    }
+    if state.wallpaper != WallpaperPick::Default {
+        return false;
+    }
+    state.wallpaper = WallpaperPick::File(pinned.to_string());
+    true
 }
