@@ -1,5 +1,10 @@
 # slot. — Miyoo Flip fork
 
+> **Trial branch, not a release.** This is `experimental` with `flip` merged in,
+> to work out how the branches combine for 1.0. See
+> [MERGE-PLAN.md](MERGE-PLAN.md) before merging anything. Remove this notice and
+> that file in the final merge.
+
 A cartridge-style Game Boy / Game Boy Color / Game Boy Advance frontend for the
 **Miyoo Flip (my355)**. Browse your games as cartridges on a shelf, slot one in,
 and play — with sound, saves, and save states.
