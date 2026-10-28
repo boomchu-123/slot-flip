@@ -34,9 +34,11 @@ if [ -f "$DIR/DEBUG" ]; then
 fi
 
 # Which sound output to use, if the default gives trouble. Slot plays through the
-# console's own vendor interface and falls back to ALSA by itself; a file
-# Config/audio holding "alsa" makes it use ALSA straight away, so comparing the
-# two is a one-line change and not a rebuild.
+# console's audio server (the /dev/dsp the launcher's own sound uses, answered by
+# the preloaded libpadsp) and falls back to ALSA by itself. A file Config/audio
+# holding "alsa" makes it use ALSA straight away; "vendor" makes it take the
+# sound device from the audio server and drive it directly, which stops the
+# server until slot exits. Comparing them is a one-line change, not a rebuild.
 if [ -f "$SLOT_ROOT/Config/audio" ]; then
 	SLOT_AUDIO="$(tr -cd 'a-zA-Z' < "$SLOT_ROOT/Config/audio")"
 	[ -z "$SLOT_AUDIO" ] || export SLOT_AUDIO

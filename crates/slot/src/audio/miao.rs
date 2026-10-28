@@ -91,6 +91,11 @@ const SERVERS: [&str; 2] = ["audioserver", "audioserver.mod"];
 /// puts the volume back after stopping the server.
 const PROCFS: &str = "/proc/mi_modules/mi_ao/mi_ao0";
 
+/// How much of the debug node to log. The part that says whether the device is
+/// enabled and who holds it comes after the common block, which the first
+/// sixteen lines stopped short of.
+const DUMP_LINES: usize = 120;
+
 /// The gain to take the device at when the debug node cannot be read: MinUI's own
 /// loudest setting, so a guess is never louder than the console already goes.
 const FALLBACK_DB: i32 = -30;
@@ -483,6 +488,7 @@ impl Output {
                 None => "unreadable, using the fallback".to_string(),
             }
         ));
+        dump_procfs("before stopping the server");
         self.stopped = stop_servers();
         if self.stopped.is_empty() {
             self.say("no audio server was running to stop".into());
@@ -946,7 +952,7 @@ fn dump_procfs(when: &str) {
         eprintln!("slot: audio: mi_ao {when}: no {PROCFS} to read");
         return;
     };
-    for line in text.lines().take(16) {
+    for line in text.lines().take(DUMP_LINES) {
         eprintln!("slot: audio: mi_ao {when} | {}", line.trim_end());
     }
 }
@@ -954,7 +960,7 @@ fn dump_procfs(when: &str) {
 /// Gives the calling thread a higher scheduling priority. A thread has its own
 /// nice value on Linux, and 0 means the calling one. It is only a request: a
 /// process that may not raise it keeps running at the priority it had.
-fn raise_priority() {
+pub(super) fn raise_priority() {
     let code = unsafe { libc::setpriority(libc::PRIO_PROCESS as _, 0, AUDIO_NICE) };
     match code {
         0 => eprintln!("slot: audio: thread priority raised to {AUDIO_NICE}"),
