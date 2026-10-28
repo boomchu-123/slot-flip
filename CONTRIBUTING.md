@@ -112,8 +112,20 @@ docker run --rm -v "$PWD":/src -w /src rust:1-buster sh -c '
     --target armv7-unknown-linux-gnueabihf --target-dir target-mini'
 ```
 
-For the A30, use `rust:1-bullseye` and `--features my282`. `libc6-dev-armhf-cross`
-is required for both — without it the link fails with `cannot find Scrt1.o`.
+`libc6-dev-armhf-cross` is required — without it the link fails with
+`cannot find Scrt1.o`.
+
+The A30 firmware's C library is older than anything Debian still ships a cross
+sysroot for (it lacks `GLIBC_2.25`), so the A30 build links against glibc 2.17
+with [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild) instead:
+
+```sh
+cargo zigbuild --release -p slot --no-default-features --features my282 \
+  --target armv7-unknown-linux-gnueabihf.2.17 --target-dir target-a30
+readelf -V target-a30/armv7-unknown-linux-gnueabihf/release/slot | grep GLIBC_
+```
+
+Nothing in that list may be newer than `GLIBC_2.17`.
 
 ### Host build (for iterating on UI/logic)
 
