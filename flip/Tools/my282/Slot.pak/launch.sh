@@ -19,6 +19,10 @@ SLOT_ROOT="$SD/Slot"
 export LD_LIBRARY_PATH="/usr/lib:/usr/miyoo/lib:/config/lib:$LD_LIBRARY_PATH"
 export SLOT_ROOT
 
+# The A30 exposes a portrait framebuffer. Clockwise output was upside down in
+# the hardware report; use the opposite quarter-turn, preserving overrides.
+export SLOT_ROTATE="${SLOT_ROTATE:-ccw}"
+
 LOG="$SLOT_ROOT/slot.log"
 
 # Diagnostics are opt-in. Drop a file named DEBUG next to this script to turn on
