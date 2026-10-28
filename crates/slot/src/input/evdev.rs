@@ -253,6 +253,83 @@ const WANTED: [u16; 16] = [
 
 pub use slot_power::has_bit;
 
+/// First key code of the range the kernel uses for gamepad and joystick buttons.
+#[cfg(feature = "my282")]
+const BTN_MISC: u16 = 0x100;
+#[cfg(feature = "my282")]
+const BTN_JOYSTICK: u16 = 0x120;
+#[cfg(feature = "my282")]
+const KEY_MAX: u16 = 0x2ff;
+
+#[cfg(feature = "my282")]
+fn has_gamepad_keys(keys: &str) -> bool {
+    (BTN_MISC..=KEY_MAX).any(|code| has_bit(keys, code))
+}
+
+/// The key codes of a gamepad node in the order SDL numbers its buttons: from
+/// BTN_JOYSTICK up, then BTN_MISC up to it. MinUI reads the A30's pad through
+/// SDL, so its button table is in these numbers, not in key codes.
+#[cfg(feature = "my282")]
+pub fn joystick_order(keys: &str) -> Vec<u16> {
+    joystick_order_in(keys, usize::BITS as u16)
+}
+
+/// As `joystick_order`, for a mask printed in words of `width` bits.
+#[cfg(feature = "my282")]
+pub fn joystick_order_in(keys: &str, width: u16) -> Vec<u16> {
+    (BTN_JOYSTICK..=KEY_MAX)
+        .chain(BTN_MISC..BTN_JOYSTICK)
+        .filter(|code| slot_power::has_bit_in(keys, *code, width))
+        .collect()
+}
+
+/// MinUI's SDL button numbers for the A30 (its `platform.h`, `JOY_*`).
+#[cfg(feature = "my282")]
+pub fn joystick_btn(number: usize) -> Option<Btn> {
+    Some(match number {
+        0 => Btn::A,
+        1 => Btn::B,
+        2 => Btn::Y,
+        3 => Btn::X,
+        4 => Btn::L1,
+        5 => Btn::R1,
+        6 => Btn::Select,
+        7 => Btn::Start,
+        8 => Btn::Menu,
+        9 => Btn::L2,
+        10 => Btn::R2,
+        13 => Btn::Up,
+        14 => Btn::Left,
+        15 => Btn::Right,
+        16 => Btn::Down,
+        17 => Btn::VolDown,
+        18 => Btn::VolUp,
+        _ => return None,
+    })
+}
+
+/// The pad's buttons as raw events, for a node whose codes are in `order`.
+#[cfg(feature = "my282")]
+pub fn joystick_raw(order: &[u16], ev: Ev) -> Option<RawEvent> {
+    if ev.kind != EV_KEY {
+        return None;
+    }
+    let btn = joystick_btn(order.iter().position(|code| *code == ev.code)?)?;
+    match ev.value {
+        0 => Some(RawEvent::Up(btn)),
+        1 => Some(RawEvent::Down(btn)),
+        _ => None,
+    }
+}
+
+/// The key codes this node reports that SDL would number, or `None` if it is
+/// not a gamepad.
+#[cfg(feature = "my282")]
+pub fn joystick_node(device: &Path) -> Option<Vec<u16>> {
+    let keys = std::fs::read_to_string(device.join("capabilities/key")).ok()?;
+    has_gamepad_keys(&keys).then(|| joystick_order(&keys))
+}
+
 pub fn pick_devices(dev: &Path, sys: &Path) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(dev) else {
         return Vec::new();
@@ -287,6 +364,15 @@ fn wanted_node(device: &Path) -> bool {
     // analogue axes. Accept any node that reports ABS so the stick is read too.
     #[cfg(feature = "flip")]
     if cap("abs").is_ok_and(|abs| abs.trim().chars().any(|c| c != '0' && c != ' ')) {
+        return true;
+    }
+    // The A30's face buttons are not on its keyboard node: MinUI reads them
+    // through SDL, so they are gamepad buttons (and perhaps a hat) on a node of
+    // their own, which the keyboard codes above never match.
+    #[cfg(feature = "my282")]
+    if has_gamepad_keys(&keys)
+        || cap("abs").is_ok_and(|abs| abs.trim().chars().any(|c| c != '0' && c != ' '))
+    {
         return true;
     }
     false

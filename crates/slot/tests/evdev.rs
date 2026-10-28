@@ -330,3 +330,99 @@ fn a_hat_axis_is_traced_as_the_axis_it_is() {
     assert!(line.contains("hat0y"), "{line}");
     assert!(!line.contains("ignored"), "{line}");
 }
+
+#[test]
+fn a_mask_is_read_in_the_words_the_kernel_printed() {
+    use slot_power::has_bit_in;
+    // A 32-bit kernel prints 32-bit words, and reading them as 64-bit words
+    // found the wrong bit. Bit 0x74 (116): word 3 from the end on a 32-bit kernel, word 1 on a 64-bit one.
+    assert!(has_bit_in("100000 0 0 0", 116, 32));
+    assert!(!has_bit_in("100000 0 0 0", 116, 64));
+    assert!(has_bit_in("10000000000000 0", 116, 64));
+    // Bit 0x130 (304): word 9 from the end on a 32-bit kernel, word 4 on a 64-bit one.
+    assert!(has_bit_in("10000 0 0 0 0 0 0 0 0 0", 304, 32));
+    assert!(has_bit_in("1000000000000 0 0 0 0", 304, 64));
+    assert!(!has_bit_in("1000000000000 0 0 0 0", 304, 32));
+}
+
+#[cfg(feature = "my282")]
+mod a30_pad {
+    use slot::input::evdev::{joystick_btn, joystick_order_in, joystick_raw, Ev};
+    use slot_input::{Btn, RawEvent};
+
+    const EV_KEY: u16 = 0x01;
+
+    // Keys 0x130, 0x131, 0x133, 0x134, 0x136, 0x137, 0x13a, 0x13b, 0x13c in a
+    // 32-bit kernel's words: bit 16 .. in word 9 from the end.
+    fn mask(codes: &[u16]) -> String {
+        let top = codes.iter().max().copied().unwrap() / 32;
+        (0..=top)
+            .rev()
+            .map(|w| {
+                let word = codes
+                    .iter()
+                    .filter(|c| **c / 32 == w)
+                    .fold(0u32, |acc, c| acc | 1 << (c % 32));
+                format!("{word:x}")
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    #[test]
+    fn sdl_numbers_the_buttons_from_btn_joystick_upwards() {
+        let codes = [
+            0x130, 0x131, 0x133, 0x134, 0x136, 0x137, 0x13a, 0x13b, 0x13c,
+        ];
+        let order = joystick_order_in(&mask(&codes), 32);
+        assert_eq!(order, codes);
+    }
+
+    #[test]
+    fn the_misc_range_follows_the_joystick_range() {
+        let order = joystick_order_in(&mask(&[0x130, 0x131, 0x100]), 32);
+        assert_eq!(order, [0x130, 0x131, 0x100]);
+    }
+
+    #[test]
+    fn a_pad_button_becomes_the_button_minui_names_for_its_number() {
+        let order = [0x130u16, 0x131, 0x133, 0x134];
+        let key = |code, value| Ev {
+            kind: EV_KEY,
+            code,
+            value,
+        };
+        assert_eq!(
+            joystick_raw(&order, key(0x130, 1)),
+            Some(RawEvent::Down(Btn::A))
+        );
+        assert_eq!(
+            joystick_raw(&order, key(0x131, 0)),
+            Some(RawEvent::Up(Btn::B))
+        );
+        assert_eq!(
+            joystick_raw(&order, key(0x133, 1)),
+            Some(RawEvent::Down(Btn::Y))
+        );
+        assert_eq!(
+            joystick_raw(&order, key(0x134, 1)),
+            Some(RawEvent::Down(Btn::X))
+        );
+        assert_eq!(joystick_raw(&order, key(0x999, 1)), None);
+        assert_eq!(joystick_raw(&order, key(0x130, 2)), None);
+    }
+
+    #[test]
+    fn the_numbers_minui_uses_are_all_named() {
+        for (n, want) in [
+            (6, Btn::Select),
+            (7, Btn::Start),
+            (8, Btn::Menu),
+            (13, Btn::Up),
+            (16, Btn::Down),
+        ] {
+            assert_eq!(joystick_btn(n), Some(want));
+        }
+        assert_eq!(joystick_btn(11), None);
+    }
+}

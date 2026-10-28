@@ -1,12 +1,12 @@
 # Testers wanted — Miyoo A30 and Miyoo Mini Plus
 
-The A30 has now reached the clock screen on hardware with exp-a30-v0.3.3,
-but the picture was upside down. The launcher now defaults to counter-clockwise
-panel rotation (`SLOT_ROTATE=ccw`); the corrected orientation still needs a
-hardware retest. An existing `SLOT_ROTATE` environment override is preserved.
-For that retest, check the picture is upright, the D-pad selects the intended
-clock fields, and confirming the clock reaches the shelf. Attach `Slot/slot.log`
-and `Slot/input-trace.log` if present, and describe how the session was exited.
+The A30 has reached the clock screen on hardware, upright, but its buttons did
+nothing. Its buttons are read by MinUI through SDL as gamepad buttons, not as
+keyboard keys, and the device's input masks are in 32-bit words, which the
+old code read as 64-bit ones. exp-a30-v0.3.5 opens the gamepad node, numbers its
+buttons the way MinUI does, and always writes `Slot/input-trace.log` (no `DEBUG`
+file needed) with every input node and every raw event. On a retest, press each
+button once, then attach `Slot/slot.log` and `Slot/input-trace.log`.
 
 There are two **experimental** builds beyond the stable Miyoo Flip release. I
 only own a Flip, so these ports depend on logs from people who own the other

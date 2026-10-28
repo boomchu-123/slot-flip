@@ -4,8 +4,8 @@
 # EXPERIMENTAL. The A30 has a Mali-400 GPU, so unlike the Mini Plus it uses the
 # existing GLES renderer (via the fbdev/EGL surface). This has a real chance of
 # working, but is unverified on hardware. If anything is wrong — black screen,
-# wrong buttons, crash — grab slot.log (and input-trace.log with a DEBUG file)
-# and share it. See TESTERS.md.
+# wrong buttons, crash — grab slot.log and input-trace.log and share them. See
+# TESTERS.md.
 #
 # Keeps all of its data in /mnt/SDCARD/Slot so it never touches your MinUI Roms
 # or Saves. Drop legally dumped ROMs into Slot/Games/<GBA|GB|GBC>/.
@@ -26,11 +26,16 @@ export SLOT_ROTATE="${SLOT_ROTATE:-ccw}"
 LOG="$SLOT_ROOT/slot.log"
 
 # Diagnostics are opt-in. Drop a file named DEBUG next to this script to turn on
-# the verbose input/pacing trace while chasing a problem.
+# the verbose pacing trace while chasing a problem.
 if [ -f "$DIR/DEBUG" ]; then
 	export SLOT_TRACE=1
 	export SLOT_TRACE_LATENCY=1
 fi
+
+# The raw input trace is always on while the buttons are unconfirmed, so a report
+# never lacks the one file that says what the device sends. It writes
+# Slot/input-trace.log: every input node, then every event with its code.
+export SLOT_TRACE_INPUT=1
 
 # Optional isolation toggles. NO_CORE runs the built-in mock, SILENT uses a stub
 # audio sink, TEXTEST shows a moving pattern instead of the game image — useful
@@ -59,8 +64,17 @@ printf 'slot: pak %s\n' "$(cat "$DIR/slot.version" 2>/dev/null || echo unknown)"
 		[ -e "$f" ] && printf 'slot: device: %s\n' "$(ls -l "$f" 2>/dev/null)"
 	done
 	printf 'slot: device: LD_LIBRARY_PATH=%s\n' "$LD_LIBRARY_PATH"
+	# What the kernel says its input devices are, so a report needs no shell.
+	printf 'slot: device: input devices\n'
+	cat /proc/bus/input/devices 2>/dev/null | sed 's/^/slot: device:   /'
 } >> "$LOG" 2>&1
+
+# A report that ends in a forced power-off loses what was not yet flushed to
+# the card (an earlier one came back with an empty log), so flush as it runs.
+( while sleep 3; do sync; done ) &
+SYNCER=$!
 
 ./slot --init-root "$SLOT_ROOT" >> "$LOG" 2>&1
 ./slot >> "$LOG" 2>&1
+kill "$SYNCER" 2>/dev/null
 sync
