@@ -29,6 +29,7 @@ pub struct GamePass {
     tex_h: u32,
     u_src: gl::types::GLint,
     u_rect: gl::types::GLint,
+    u_frect: gl::types::GLint,
     u_bright: gl::types::GLint,
     u_uv: gl::types::GLint,
     u_mode: gl::types::GLint,
@@ -67,7 +68,7 @@ impl GamePass {
             crate::gl::gray_format(),
             Some(&[255]),
         );
-        let (u_rect, u_bright, u_uv, u_mode, u_paper_size, u_pic, u_fbo, u_origin, u_src);
+        let (u_rect, u_frect, u_bright, u_uv, u_mode, u_paper_size, u_pic, u_fbo, u_origin, u_src);
         unsafe {
             gl::UseProgram(prog);
             gl::Uniform1i(crate::gl::uniform_location(prog, "u_game"), 0);
@@ -79,6 +80,7 @@ impl GamePass {
                 OUT_H as f32,
             );
             u_rect = crate::gl::uniform_location(prog, "u_rect");
+            u_frect = crate::gl::uniform_location(prog, "u_frect");
             u_bright = crate::gl::uniform_location(prog, "u_bright");
             u_uv = crate::gl::uniform_location(prog, "u_uv");
             gl::Uniform1i(crate::gl::uniform_location(prog, "u_paper"), 1);
@@ -95,6 +97,7 @@ impl GamePass {
             tex_h: SRC_H,
             u_src,
             u_rect,
+            u_frect,
             u_bright,
             u_uv,
             u_mode,
@@ -287,6 +290,7 @@ impl GamePass {
         unsafe {
             gl::UseProgram(self.prog);
             gl::Uniform4f(self.u_rect, x, y, w, h);
+            gl::Uniform4f(self.u_frect, x, y, w, h);
             gl::Uniform4f(self.u_uv, src[0], src[1], src[2], src[3]);
             gl::Uniform1f(self.u_bright, bright);
             gl::Uniform1f(self.u_mode, self.effect.mode());

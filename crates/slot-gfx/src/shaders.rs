@@ -46,6 +46,12 @@ void main() {
 }
 "#;
 
+// The fragment shader has its own copy of the rectangle, `u_frect`. A uniform
+// named in both stages has to have the same precision in both, and the vertex
+// shaders' is always highp while a GPU with no highp in fragment shaders (the
+// A30's Mali-400) gives this one mediump, which its driver refuses to link
+// (L0010). A separate name leaves nothing to agree on, and the fragment shader
+// keeps whatever precision the GPU gives it.
 pub const GAME_FRAG: &str = r#"
 #ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
@@ -60,7 +66,7 @@ uniform float u_bright;
 uniform float u_mode;
 uniform float u_paper_size;
 uniform vec2 u_origin;
-uniform vec4 u_rect;
+uniform vec4 u_frect;
 uniform vec2 u_fbo;
 uniform vec4 u_pic;
 varying vec2 v_uv;
@@ -102,7 +108,7 @@ void main() {
         }
         c = mix(c, mix(1.2 * c * mid, c * sum, 0.85), 0.85);
     } else if (u_mode > 1.5) {
-        vec2 hp = 0.5 * u_uv.zw * u_src / (u_rect.zw * u_fbo);
+        vec2 hp = 0.5 * u_uv.zw * u_src / (u_frect.zw * u_fbo);
         vec2 edge = (grid_band(f + hp) - grid_band(f - hp)) / (2.0 * hp);
         c *= 1.0 - 0.75 * max(edge.x, edge.y);
     } else if (u_mode > 0.5) {
