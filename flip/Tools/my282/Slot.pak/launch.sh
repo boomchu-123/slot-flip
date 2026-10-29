@@ -44,11 +44,13 @@ export SLOT_TRACE_INPUT=1
 [ -f "$DIR/SILENT" ]  && export SLOT_SILENT=1
 [ -f "$DIR/TEXTEST" ] && export SLOT_TEXTEST=1
 
-# Seed the emulator cores into Slot/System on first run. NOTE: the A30 is 32-bit
-# ARM (armhf); it needs armhf cores, which are not bundled yet.
+# Seed the emulator cores into Slot/System, replacing a copy that differs so a
+# core fix in a new pak reaches an existing card. The A30 is 32-bit ARM (armhf)
+# with an old C library (2.23), so only cores built for that are bundled: gpSP
+# (GBA) today. mGBA needs a newer C library than the device has and is not.
 mkdir -p "$SLOT_ROOT/System"
 for c in mgba_libretro.so gpsp_libretro.so; do
-	if [ ! -f "$SLOT_ROOT/System/$c" ] && [ -f "$DIR/System/$c" ]; then
+	if [ -f "$DIR/System/$c" ] && ! cmp -s "$DIR/System/$c" "$SLOT_ROOT/System/$c"; then
 		cp "$DIR/System/$c" "$SLOT_ROOT/System/$c"
 	fi
 done
