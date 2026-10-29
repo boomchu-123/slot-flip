@@ -86,7 +86,7 @@ git diff feat/miyoomini-software -- crates/slot/src/device_app.rs   # expect emp
   `crates/slot/src/audio/miao.rs`, `miyoo.rs` (Mini Plus branch only): these
   arrive as-is.
 
-## Done on `merge/mini-into-experimental` (28 October trial)
+## Done on `merge/mini-into-experimental`
 
 This branch is the second merge, already carried out and checked, so the real one
 is a repeat of it. It is `merge/flip-into-experimental`, then the A30 branch
