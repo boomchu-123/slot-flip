@@ -1,20 +1,12 @@
 name: experimental
 
-# Builds the EXPERIMENTAL Miyoo Mini Plus (miyoomini) pak and publishes it as a
-# GitHub pre-release. Kept entirely separate from the stable Flip release
-# workflow (release.yml): different branch (experimental), different tag pattern
-# (exp-v*), and always marked --prerelease so it never shows as "Latest".
-#
-# The Mini Plus has no GPU, so this build does not draw to the screen yet — it
-# probes the hardware and writes slot.log. See TESTERS.md.
-
+# Trial integration builds only. Publishing remains manual until complete core
+# bundles are reproducibly staged and the combined port is checked on hardware.
 on:
-  push:
-    tags: ['exp-v*']
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -25,15 +17,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Miyoo Mini Plus — no GPU, software renderer is TODO (probe only).
-          # Its firmware is based on glibc 2.28, so use the matching sysroot.
           - slug: miyoomini
             feature: miyoomini
             rust_container: 1-buster
             max_glibc: 2.28
-          # Miyoo A30 — Mali-400 GPU, uses the existing GLES renderer.
-          # Its firmware's C library predates GLIBC_2.25, so it is linked
-          # against glibc 2.17 with zig rather than a Debian sysroot.
           - slug: my282
             feature: my282
             rust_container: 1-bullseye
@@ -48,21 +35,16 @@ jobs:
         run: |
           set -eu
           if [ "$RUST_CONTAINER" = 1-buster ]; then
-            # Buster is archived. The image points its security line at
-            # deb.debian.org (which now 404s), older ones at security.debian.org.
             sed -i -e 's|deb.debian.org/debian buster|archive.debian.org/debian buster|g' \
               -e 's|deb.debian.org/debian-security|archive.debian.org/debian-security|g' \
               -e 's|security.debian.org/debian-security|archive.debian.org/debian-security|g' \
               /etc/apt/sources.list
           else
-            sed -i '/bullseye-security/d' /etc/apt/sources.list || true
+            sed -i '/bullseye-security/d' /etc/apt/sources.list
           fi
           apt-get -o Acquire::Check-Valid-Until=false update
-          # gcc-arm-linux-gnueabihf is the cross compiler; libc6-dev-armhf-cross
-          # provides the target CRT objects (Scrt1.o, crti.o) and libc the linker
-          # needs. Without the latter, linking fails with "cannot find Scrt1.o".
           apt-get install -y --no-install-recommends \
-            zip gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
+            zip file binutils gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
           rustup target add armv7-unknown-linux-gnueabihf
 
       - name: Install zig
@@ -76,107 +58,63 @@ jobs:
           echo /opt/zig >> "$GITHUB_PATH"
           cargo install cargo-zigbuild --version 0.20.1 --locked
 
-      - name: Build the ${{ matrix.slug }} frontend (armhf, experimental)
+      - name: Build frontend
         env:
           CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
-          ZIG: ${{ matrix.zig }}
+          USE_ZIG: ${{ matrix.zig }}
+          FEATURE: ${{ matrix.feature }}
+          MAX_GLIBC: ${{ matrix.max_glibc }}
         run: |
           set -eu
-          if [ "$ZIG" = true ]; then
-            cargo zigbuild --release -p slot --no-default-features --features ${{ matrix.feature }} \
-              --target armv7-unknown-linux-gnueabihf.${{ matrix.max_glibc }} --target-dir target-exp
+          if [ "$USE_ZIG" = true ]; then
+            cargo zigbuild --release -p slot --no-default-features --features "$FEATURE" \
+              --target "armv7-unknown-linux-gnueabihf.$MAX_GLIBC" --target-dir target-exp
           else
-            cargo build --release -p slot --no-default-features --features ${{ matrix.feature }} \
+            cargo build --release -p slot --no-default-features --features "$FEATURE" \
               --target armv7-unknown-linux-gnueabihf --target-dir target-exp
           fi
 
-      - name: Assemble Slot.pak
+      - name: Assemble and validate complete pak
+        env:
+          SLUG: ${{ matrix.slug }}
+          MAX_GLIBC: ${{ matrix.max_glibc }}
         run: |
           set -eu
-          pak="flip/Tools/${{ matrix.slug }}/Slot.pak"
+          pak="flip/Tools/$SLUG/Slot.pak"
           cp target-exp/armv7-unknown-linux-gnueabihf/release/slot "$pak/slot"
           chmod +x "$pak/slot" "$pak/launch.sh"
-          # Must be 32-bit ARM (Cortex-A7), not aarch64.
-          file "$pak/slot" | grep -q "ELF 32-bit.*ARM"
-          test -x "$pak/launch.sh"
-          # Reject a binary linked above the device's firmware glibc baseline.
-          max_glibc="${{ matrix.max_glibc }}"
-          required_glibc="$(readelf --version-info "$pak/slot" |
-            sed -n 's/.*GLIBC_\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' |
-            sort -Vu | tail -1)"
-          test -n "$required_glibc"
-          printf 'slot requires glibc %s (maximum %s)\n' "$required_glibc" "$max_glibc"
-          awk -v got="$required_glibc" -v max="$max_glibc" 'BEGIN {
-            split(got, g, ".")
-            split(max, m, ".")
-            exit !((g[1] < m[1]) || (g[1] == m[1] && g[2] <= m[2]))
-          }'
+          printf '%s %s %s\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" "$SLUG" > "$pak/slot.version"
+          sh -n "$pak/launch.sh"
+          for binary in slot System/mgba_libretro.so System/gpsp_libretro.so \
+            System/pcsx_rearmed_libretro.so System/fceumm_libretro.so \
+            System/snes9x2005_plus_libretro.so System/genesis_plus_gx_libretro.so; do
+            test -f "$pak/$binary" || { echo "Missing $binary; refusing an incomplete pak" >&2; exit 1; }
+            file "$pak/$binary" | grep -q 'ELF 32-bit.*ARM'
+            required="$(readelf --version-info "$pak/$binary" |
+              grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/GLIBC_//' | sort -Vu | tail -1)"
+            test -n "$required"
+            awk -v got="$required" -v max="$MAX_GLIBC" 'BEGIN {
+              split(got, g, "."); split(max, m, ".")
+              exit !((g[1] < m[1]) || (g[1] == m[1] && g[2] <= m[2]))
+            }'
+          done
+          if strings "$pak/slot" | grep -q 'software renderer not yet implemented'; then
+            echo 'Obsolete Mini Plus probe in frontend' >&2
+            exit 1
+          fi
+          sh tools/check-pak-licences.sh "$pak"
 
       - name: Package
-        id: package
+        env:
+          SLUG: ${{ matrix.slug }}
         run: |
           set -eu
           stage="$(mktemp -d)"
-          cp -R flip/Tools/${{ matrix.slug }}/Slot.pak "$stage/Slot.pak"
-          zip="Slot.pak-${{ matrix.slug }}.zip"
-          ( cd "$stage" && zip -qry "$GITHUB_WORKSPACE/$zip" Slot.pak )
-          echo "zip=$zip" >> "$GITHUB_OUTPUT"
+          cp -R "flip/Tools/$SLUG/Slot.pak" "$stage/Slot.pak"
+          (cd "$stage" && zip -qry "$GITHUB_WORKSPACE/Slot.pak-$SLUG.zip" Slot.pak)
 
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.package.outputs.zip }}
-          path: ${{ steps.package.outputs.zip }}
+          name: Slot.pak-${{ matrix.slug }}.zip
+          path: Slot.pak-${{ matrix.slug }}.zip
           if-no-files-found: error
-
-  publish:
-    name: pre-release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: Slot.pak-miyoomini.zip
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: Slot.pak-my282.zip
-
-      - name: Create the pre-release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -eu
-          cat > notes.md <<'NOTES'
-          **EXPERIMENTAL pre-releases. Not the stable Flip build, and not
-          working yet. Testers wanted — see TESTERS.md.**
-
-          For the working Miyoo Flip release, see the latest `v*` release.
-
-          ---
-
-          **`Slot.pak-my282.zip` — Miyoo A30 (`my282`).** The A30 has a Mali-400
-          GPU, so this uses slot's real GLES renderer and has a chance of
-          working — but it is **unverified on hardware** and ships without armhf
-          cores. The default button map is a best guess and may be wrong (fixable
-          via `Config/buttons.ini`). Please share `slot.log` (and
-          `input-trace.log` with a `DEBUG` file).
-
-          **`Slot.pak-miyoomini.zip` — Miyoo Mini Plus (`miyoomini`). Does not
-          draw yet.** The Mini Plus has no GPU, so the graphics path is a work in
-          progress; this build only probes the hardware and writes `slot.log`.
-          Do not expect it to play games.
-
-          ---
-
-          A fork of slot by Brandon T. Kowalski (https://slot-cfw.fyi). Not
-          affiliated with the upstream author or Nintendo.
-          NOTES
-          gh release create "$GITHUB_REF_NAME" \
-            Slot.pak-my282.zip Slot.pak-miyoomini.zip \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "slot-flip $GITHUB_REF_NAME (Miyoo A30 + Mini Plus, experimental)" \
-            --notes-file notes.md \
-            --prerelease

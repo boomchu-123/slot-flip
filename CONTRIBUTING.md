@@ -15,15 +15,14 @@ By contributing you agree your work is licensed under the project's licence,
 
 ### 1. Test an experimental device build
 
-I only own a Miyoo Flip, so the other ports depend on logs from people who own
-the hardware. See
-**[TESTERS.md](https://github.com/boomchu-123/slot-flip/blob/experimental/TESTERS.md)**
+The ports depend on hardware reports. See
+**[TESTERS.md](TESTERS.md)**
 for the full runbook. Short version:
 
-- **Miyoo A30 (`my282`)** — has a Mali GPU, so it uses the real renderer and has
-  a real chance of working. Completely unverified.
-- **Miyoo Mini Plus (`miyoomini`)** — no GPU; the graphics path is still being
-  written, so this build only probes hardware and writes a log.
+- **Miyoo A30 (`my282`)** — upright display and button events are confirmed;
+  games, audio and speed still need hardware reports.
+- **Miyoo Mini Plus (`miyoomini`)** — games draw through a software renderer,
+  and sound is confirmed. Stock installation and the remaining systems need tests.
 
 Grab a pre-release, run it with a `DEBUG` file present, and post
 `Slot/slot.log` (plus `Slot/input-trace.log`). That's how the Flip port got

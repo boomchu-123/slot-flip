@@ -45,9 +45,10 @@ map, and an armhf build. This is the cheaper, more promising target.
 ### `miyoomini` — Miyoo Mini Plus (no GPU)
 
 The SSD202D has **no GPU**, so neither the Flip's GLES2 surface nor the EGL fbdev
-surface works — it has only a raw `/dev/fb0` (RGB565). A working port needs a
-**software** compositor, which is still TODO. Its build probes the framebuffer,
-logs it, and exits.
+surface works — it has only a raw `/dev/fb0` (RGB565). The port now uses the
+**software** compositor in `crates/slot-gfx/src/soft/`. It consumes the shared
+draw list and presents through the framebuffer. Games and audio have been
+reported working on a Mini Plus; this combined trial branch is unverified.
 
 ### Where each seam lives
 
@@ -55,14 +56,13 @@ logs it, and exits.
 | --- | --- | --- |
 | Feature in `crates/slot/Cargo.toml` | `my282` | `miyoomini` |
 | Button map (`code_to_btn`, `crates/slot/src/input/evdev.rs`) | best-guess default | native L1/R1/L2/R2, no stick/lid |
-| Renderer path (`crates/slot/src/device_app.rs`) | `run_gles` + `FbdevSurface` | `run_miyoomini` (probe only) |
-| Framebuffer probe | n/a | `crates/slot-gfx/src/miyoofb.rs` |
+| Renderer path (`crates/slot/src/device_app.rs`) | `run_gles` + `FbdevSurface` | Shared app loop over the software backend |
+| Framebuffer backend | fbdev/EGL | `crates/slot-gfx/src/soft/` |
 | Pak + launch script | `flip/Tools/my282/Slot.pak/` | `flip/Tools/miyoomini/Slot.pak/` |
-| CI (armhf build + pre-release) | `.github/workflows/experimental.yml` (matrix) | same |
+| CI (manual armhf build; no publishing on the trial branch) | `.github/workflows/experimental.yml` (matrix) | same |
 
-The Mini Plus's remaining work is a CPU rasteriser that consumes the same `Draw`
-list the GLES pipeline uses and blits to the framebuffer. See `TESTERS.md` for
-current status of both.
+The Mini Plus still needs stock-launcher and nine-system verification. See
+`TESTERS.md` for current evidence, release bundles and remaining checks.
 
 ## User-facing config (data-driven, no rebuild)
 
