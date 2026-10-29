@@ -26,7 +26,7 @@ devices. This page explains where each stands and how to help.
 | Button map | 🟡 every button reaches slot and is named (exp-a30-v0.3.6); that each label matches the printed button is unchecked | 🟡 from MinUI's codes, unverified |
 | **Draws to the screen** | ✅ the shelf and menus draw, upright (exp-a30-v0.3.4 on) | ❌ not implemented (probe only) |
 | Sound / saves / save states | 🟡 untested: needs a game | ❌ blocked on the renderer |
-| Emulator cores bundled | 🟡 gpSP (GBA) from exp-a30-v0.3.7; mGBA needs a newer C library than the A30 has | ❌ needs armhf builds |
+| Emulator cores bundled | 🟡 all nine systems from exp-a30-v0.3.8, built for glibc 2.17; run under an emulator on a PC only, never on an A30 | ❌ needs armhf builds |
 
 ### Why the two differ
 

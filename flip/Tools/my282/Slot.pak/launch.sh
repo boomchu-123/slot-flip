@@ -46,10 +46,10 @@ export SLOT_TRACE_INPUT=1
 
 # Seed the emulator cores into Slot/System, replacing a copy that differs so a
 # core fix in a new pak reaches an existing card. The A30 is 32-bit ARM (armhf)
-# with an old C library (2.23), so only cores built for that are bundled: gpSP
-# (GBA) today. mGBA needs a newer C library than the device has and is not.
+# with an old C library (2.23), so the cores are built against glibc 2.17 (gpSP,
+# and Zig-built mGBA, NES, SNES, Mega Drive and PlayStation).
 mkdir -p "$SLOT_ROOT/System"
-for c in mgba_libretro.so gpsp_libretro.so; do
+for c in mgba_libretro.so gpsp_libretro.so pcsx_rearmed_libretro.so fceumm_libretro.so snes9x2005_plus_libretro.so genesis_plus_gx_libretro.so; do
 	if [ -f "$DIR/System/$c" ] && ! cmp -s "$DIR/System/$c" "$SLOT_ROOT/System/$c"; then
 		cp "$DIR/System/$c" "$SLOT_ROOT/System/$c"
 	fi
