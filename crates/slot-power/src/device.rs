@@ -70,7 +70,10 @@ enum Led {
     // Unused on the Flip, which only has mono LEDs, but kept for the H700.
     #[cfg_attr(feature = "flip", allow(dead_code))]
     Multi(PathBuf),
-    Mono { dir: PathBuf, max: u32 },
+    Mono {
+        dir: PathBuf,
+        max: u32,
+    },
     // The Flip has two single-colour lights: a green "work" light and a red
     // "charger" light. Driven together so low battery shows red (like a GBA SP)
     // while charging lights both.
@@ -227,12 +230,20 @@ fn ran(what: &str, result: std::io::Result<std::process::ExitStatus>) {
 }
 
 pub fn has_bit(mask: &str, bit: u16) -> bool {
+    has_bit_in(mask, bit, usize::BITS as u16)
+}
+
+/// The kernel prints a capability mask as words of its own `long` size, 64 bits
+/// on the Flip and 32 on the 32-bit Miyoo kernels, and the program is built the
+/// same width as the kernel it runs on. Counting 64-bit words on a 32-bit kernel
+/// reads the wrong bit, which on the A30 left its buttons unfound.
+pub fn has_bit_in(mask: &str, bit: u16, width: u16) -> bool {
     let words: Vec<&str> = mask.split_whitespace().collect();
-    let from_end = usize::from(bit) / 64;
+    let from_end = usize::from(bit / width);
     let Some(word) = words.len().checked_sub(from_end + 1).map(|i| words[i]) else {
         return false;
     };
-    u64::from_str_radix(word, 16).is_ok_and(|w| w >> (bit % 64) & 1 == 1)
+    u64::from_str_radix(word, 16).is_ok_and(|w| w >> (bit % width) & 1 == 1)
 }
 
 pub fn rumble_node(sysfs: &Path) -> Option<String> {
@@ -514,9 +525,27 @@ impl Platform for DevicePlatform {
     fn restart(&mut self) -> ! {
         self.breadcrumb("restart: reached slot, about to sync");
         let _ = Command::new("sync").status();
-        self.breadcrumb("restart: sync returned, about to signal init");
-        let _ = Command::new("reboot").status();
-        std::thread::sleep(Duration::from_secs(10));
+        self.breadcrumb("restart: sync returned, about to ask the kernel");
+        // On the A30 the plain `reboot` call powers the device off instead of
+        // restarting it. `-f` is the same request without asking init first, so
+        // it is tried first, and what each answers is written down: a command
+        // that is missing, or a call that returns instead of restarting, then
+        // shows in the trace rather than being guessed at from the outside.
+        for args in [["-f"].as_slice(), [].as_slice()] {
+            let shown = if args.is_empty() {
+                "reboot"
+            } else {
+                "reboot -f"
+            };
+            let said = match Command::new("reboot").args(args).status() {
+                Ok(status) => format!("returned {status}"),
+                Err(e) => format!("could not run: {e}"),
+            };
+            self.breadcrumb(&format!("restart: {shown} {said}"));
+            // A working reboot never comes back; two seconds covers a slow one.
+            std::thread::sleep(Duration::from_secs(2));
+        }
+        self.breadcrumb("restart: still running after both, exiting to the launcher");
         std::process::exit(0)
     }
 

@@ -2,7 +2,16 @@ use std::path::{Path, PathBuf};
 
 use slot_input::{Btn, RawEvent};
 
+/// `struct input_event` is a `timeval` followed by type, code and value. The
+/// timeval is two longs, so a 32-bit kernel (the Mini Plus and the A30) hands
+/// out 16-byte events and a 64-bit one 24. Decoding 32-bit reads as 24-byte
+/// events drops a lone press and garbles the rest.
+#[cfg(target_pointer_width = "32")]
+pub const EVENT_BYTES: usize = 16;
+#[cfg(not(target_pointer_width = "32"))]
 pub const EVENT_BYTES: usize = 24;
+
+const HEAD: usize = EVENT_BYTES - 8;
 
 pub const EV_SYN: u16 = 0x00;
 pub const EV_KEY: u16 = 0x01;
@@ -89,9 +98,14 @@ pub struct Ev {
 pub fn decode(bytes: &[u8]) -> Option<Ev> {
     let packet: &[u8; EVENT_BYTES] = bytes.get(..EVENT_BYTES)?.try_into().ok()?;
     Some(Ev {
-        kind: u16::from_le_bytes([packet[16], packet[17]]),
-        code: u16::from_le_bytes([packet[18], packet[19]]),
-        value: i32::from_le_bytes([packet[20], packet[21], packet[22], packet[23]]),
+        kind: u16::from_le_bytes([packet[HEAD], packet[HEAD + 1]]),
+        code: u16::from_le_bytes([packet[HEAD + 2], packet[HEAD + 3]]),
+        value: i32::from_le_bytes([
+            packet[HEAD + 4],
+            packet[HEAD + 5],
+            packet[HEAD + 6],
+            packet[HEAD + 7],
+        ]),
     })
 }
 

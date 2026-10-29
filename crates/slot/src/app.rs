@@ -15,11 +15,10 @@ use slot_store::{
 use slot_ui::{
     board_from, board_zoom, draw_backdrop, draw_buttons, draw_empty_slot, draw_footer,
     draw_slot_name, draw_sticker, ease, grown, lid_at, lid_from, lift_of, on_board, shelf_cart_at,
-    ClockPicker,
-    Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, Millis, Placed, Polaroids, PowerChoice,
-    QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, Shelf, SlotChrome, TexId, Toast,
-    BOARD_W, BOARD_X, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT,
-    SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
+    ClockPicker, Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, Millis, Placed, Polaroids,
+    PowerChoice, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, Shelf, SlotChrome,
+    TexId, Toast, BOARD_W, BOARD_X, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H,
+    HOP_LIFT, SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
 };
 
 use crate::audio::Sfx;
@@ -487,6 +486,17 @@ impl App {
         let mut app = App::new(carts);
         app.root = Some(root.to_path_buf());
         app.state = read_slot_state(root);
+        // The stored levels, so a report can tell "the volume bar starts at 100"
+        // from "the saved level was not read back". A device whose card writes
+        // are lost shows it here.
+        eprintln!(
+            "slot: state: volume {} (speaker), {} (headphones), muted {}, brightness {}, blue light {}",
+            app.state.volume,
+            app.state.volume_hp,
+            app.state.muted || app.state.muted_hp,
+            app.state.brightness,
+            app.state.blue_light,
+        );
         if app.state.clock_set {
             app.start();
         } else {

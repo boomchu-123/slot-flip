@@ -1,5 +1,13 @@
 # Testers wanted — Miyoo A30 and Miyoo Mini Plus
 
+The A30 reaches the clock screen on hardware, upright, but its buttons did
+nothing. The trace from a retest showed why: the A30's kernel is 32-bit and writes
+input events at 16 bytes each, and slot read them as 24, so every event was
+garbled and none matched a button. exp-a30-v0.3.6 reads them at the right size.
+`Slot/input-trace.log` is always written now (no `DEBUG` file needed) with every
+input node and every raw event. On a retest, press each button once, then attach
+`Slot/slot.log` and `Slot/input-trace.log`.
+
 There are two **experimental** builds beyond the stable Miyoo Flip release. I
 only own a Flip, so these ports depend on logs from people who own the other
 devices. This page explains where each stands and how to help.
@@ -15,10 +23,10 @@ devices. This page explains where each stands and how to help.
 | --- | --- | --- |
 | Builds (32-bit ARM / armhf) | ✅ | ✅ |
 | Appears in MinUI **Tools** | ✅ expected | ✅ expected |
-| Button map | 🟡 best-guess default, unverified | 🟡 from MinUI's codes, unverified |
-| **Draws to the screen** | 🟡 tries the GLES renderer, unverified | ❌ not implemented (probe only) |
-| Sound / saves / save states | 🟡 should work if the screen does | ❌ blocked on the renderer |
-| Emulator cores bundled | ❌ needs armhf builds | ❌ needs armhf builds |
+| Button map | 🟡 every button reaches slot and is named (exp-a30-v0.3.6); that each label matches the printed button is unchecked | 🟡 from MinUI's codes, unverified |
+| **Draws to the screen** | ✅ the shelf and menus draw, upright (exp-a30-v0.3.4 on) | ❌ not implemented (probe only) |
+| Sound / saves / save states | 🟡 untested: needs a game | ❌ blocked on the renderer |
+| Emulator cores bundled | 🟡 all nine systems from exp-a30-v0.3.8, built for glibc 2.17; run under an emulator on a PC only, never on an A30 | ❌ needs armhf builds |
 
 ### Why the two differ
 
