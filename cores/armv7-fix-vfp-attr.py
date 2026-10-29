@@ -16,7 +16,7 @@ import sys
 
 VFP_ARGS = 28  # Tag_ABI_VFP_args
 HINTS = (68, 42)  # Tag_Virtualization_use, Tag_MPextension_use
-NTBS = {4, 5, 32, 65, 67}  # tags whose value is a NUL-terminated string
+NTBS = {4, 5, 65, 67}  # tags whose value is a NUL-terminated string
 
 
 def uleb(data, i):
@@ -36,7 +36,10 @@ def parse(attrs):
     while i < len(attrs):
         tag, i = uleb(attrs, i)
         start = i
-        if tag in NTBS:
+        if tag == 32:  # Tag_compatibility: integer followed by a vendor string
+            _, i = uleb(attrs, i)
+            i = attrs.index(0, i) + 1
+        elif tag in NTBS:
             i = attrs.index(0, i) + 1
         else:
             _, i = uleb(attrs, i)
@@ -45,15 +48,21 @@ def parse(attrs):
 
 
 def encode(tag, value):
-    assert tag < 128
-    return bytes([tag]) + value
+    encoded = bytearray()
+    while tag >= 128:
+        encoded.append((tag & 0x7F) | 0x80)
+        tag >>= 7
+    return bytes(encoded + bytes([tag])) + value
 
 
 def patch(path):
     with open(path, "rb") as f:
         data = bytearray(f.read())
-    if data[:4] != b"\x7fELF" or data[4] != 1 or struct.unpack_from("<H", data, 18)[0] != 40:
+    if len(data) < 52 or data[:6] != b"\x7fELF\x01\x01" or struct.unpack_from("<H", data, 18)[0] != 40:
         return "not a 32-bit ARM ELF file"
+    flags, = struct.unpack_from("<I", data, 36)
+    if not flags & 0x400 or flags & 0x200:
+        return "not hard-float; refusing to change the calling convention"
     shoff, = struct.unpack_from("<I", data, 32)
     shentsize, shnum, shstrndx = struct.unpack_from("<HHH", data, 46)
     if shoff == 0 or shnum == 0:
@@ -86,8 +95,9 @@ def patch(path):
         return "more than one attributes block"
     head = blob[: vendor_end + 5]
     pairs = parse(blob[vendor_end + 5 :])
-    if any(t == VFP_ARGS for t, _ in pairs):
-        return "already has it"
+    for tag, value in pairs:
+        if tag == VFP_ARGS:
+            return "already has it" if value == b"\x01" else "conflicting VFP argument convention"
     for hint in HINTS:
         if any(t == hint for t, _ in pairs):
             pairs = [(t, v) for t, v in pairs if t != hint]
@@ -106,5 +116,12 @@ def patch(path):
 
 
 if __name__ == "__main__":
+    failed = False
     for p in sys.argv[1:]:
-        print(f"{p}: {patch(p)}", file=sys.stderr)
+        try:
+            result = patch(p)
+        except (IndexError, ValueError, struct.error, OSError) as e:
+            result = f"invalid or unreadable ELF: {e}"
+        print(f"{p}: {result}", file=sys.stderr)
+        failed |= result not in ("patched", "already has it")
+    sys.exit(1 if failed or len(sys.argv) == 1 else 0)
