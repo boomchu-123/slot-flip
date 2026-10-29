@@ -45,9 +45,10 @@ pub fn survey(dev: &Path, sys: &Path) -> Vec<String> {
                     .unwrap_or_else(|_| "-".to_string())
             };
             format!(
-                "{file} {state} name={:?} key=[{}] sw=[{}]",
+                "{file} {state} name={:?} key=[{}] abs=[{}] sw=[{}]",
                 device_name(sys, node),
                 cap("key"),
+                cap("abs"),
                 cap("sw")
             )
         })

@@ -6,11 +6,12 @@ use slot_input::{Btn, RawEvent};
 
 fn packet(kind: u16, code: u16, value: i32) -> [u8; EVENT_BYTES] {
     let mut b = [0x11u8; EVENT_BYTES];
-    b[16] = kind as u8;
-    b[17] = (kind >> 8) as u8;
-    b[18] = code as u8;
-    b[19] = (code >> 8) as u8;
-    b[20..24].copy_from_slice(&value.to_le_bytes());
+    let h = EVENT_BYTES - 8;
+    b[h] = kind as u8;
+    b[h + 1] = (kind >> 8) as u8;
+    b[h + 2] = code as u8;
+    b[h + 3] = (code >> 8) as u8;
+    b[h + 4..h + 8].copy_from_slice(&value.to_le_bytes());
     b
 }
 
@@ -395,5 +396,63 @@ fn only_the_skus_nextui_lists_with_a_left_stick_have_one() {
     }
     for t in ["rgsp", "rg35xxsp", "rg35xxplus", "rg34xx", "rg28xx", ""] {
         assert!(!has_left_stick(t), "{t}");
+
+#[test]
+fn a_mask_is_read_in_the_words_the_kernel_printed() {
+    use slot_power::has_bit_in;
+    // A 32-bit kernel prints 32-bit words, and reading them as 64-bit words
+    // found the wrong bit. Bit 0x74 (116): word 3 from the end on a 32-bit kernel, word 1 on a 64-bit one.
+    assert!(has_bit_in("100000 0 0 0", 116, 32));
+    assert!(!has_bit_in("100000 0 0 0", 116, 64));
+    assert!(has_bit_in("10000000000000 0", 116, 64));
+    // Bit 0x130 (304): word 9 from the end on a 32-bit kernel, word 4 on a 64-bit one.
+    assert!(has_bit_in("10000 0 0 0 0 0 0 0 0 0", 304, 32));
+    assert!(has_bit_in("1000000000000 0 0 0 0", 304, 64));
+    assert!(!has_bit_in("1000000000000 0 0 0 0", 304, 32));
+}
+
+#[test]
+fn an_event_is_read_at_the_size_this_kernel_writes_it() {
+    // A key press is the key event plus its SYN report, back to back.
+    let mut read = Vec::new();
+    read.extend_from_slice(&packet(EV_KEY, 57, 1));
+    read.extend_from_slice(&packet(EV_SYN, 0, 0));
+    let evs: Vec<_> = read
+        .chunks_exact(EVENT_BYTES)
+        .filter_map(decode)
+        .map(|e| (e.kind, e.code, e.value))
+        .collect();
+    assert_eq!(evs, vec![(EV_KEY, 57, 1), (EV_SYN, 0, 0)]);
+    #[cfg(target_pointer_width = "32")]
+    assert_eq!(EVENT_BYTES, 16);
+    #[cfg(not(target_pointer_width = "32"))]
+    assert_eq!(EVENT_BYTES, 24);
+}
+
+// The masks below are what the A30's kernel printed in a tester's log
+// (exp-a30-v0.3.5): 32-bit words, four nodes, the buttons on one of them.
+#[test]
+fn the_a30s_own_masks_show_every_button_slot_maps() {
+    use slot_power::has_bit_in;
+    let keys = "c1682 0 3000400 3014c002";
+    let buttons = [
+        103, 108, 105, 106, 57, 29, 42, 56, 18, 20, 15, 14, 97, 28, 1, 115, 114,
+    ];
+    for code in buttons {
+        assert!(has_bit_in(keys, code, 32), "key {code} missing from {keys}");
+    }
+    // Read as 64-bit words, which is what it was before, almost none are there.
+    let found = buttons.iter().filter(|c| has_bit_in(keys, **c, 64)).count();
+    assert!(found < buttons.len() / 2, "{found} found as 64-bit words");
+
+    // The power key is on a node of its own.
+    assert!(has_bit_in("8000 100000 0 0 0", 116, 32));
+    // The headset node carries only the volume keys (114 and 115) of the map,
+    // and the temperature sensor none.
+    let headset = "4 80000 0 0 c0000 0 0 0";
+    for code in buttons.iter().chain(&[116]) {
+        let volume = *code == 114 || *code == 115;
+        assert_eq!(has_bit_in(headset, *code, 32), volume, "{code}");
+        assert!(!has_bit_in("0", *code, 32), "{code}");
     }
 }

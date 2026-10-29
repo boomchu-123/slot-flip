@@ -252,12 +252,20 @@ fn ran(what: &str, result: std::io::Result<std::process::ExitStatus>) {
 }
 
 pub fn has_bit(mask: &str, bit: u16) -> bool {
+    has_bit_in(mask, bit, usize::BITS as u16)
+}
+
+/// The kernel prints a capability mask as words of its own `long` size, 64 bits
+/// on the Flip and 32 on the 32-bit Miyoo kernels, and the program is built the
+/// same width as the kernel it runs on. Counting 64-bit words on a 32-bit kernel
+/// reads the wrong bit, which on the A30 left its buttons unfound.
+pub fn has_bit_in(mask: &str, bit: u16, width: u16) -> bool {
     let words: Vec<&str> = mask.split_whitespace().collect();
-    let from_end = usize::from(bit) / 64;
+    let from_end = usize::from(bit / width);
     let Some(word) = words.len().checked_sub(from_end + 1).map(|i| words[i]) else {
         return false;
     };
-    u64::from_str_radix(word, 16).is_ok_and(|w| w >> (bit % 64) & 1 == 1)
+    u64::from_str_radix(word, 16).is_ok_and(|w| w >> (bit % width) & 1 == 1)
 }
 
 pub fn rumble_node(sysfs: &Path) -> Option<String> {
