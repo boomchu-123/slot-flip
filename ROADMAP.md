@@ -164,6 +164,14 @@ buttons, power, backlight and cores.
   about 30 MB available. gpSP plays it, so this is a known limit rather than a
   release blocker. Slot's own memory (62 MB resident at the time) is being measured
   because the PS1 core will need the room
+- 🟡 **Cores for the other six systems** (exp-v0.4.13). NES, SNES, Mega Drive,
+  Master System, Game Gear and PlayStation are packaged, built against glibc 2.17
+  with Zig (`cores/armv7-zigcc`). Each passes its system's tests under an emulator
+  on a computer, which is not a console: **speed, memory and real games are
+  unproven**, and PlayStation is the one to watch on a 100 MB device
+- ✅ **Button node found on purpose, not by luck** (exp-v0.4.14). The kernel prints
+  capability masks in 32-bit words and slot read 64-bit ones: seven of the
+  eighteen wanted keys were found. Tested in code, not on a device
 - 📋 **Install on the Mini Plus's own launcher.** Today it is a MinUI Tool
   (`Tools/miyoomini/Slot.pak`). 1.0 needs the same shape as the Flip: one zip at
   the card root, an entry in the launcher the device ships with, and no MinUI.
