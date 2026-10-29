@@ -75,8 +75,7 @@ fn a_capability_bitmask_is_indexed_from_the_last_word() {
 fn a_mask_is_read_in_the_words_the_kernel_printed() {
     use slot_power::has_bit_in;
     // A 32-bit kernel prints 32-bit words, and reading them as 64-bit words
-    // found the wrong bit. Bit 0x74 (116): word 3 from the end on a 32-bit
-    // kernel, word 1 on a 64-bit one.
+    // found the wrong bit. Bit 0x74 (116): word 3 from the end on a 32-bit kernel, word 1 on a 64-bit one.
     assert!(has_bit_in("100000 0 0 0", 116, 32));
     assert!(!has_bit_in("100000 0 0 0", 116, 64));
     assert!(has_bit_in("10000000000000 0", 116, 64));
