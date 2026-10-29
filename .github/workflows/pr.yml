@@ -6,7 +6,7 @@ name: pr
 
 on:
   pull_request:
-    branches: [flip, experimental]
+    branches: [flip, experimental, feat/miyoomini-software]
   workflow_dispatch:
 
 permissions:
@@ -28,6 +28,12 @@ jobs:
 
       - name: Test the installer
         run: sh tools/test-install-slot.sh
+
+      - name: Test the ARM attribute repair
+        run: python3 -B cores/test_armv7_attributes.py
+
+      - name: Test the Mini Plus App handoff
+        run: sh tools/test-miyoomini-app.sh
 
       - name: Install build deps
         run: |
