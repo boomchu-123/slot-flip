@@ -36,5 +36,5 @@ esac
 # Zig leaves a hard-float library without the attribute glibc's loader checks
 # for, and dlopen then refuses it; see armv7-fix-vfp-attr.py.
 if [ "$shared" = 1 ] && [ -n "$out" ] && [ -f "$out" ]; then
-	"${PYTHON:-python3}" "$(dirname "$0")/armv7-fix-vfp-attr.py" "$out" 2>&1 | grep -v "already has it" >&2 || true
+	"${PYTHON:-python3}" "$(dirname "$0")/armv7-fix-vfp-attr.py" "$out" || exit $?
 fi
