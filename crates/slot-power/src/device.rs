@@ -70,7 +70,10 @@ enum Led {
     // Unused on the Flip, which only has mono LEDs, but kept for the H700.
     #[cfg_attr(feature = "flip", allow(dead_code))]
     Multi(PathBuf),
-    Mono { dir: PathBuf, max: u32 },
+    Mono {
+        dir: PathBuf,
+        max: u32,
+    },
     // The Flip has two single-colour lights: a green "work" light and a red
     // "charger" light. Driven together so low battery shows red (like a GBA SP)
     // while charging lights both.
@@ -522,9 +525,27 @@ impl Platform for DevicePlatform {
     fn restart(&mut self) -> ! {
         self.breadcrumb("restart: reached slot, about to sync");
         let _ = Command::new("sync").status();
-        self.breadcrumb("restart: sync returned, about to signal init");
-        let _ = Command::new("reboot").status();
-        std::thread::sleep(Duration::from_secs(10));
+        self.breadcrumb("restart: sync returned, about to ask the kernel");
+        // On the A30 the plain `reboot` call powers the device off instead of
+        // restarting it. `-f` is the same request without asking init first, so
+        // it is tried first, and what each answers is written down: a command
+        // that is missing, or a call that returns instead of restarting, then
+        // shows in the trace rather than being guessed at from the outside.
+        for args in [["-f"].as_slice(), [].as_slice()] {
+            let shown = if args.is_empty() {
+                "reboot"
+            } else {
+                "reboot -f"
+            };
+            let said = match Command::new("reboot").args(args).status() {
+                Ok(status) => format!("returned {status}"),
+                Err(e) => format!("could not run: {e}"),
+            };
+            self.breadcrumb(&format!("restart: {shown} {said}"));
+            // A working reboot never comes back; two seconds covers a slow one.
+            std::thread::sleep(Duration::from_secs(2));
+        }
+        self.breadcrumb("restart: still running after both, exiting to the launcher");
         std::process::exit(0)
     }
 
