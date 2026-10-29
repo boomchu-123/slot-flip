@@ -133,12 +133,24 @@ All three on Genesis Plus GX.
   **Accepted as a known issue for 1.0:** it is not one of the release checks, and
   the workaround is the default (Analog Sticks off).
 
-- **The Mini Plus has a large-ROM crash in mGBA.** Pokemon Emerald (16 MB) on
-  mGBA closes slot the moment it loads (exp-v0.4.10): mGBA copies the ROM into a
-  memory map of its own, and the map failed. gpSP plays the same game, and mGBA
-  plays small ROMs. exp-v0.4.11 gives mGBA the file's path instead for ROMs of
-  8 MiB and up; that is **unconfirmed** on a console. See
-  [Miyoo Mini Plus](#miyoo-mini-plus-miyoomini).
+- **The Mini Plus cannot run large GBA games with a clock chip on mGBA.** Pokemon
+  Emerald (16 MB) closes slot on mGBA, and gpSP plays the same game. Two steps, as
+  the reports showed them:
+  - exp-v0.4.10 crashed as the game loaded: mGBA copies what it is given into a
+    memory map of its own, and the map failed. exp-v0.4.11 gives mGBA the file's
+    path instead for ROMs of 8 MiB and up, and the crash at load **is gone**
+    (confirmed by the next report).
+  - It then crashes a moment later, in mGBA's `_pristineCow`. For a cartridge with
+    GPIO hardware (Emerald's clock), mGBA makes a private copy of the ROM in a
+    32 MB map and does not check that the map succeeded. The log at that point
+    shows 103 MB total, about 30 MB available and slot holding 62 MB, so the map
+    most likely fails for lack of memory. That is a reading of the kernel's
+    behaviour, **not a measurement**, and the cartridge having GPIO is likewise
+    inferred, not checked.
+  - **Accepted as a known limit for now.** GBA defaults to gpSP, which plays it,
+    and mGBA's own job on this console is GB and GBC, which are small. How much
+    of slot's 62 MB is its own is being measured (the heartbeat lines now carry
+    it); it also decides how much room the PS1 core will have.
 
 ## Checked on the device, beyond booting
 

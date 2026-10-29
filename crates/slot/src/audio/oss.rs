@@ -51,7 +51,7 @@ const RETRY_AFTER: Duration = Duration::from_secs(1);
 /// paced them without printing one for every 21 ms for as long as a game runs.
 const LOUD_WRITES: u32 = 6;
 const SUMMARY_EVERY: Duration = Duration::from_secs(10);
-const LOUD_SUMMARIES: u32 = 4;
+const LOUD_SUMMARIES: u32 = 30;
 
 const MIN_RATE: u32 = 8_000;
 const MAX_RATE: u32 = 192_000;
@@ -274,6 +274,7 @@ struct Writer {
     stalled: Duration,
     longest: Duration,
     summarised: Instant,
+    summarised_frames: u64,
     summaries: u32,
     failing: bool,
     retry_at: Option<Instant>,
@@ -290,6 +291,7 @@ impl Writer {
             stalled: Duration::ZERO,
             longest: Duration::ZERO,
             summarised: Instant::now(),
+            summarised_frames: 0,
             summaries: 0,
             failing: false,
             retry_at: None,
@@ -317,13 +319,21 @@ impl Writer {
             );
         }
         if self.summaries < LOUD_SUMMARIES && self.summarised.elapsed() >= SUMMARY_EVERY {
+            // Frames per second of wall time over this window. The device
+            // paces the writes, so this is the rate it really takes audio at.
+            let window = self.summarised.elapsed().as_secs_f64();
+            let rate = (self.written - self.summarised_frames) as f64 / window;
             eprintln!(
-                "slot: audio: oss {} chunks, {} frames, blocked {:.0} ms in all, longest {:.1} ms",
+                "slot: audio: oss {} chunks, {} frames, blocked {:.0} ms in all, longest {:.1} ms, taking {:.0} frames/s over the last {:.1} s (asked for {})",
                 self.chunks,
                 self.written,
                 self.stalled.as_secs_f64() * 1000.0,
-                self.longest.as_secs_f64() * 1000.0
+                self.longest.as_secs_f64() * 1000.0,
+                rate,
+                window,
+                self.rate
             );
+            self.summarised_frames = self.written;
             self.summarised = Instant::now();
             self.summaries += 1;
         }

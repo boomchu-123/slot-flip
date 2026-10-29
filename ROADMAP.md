@@ -158,8 +158,12 @@ buttons, power, backlight and cores.
   the vendor interface (`MI_AO`) stays refused while that server runs. Possible
   slight slowdown in gpSP, not measured. Delay, headphones and long play not
   checked
-- 🚧 **Pokemon Emerald on mGBA crashes at load** (16 MB; gpSP and small ROMs are
-  fine). exp-v0.4.11 loads ROMs of 8 MiB and up by path, **unconfirmed**
+- 🟡 **Large GBA games with a clock chip on mGBA** (Pokemon Emerald): the crash at
+  load is fixed by loading ROMs of 8 MiB and up by path (exp-v0.4.11, confirmed).
+  It still crashes a moment later, when mGBA asks for a 32 MB map of its own with
+  about 30 MB available. gpSP plays it, so this is a known limit rather than a
+  release blocker. Slot's own memory (62 MB resident at the time) is being measured
+  because the PS1 core will need the room
 - 📋 **Install on the Mini Plus's own launcher.** Today it is a MinUI Tool
   (`Tools/miyoomini/Slot.pak`). 1.0 needs the same shape as the Flip: one zip at
   the card root, an entry in the launcher the device ships with, and no MinUI.

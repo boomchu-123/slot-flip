@@ -220,12 +220,13 @@ pub fn run() {
             if heartbeat.0.elapsed() >= Duration::from_secs(2) {
                 let published = frontend.frames_published();
                 eprintln!(
-                    "slot: heartbeat: {} loops, {} emu frames in {:?} (settling {}, period {:.2} ms)",
+                    "slot: heartbeat: {} loops, {} emu frames in {:?} (settling {}, period {:.2} ms); {}",
                     heartbeat.1,
                     published.saturating_sub(heartbeat.2),
                     heartbeat.0.elapsed(),
                     frontend.core_settling(),
                     pacer.period.as_secs_f64() * 1e3,
+                    slot_retro::memory_brief(),
                 );
                 heartbeat = (Instant::now(), 0, published);
                 // Only worth a line while sticks are the game's: how often the core

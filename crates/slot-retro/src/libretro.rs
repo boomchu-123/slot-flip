@@ -633,10 +633,34 @@ fn loads_by_path(name: &str, list: Option<&str>, rom_len: u64) -> bool {
 
 const BY_PATH_FROM: u64 = 8 * 1024 * 1024;
 
+/// A short form of the same, for a line printed every couple of seconds: what
+/// the system could still hand out, and how much of this process is its own
+/// (anonymous) memory and how much is files it has mapped, which the kernel can
+/// take back.
+pub fn memory_brief() -> String {
+    let field = |text: &str, key: &str| -> Option<u64> {
+        text.lines()
+            .find_map(|l| l.strip_prefix(key))
+            .and_then(|v| v.split_whitespace().next())
+            .and_then(|v| v.parse().ok())
+    };
+    let info = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
+    let me = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let mb =
+        |kb: Option<u64>| kb.map_or_else(|| "?".into(), |k| format!("{:.1}", k as f64 / 1024.0));
+    format!(
+        "mem available {} MB, free {} MB, own anon {} MB, own file {} MB",
+        mb(field(&info, "MemAvailable:")),
+        mb(field(&info, "MemFree:")),
+        mb(field(&me, "RssAnon:")),
+        mb(field(&me, "RssFile:")),
+    )
+}
+
 /// The memory figures worth having in a report, on one line, so a failure to
 /// allocate can be told apart from a bug: what is free, what the kernel will
 /// promise, and what this process holds.
-fn memory_note() -> String {
+pub fn memory_note() -> String {
     let read = |path: &str| std::fs::read_to_string(path).unwrap_or_default();
     let pick = |text: &str, keys: &[&str]| -> Vec<String> {
         text.lines()
@@ -652,11 +676,21 @@ fn memory_note() -> String {
             "MemAvailable:",
             "CommitLimit:",
             "Committed_AS:",
+            "Cached:",
+            "Shmem:",
+            "Slab:",
         ],
     );
     parts.extend(pick(
         &read("/proc/self/status"),
-        &["VmPeak:", "VmSize:", "VmRSS:"],
+        &[
+            "VmPeak:",
+            "VmSize:",
+            "VmRSS:",
+            "RssAnon:",
+            "RssFile:",
+            "RssShmem:",
+        ],
     ));
     let mode = read("/proc/sys/vm/overcommit_memory");
     if !mode.trim().is_empty() {
@@ -1194,6 +1228,11 @@ mod tests {
     fn the_memory_note_is_one_line_and_never_panics() {
         let note = memory_note();
         assert!(!note.contains('\n'), "{note}");
+        let brief = memory_brief();
+        assert!(
+            !brief.contains('\n') && brief.starts_with("mem available"),
+            "{brief}"
+        );
     }
 
     use std::collections::HashMap;
