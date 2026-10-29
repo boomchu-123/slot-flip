@@ -304,10 +304,23 @@ below say which), a Mini Plus, October 2026, installed as a MinUI Tool
 
 **Not checked, or known not to work:**
 
-- **Every system other than GBA, GB and GBC.** The other six systems' carts, cores
-  and slots are unproven on this device.
-- **Installing without MinUI.** The port is still a MinUI Tool. Nothing has been
-  built for the Mini Plus's own launcher yet.
+- **Every system other than GBA, GB and GBC.** exp-v0.4.13 carries the NES, SNES,
+  Mega Drive, Master System, Game Gear and PlayStation cores, built for the
+  console's processor and C library. Each loads under a newer C library in an
+  emulator on a computer and passes this project's own tests for its system there
+  (a test game: picture, sound, buttons, save states). **No real game on any of
+  the six has been run on a Mini Plus**, so speed, memory and the slots are
+  unproven. PlayStation is the likely one to struggle: the console has about
+  100 MB of memory in all.
+- **Installing without MinUI.** Nothing has been run from the Mini Plus's own
+  launcher. `flip/App-miyoomini/Slot/` is the entry it would need, and it only
+  hands over to the pak's `launch.sh`, which no device has executed that way.
+- **Buttons on a 32-bit kernel (exp-v0.4.14).** The Mini Plus's kernel prints
+  capability masks in 32-bit words, and slot read them as 64-bit ones. It found
+  its button node only because a wrong bit happened to be set: of the eighteen
+  keys it wants, seven are found that way and all eighteen are found the right
+  way (a test now pins the tester's real mask). Tested in code, **not on a
+  device**; if buttons were working before, this changes no behaviour.
 
 ## Not checked yet
 
@@ -338,8 +351,13 @@ hold a release back.
   sticks themselves do reach the core (above).
 - **Game Boy Color colour games beyond the three above**, Super Game Boy borders,
   and Master System / Game Gear titles that need a particular region or mapper.
-- **Anything on the Miyoo A30.** That build is experimental and has never run on
-  hardware. See [TESTERS.md](https://github.com/boomchu-123/slot-flip/blob/experimental/TESTERS.md).
+- **Most of the Miyoo A30.** That build is still experimental. A tester has seen
+  the shelf and menus upright (exp-a30-v0.3.4) and every button arriving and being
+  named (exp-a30-v0.3.6), which is where the 16-byte input-event and capability
+  word-size fixes came from. **No game has been played on an A30**: exp-a30-v0.3.8
+  is the first build with cores, and whether each printed button label matches its
+  mapping, the speed, the sound and the shelf's black bar are all open. The screen
+  also sits a few pixels high, with no cause found in the code.
 
 ## Adding to this page
 
