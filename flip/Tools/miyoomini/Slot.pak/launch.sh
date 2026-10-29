@@ -45,6 +45,12 @@ if [ -f "$SLOT_ROOT/Config/audio" ]; then
 	[ -z "$SLOT_AUDIO" ] || export SLOT_AUDIO
 fi
 
+# Give mGBA the ROM's path and not its bytes, for a ROM of 8 MiB or more. It
+# copies what it is given into a memory map of its own, and the console has too
+# little memory for that on a large ROM (Pokemon Emerald, 16 MB, crashed it the
+# moment it loaded). Smaller ROMs load as before.
+export SLOT_LOAD_BY_PATH=mGBA
+
 # Seed the emulator cores into Slot/System, replacing a copy that differs so a
 # core fix in a new pak reaches an existing card. `cmp -s` is the test the Flip
 # pak uses for the same reason.

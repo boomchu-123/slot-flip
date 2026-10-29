@@ -606,12 +606,63 @@ unsafe fn text(p: *const c_char) -> String {
 /// (disc images, in practice) opens the files itself and may ignore `data`, so
 /// reading a multi-hundred-megabyte image into RAM for it is waste and can
 /// exhaust memory on a handheld. It still gets a missing file reported here.
+/// `need_fullpath` here also stands for a core a launcher asked to load by path.
 fn content_bytes(path: &Path, need_fullpath: bool) -> std::io::Result<Vec<u8>> {
     if need_fullpath {
         std::fs::metadata(path)?;
         return Ok(Vec::new());
     }
     std::fs::read(path)
+}
+
+/// Whether `name` (a core's library name) is listed in `SLOT_LOAD_BY_PATH`, a
+/// comma-separated list set by a launcher for cores that are better given a
+/// path than the file's bytes. A core that accepts data copies it, so on a
+/// console with little memory a large ROM costs twice over: slot's own copy for
+/// as long as the game runs, and the core's. mGBA's loader makes that copy with
+/// an anonymous map and writes to whatever the map returns, so when the map
+/// fails it crashes at once (a 16 MB ROM on the Mini Plus). Given a path it maps
+/// the file instead, which the kernel can drop and re-read.
+///
+/// Only for a ROM of `BY_PATH_FROM` bytes or more: a small one costs little to
+/// copy, and keeps loading the way it is known to.
+fn loads_by_path(name: &str, list: Option<&str>, rom_len: u64) -> bool {
+    rom_len >= BY_PATH_FROM
+        && list.is_some_and(|l| l.split(',').any(|n| n.trim().eq_ignore_ascii_case(name)))
+}
+
+const BY_PATH_FROM: u64 = 8 * 1024 * 1024;
+
+/// The memory figures worth having in a report, on one line, so a failure to
+/// allocate can be told apart from a bug: what is free, what the kernel will
+/// promise, and what this process holds.
+fn memory_note() -> String {
+    let read = |path: &str| std::fs::read_to_string(path).unwrap_or_default();
+    let pick = |text: &str, keys: &[&str]| -> Vec<String> {
+        text.lines()
+            .filter(|l| keys.iter().any(|k| l.starts_with(k)))
+            .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+            .collect()
+    };
+    let mut parts = pick(
+        &read("/proc/meminfo"),
+        &[
+            "MemTotal:",
+            "MemFree:",
+            "MemAvailable:",
+            "CommitLimit:",
+            "Committed_AS:",
+        ],
+    );
+    parts.extend(pick(
+        &read("/proc/self/status"),
+        &["VmPeak:", "VmSize:", "VmRSS:"],
+    ));
+    let mode = read("/proc/sys/vm/overcommit_memory");
+    if !mode.trim().is_empty() {
+        parts.push(format!("overcommit_memory {}", mode.trim()));
+    }
+    parts.join(", ")
 }
 
 fn cdir(path: &Path) -> Result<CString, CoreError> {
@@ -909,7 +960,20 @@ impl RetroCore for LibretroCore {
         self.state_size = None;
         let mut sys = SystemInfo::default();
         unsafe { (self.api.get_system_info)(&mut sys) };
-        self.rom = content_bytes(rom, sys.need_fullpath)?;
+        let name = unsafe { text(sys.library_name) };
+        let by_path = sys.need_fullpath
+            || loads_by_path(
+                &name,
+                std::env::var("SLOT_LOAD_BY_PATH").ok().as_deref(),
+                std::fs::metadata(rom).map_or(0, |m| m.len()),
+            );
+        eprintln!(
+            "slot: core {name}: loading {} ({}); {}",
+            rom.display(),
+            if by_path { "by path" } else { "from memory" },
+            memory_note()
+        );
+        self.rom = content_bytes(rom, by_path)?;
         self.rom_path = Some(
             CString::new(rom.as_os_str().as_encoded_bytes())
                 .map_err(|_| CoreError::Load("rom path contains a nul".into()))?,
@@ -1108,6 +1172,30 @@ impl RetroCore for LibretroCore {
 mod tests {
     use super::*;
     use std::cell::RefCell;
+
+    #[test]
+    fn a_core_is_loaded_by_path_only_when_the_launcher_lists_it() {
+        let big = BY_PATH_FROM;
+        assert!(!loads_by_path("mGBA", None, big));
+        assert!(!loads_by_path("mGBA", Some(""), big));
+        assert!(!loads_by_path("gpSP", Some("mGBA"), big));
+        assert!(loads_by_path("mGBA", Some("mGBA"), big));
+        assert!(loads_by_path("mGBA", Some("gpsp, MGBA"), big));
+        assert!(!loads_by_path("mGBA", Some("mGBA2"), big));
+    }
+
+    #[test]
+    fn a_small_rom_keeps_loading_from_memory() {
+        assert!(!loads_by_path("mGBA", Some("mGBA"), BY_PATH_FROM - 1));
+        assert!(!loads_by_path("mGBA", Some("mGBA"), 0));
+    }
+
+    #[test]
+    fn the_memory_note_is_one_line_and_never_panics() {
+        let note = memory_note();
+        assert!(!note.contains('\n'), "{note}");
+    }
+
     use std::collections::HashMap;
     use std::ffi::CStr;
 
