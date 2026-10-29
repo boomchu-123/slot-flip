@@ -22,6 +22,28 @@ fn main() {
     }
     slot::crash::install();
 
+    // The Mini Plus panel is mounted upside down. The launcher sets this, but a
+    // tester can end up with a new binary beside an old launcher, so the
+    // binary supplies the answer itself unless something already chose one.
+    // Nothing else is running yet, so changing the environment is safe.
+    #[cfg(feature = "miyoomini")]
+    if std::env::var_os("SLOT_FB_ROTATE").is_none() {
+        std::env::set_var("SLOT_FB_ROTATE", "180");
+    }
+
+    // First line of every log, so a report from a handheld can be matched to a
+    // build without guessing from the rest of the output. The Mini Plus test
+    // builds are why this exists: one report turned out to be the previous
+    // package, and nothing in the log said so.
+    let build = slot::build_info::Build::current();
+    eprintln!(
+        "slot: {} ({}) built {} for {}",
+        build.version,
+        build.hash,
+        build.date,
+        slot::build_info::DEVICE
+    );
+
     #[cfg(feature = "host")]
     host_app::run();
 

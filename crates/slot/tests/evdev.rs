@@ -63,11 +63,40 @@ fn a_short_read_decodes_to_nothing_rather_than_panicking() {
 
 #[test]
 fn a_capability_bitmask_is_indexed_from_the_last_word() {
-    assert!(has_bit("10 0", 68));
-    assert!(!has_bit("10 0", 4));
+    use slot_power::has_bit_in;
+    assert!(has_bit_in("10 0", 68, 64));
+    assert!(!has_bit_in("10 0", 4, 64));
     assert!(has_bit("8", 3));
     assert!(!has_bit("", 0));
     assert!(!has_bit("0 0 0", 300));
+}
+
+#[test]
+fn a_mask_is_read_in_the_words_the_kernel_printed() {
+    use slot_power::has_bit_in;
+    // A 32-bit kernel prints 32-bit words, and reading them as 64-bit words
+    // found the wrong bit. Bit 0x74 (116): word 3 from the end on a 32-bit kernel, word 1 on a 64-bit one.
+    assert!(has_bit_in("100000 0 0 0", 116, 32));
+    assert!(!has_bit_in("100000 0 0 0", 116, 64));
+    assert!(has_bit_in("10000000000000 0", 116, 64));
+    // Bit 0x130 (304): word 9 from the end on a 32-bit kernel, word 4 on a 64-bit one.
+    assert!(has_bit_in("10000 0 0 0 0 0 0 0 0 0", 304, 32));
+    assert!(has_bit_in("1000000000000 0 0 0 0", 304, 64));
+    assert!(!has_bit_in("1000000000000 0 0 0 0", 304, 32));
+    // The Mini Plus's own button node, as its kernel printed it in the tester's
+    // log: every key slot wants is in it. Read as 64-bit words only seven of the
+    // eighteen are found, which is how it worked by luck until now.
+    let mask = "1c1682 0 3000400 3014c002";
+    let wanted = [
+        103, 108, 105, 106, 57, 29, 42, 56, 18, 20, 15, 14, 28, 97, 1, 115, 114, 116,
+    ];
+    assert!(wanted.iter().all(|b| has_bit_in(mask, *b, 32)));
+    assert_eq!(
+        wanted.iter().filter(|b| has_bit_in(mask, **b, 64)).count(),
+        7
+    );
+    // This build reads them in its own word size, which is the kernel's.
+    assert_eq!(has_bit("8", 3), has_bit_in("8", 3, usize::BITS as u16));
 }
 
 fn write(path: &Path, body: &str) {
@@ -397,20 +426,6 @@ fn only_the_skus_nextui_lists_with_a_left_stick_have_one() {
     for t in ["rgsp", "rg35xxsp", "rg35xxplus", "rg34xx", "rg28xx", ""] {
         assert!(!has_left_stick(t), "{t}");
     }
-}
-
-#[test]
-fn a_mask_is_read_in_the_words_the_kernel_printed() {
-    use slot_power::has_bit_in;
-    // A 32-bit kernel prints 32-bit words, and reading them as 64-bit words
-    // found the wrong bit. Bit 0x74 (116): word 3 from the end on a 32-bit kernel, word 1 on a 64-bit one.
-    assert!(has_bit_in("100000 0 0 0", 116, 32));
-    assert!(!has_bit_in("100000 0 0 0", 116, 64));
-    assert!(has_bit_in("10000000000000 0", 116, 64));
-    // Bit 0x130 (304): word 9 from the end on a 32-bit kernel, word 4 on a 64-bit one.
-    assert!(has_bit_in("10000 0 0 0 0 0 0 0 0 0", 304, 32));
-    assert!(has_bit_in("1000000000000 0 0 0 0", 304, 64));
-    assert!(!has_bit_in("1000000000000 0 0 0 0", 304, 32));
 }
 
 #[test]

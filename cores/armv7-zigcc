@@ -1,0 +1,40 @@
+#!/bin/sh
+# A C and C++ compiler for 32-bit ARM (armhf, Cortex-A7 with NEON) that links
+# against glibc 2.17, so one build runs on the Miyoo Mini Plus and the A30
+# (glibc 2.23). Point a core's build at it with
+#
+#   SLOT_CORE_PLATFORM=armv7 SLOT_ARMV7_CC=cores/armv7-zigcc cores/<core>/build.sh ...
+#
+# Needs Zig (0.13.0 was used; set ZIG if it is not on PATH) and python3.
+#
+# Two things Zig 0.13 gets wrong for this target are corrected here:
+#
+#  - Its linker driver rejects the single-dash -no-undefined that some core
+#    makefiles pass through -Wl, so it is spelled the GNU way.
+#  - A plain stat() in a library built for glibc 2.17 fails on the consoles' newer
+#    glibc (returns -1 where the file exists), which made FCEUmm refuse every
+#    game. Building with 64-bit file offsets makes the calls go to the 64-bit
+#    forms, which work.
+shared=0
+out=""
+want_out=0
+for a; do
+	shift
+	[ "$a" = "-Wl,-no-undefined" ] && a="-Wl,--no-undefined"
+	[ "$a" = "-shared" ] && shared=1
+	[ "$want_out" = 1 ] && out="$a"
+	want_out=0
+	[ "$a" = "-o" ] && want_out=1
+	set -- "$@" "$a"
+done
+case "$0" in
+*c++ | *++) mode=c++ ;;
+*) mode=cc ;;
+esac
+"${ZIG:-zig}" "$mode" -target arm-linux-gnueabihf.2.17 -mcpu=cortex_a7 -D_FILE_OFFSET_BITS=64 "$@" || exit $?
+
+# Zig leaves a hard-float library without the attribute glibc's loader checks
+# for, and dlopen then refuses it; see armv7-fix-vfp-attr.py.
+if [ "$shared" = 1 ] && [ -n "$out" ] && [ -f "$out" ]; then
+	"${PYTHON:-python3}" "$(dirname "$0")/armv7-fix-vfp-attr.py" "$out" 2>&1 | grep -v "already has it" >&2 || true
+fi

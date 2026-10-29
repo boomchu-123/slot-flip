@@ -1,37 +1,26 @@
 use std::path::PathBuf;
-#[cfg(not(feature = "miyoomini"))]
 use std::time::{Duration, Instant};
 
-use slot::input::DeviceInput;
-#[cfg(not(feature = "miyoomini"))]
 use slot::frontend::Frontend;
-#[cfg(not(feature = "miyoomini"))]
+use slot::input::DeviceInput;
 use slot::panel_turn::{panel_turn, PanelTurn};
-#[cfg(not(any(feature = "flip", feature = "miyoomini")))]
+#[cfg(not(feature = "flip"))]
 use slot_gfx::FbdevSurface;
 #[cfg(feature = "flip")]
 use slot_gfx::SdlSurface;
-#[cfg(not(feature = "miyoomini"))]
 use slot_gfx::{Compositor, Surface};
-#[cfg(not(feature = "miyoomini"))]
 use slot_power::{trace_first_frame, DevicePlatform};
 
 const CARD: &str = "/mnt/sdcard";
 
-#[cfg(not(feature = "miyoomini"))]
 const MIN_FRAME: Duration = Duration::from_millis(12);
 
-#[cfg(not(feature = "miyoomini"))]
 const STEP_TIMEOUT: Duration = Duration::from_millis(12);
 
-#[cfg(not(feature = "miyoomini"))]
-#[cfg(not(feature = "miyoomini"))]
 const MARGIN: Duration = Duration::from_micros(1500);
 
-#[cfg(not(feature = "miyoomini"))]
 const LOG_SYNC: Duration = Duration::from_secs(1);
 
-#[cfg(not(feature = "miyoomini"))]
 struct Pacer {
     last_return: Option<Instant>,
     period: Duration,
@@ -40,10 +29,8 @@ struct Pacer {
     next: usize,
 }
 
-#[cfg(not(feature = "miyoomini"))]
 const WORK_WINDOW: usize = 32;
 
-#[cfg(not(feature = "miyoomini"))]
 impl Pacer {
     fn new() -> Self {
         Pacer {
@@ -88,47 +75,12 @@ pub fn run() {
     let _ = std::thread::Builder::new()
         .name("slot-fonts".into())
         .spawn(slot_ui::warm_fonts);
-    // Opened on its own thread so it overlaps the display setup. The Mini Plus
-    // build exits before it would ever need audio.
-    #[cfg(not(feature = "miyoomini"))]
     let audio = std::thread::Builder::new()
         .name("slot-audio-open".into())
         .spawn(slot::audio::opened_sink);
     let root = std::env::var_os("SLOT_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(CARD));
-    #[cfg(feature = "miyoomini")]
-    run_miyoomini(&root);
-    #[cfg(not(feature = "miyoomini"))]
-    run_gles(root, audio);
-}
-
-// The Miyoo Mini Plus has no GPU, so the GLES renderer cannot run. Probe its
-// framebuffer, report what it looks like, then exit cleanly — the software
-// compositor this target needs is not written yet. This leaves testers a useful
-// slot.log instead of a silent crash. See TESTERS.md.
-#[cfg(feature = "miyoomini")]
-fn run_miyoomini(root: &std::path::Path) {
-    eprintln!("slot: EXPERIMENTAL miyoomini build — software renderer not yet implemented");
-    // Confirm the input map loads and devices enumerate, so the log shows the
-    // buttons were found even though nothing is drawn yet.
-    slot::input::keymap::load(root);
-    let _ = DeviceInput::open(root);
-    match slot_gfx::probe_fb() {
-        Ok(info) => eprintln!("slot: {}", info.report()),
-        Err(e) => eprintln!("slot: framebuffer probe failed: {e}"),
-    }
-    eprintln!(
-        "slot: input map and hardware probing are wired up, but drawing to the \
-         framebuffer is still TODO. Please share this slot.log on the GitHub thread."
-    );
-}
-
-#[cfg(not(feature = "miyoomini"))]
-fn run_gles(
-    root: PathBuf,
-    audio: std::io::Result<std::thread::JoinHandle<Box<dyn slot::audio::AudioSink>>>,
-) {
     #[cfg(not(feature = "flip"))]
     let surface_result = FbdevSurface::new();
     #[cfg(feature = "flip")]
@@ -211,7 +163,7 @@ fn run_gles(
     frontend.drive_emulator();
     let mut pacer = Pacer::new();
     let (mut frames, mut missed, mut early) = (0u32, 0u32, 0u32);
-    #[cfg(feature = "flip")]
+    #[cfg(any(feature = "flip", feature = "miyoomini"))]
     let mut heartbeat = (Instant::now(), 0u64, frontend.frames_published());
     loop {
         pacer.wait();
@@ -258,20 +210,23 @@ fn run_gles(
                 (frames, missed, early) = (0, 0, 0);
             }
         }
-        // Flip heartbeat: every ~2s report how many main-loop iterations ran
-        // versus how many emulator frames the core published. Only under trace.
-        #[cfg(feature = "flip")]
+        // Heartbeat: every ~2s report how many main-loop iterations ran versus
+        // how many emulator frames the core published. Only under trace. The
+        // Mini Plus has it too, because "the game feels slow" there needs a
+        // frame count to settle, not an impression.
+        #[cfg(any(feature = "flip", feature = "miyoomini"))]
         if slot::latency::tracing() {
             heartbeat.1 += 1;
             if heartbeat.0.elapsed() >= Duration::from_secs(2) {
                 let published = frontend.frames_published();
                 eprintln!(
-                    "slot: heartbeat: {} loops, {} emu frames in {:?} (settling {}, period {:.2} ms)",
+                    "slot: heartbeat: {} loops, {} emu frames in {:?} (settling {}, period {:.2} ms); {}",
                     heartbeat.1,
                     published.saturating_sub(heartbeat.2),
                     heartbeat.0.elapsed(),
                     frontend.core_settling(),
                     pacer.period.as_secs_f64() * 1e3,
+                    slot_retro::memory_brief(),
                 );
                 heartbeat = (Instant::now(), 0, published);
                 // Only worth a line while sticks are the game's: how often the core
@@ -295,7 +250,6 @@ fn run_gles(
     }
 }
 
-#[cfg(not(feature = "miyoomini"))]
 fn sync_log_writes() {
     let mut synced = 0;
     loop {

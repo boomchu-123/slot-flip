@@ -16,6 +16,14 @@ fn fnv(b: &[u8]) -> u64 {
     })
 }
 
+/// The probes in the tests below name columns of the 720 px design sheet, which
+/// is all a GL canvas shows. The software canvas is 640 and shows the centre
+/// crop; its opening is checked against the cart slot's and for centring above,
+/// which is what a different width actually has to get right.
+fn design_sheet_only() -> bool {
+    SLOT_W == 720
+}
+
 #[test]
 fn every_strip_is_the_size_of_the_cart_slots() {
     for console in Console::ALL {
@@ -143,6 +151,9 @@ fn only_gba_keeps_the_slot_traced_from_upstream() {
 
 #[test]
 fn the_playstation_is_exactly_what_it_was_before_the_other_consoles_existed() {
+    if !design_sheet_only() {
+        return;
+    }
     // Hashes of the strips as drawn by the PlayStation-only code in v0.9.0.
     let golden: [(bool, u64, u64, u64); 2] = [
         (
@@ -168,6 +179,9 @@ fn the_playstation_is_exactly_what_it_was_before_the_other_consoles_existed() {
 
 #[test]
 fn the_playstation_is_grey_plastic_with_a_green_power_light() {
+    if !design_sheet_only() {
+        return;
+    }
     let f = console_slot(Console::Ps1, false).front;
     let [r, g, b] = rgb(&f, 60, 30);
     assert!(r.abs_diff(g) < 12 && g.abs_diff(b) < 12, "{r},{g},{b}");
@@ -178,6 +192,9 @@ fn the_playstation_is_grey_plastic_with_a_green_power_light() {
 
 #[test]
 fn the_nes_has_a_red_light_and_a_dark_stripe_along_its_front() {
+    if !design_sheet_only() {
+        return;
+    }
     let f = console_slot(Console::Nes, false).front;
     let [r, g, b] = rgb(&f, 138, 27);
     assert!(
@@ -225,6 +242,9 @@ fn the_game_boy_color_is_purple_plastic_and_the_game_boy_is_grey() {
 
 #[test]
 fn the_playstation_opening_curves_and_the_others_are_flat_floored() {
+    if !design_sheet_only() {
+        return;
+    }
     // Near the wall the PlayStation's half ellipse has barely any depth; the flat
     // floors are already close to full, and the Super Nintendo's corner is rounder
     // than the NES's.
@@ -243,6 +263,9 @@ fn the_playstation_opening_curves_and_the_others_are_flat_floored() {
 
 #[test]
 fn the_sega_consoles_are_black_plastic_each_with_its_own_dressing() {
+    if !design_sheet_only() {
+        return;
+    }
     let sum = |c: [u8; 3]| c.iter().map(|&v| v as u32).sum::<u32>();
     for console in [Console::MegaDrive, Console::MasterSystem, Console::GameGear] {
         let f = console_slot(console, false).front;
@@ -285,6 +308,24 @@ fn the_sega_consoles_are_black_plastic_each_with_its_own_dressing() {
         assert!(
             (r > g + 40 && r > b + 40) || (r2 > g2 + 40 && r2 > b2 + 40),
             "no red light: {r},{g},{b} / {r2},{g2},{b2}"
+        );
+    }
+}
+
+#[test]
+fn the_opening_is_centred_on_the_panel() {
+    // A 720 px design on a 640 px panel has to be centre-cropped, or the
+    // opening sits about 40 px right of the middle and the cart, which is
+    // centred the usual way, looks shifted left inside it.
+    for console in Console::ALL {
+        let cols: Vec<u32> = (0..SLOT_W)
+            .filter(|&x| console_opening_depth(console, x) > 2.0)
+            .collect();
+        let mid = (*cols.first().unwrap() + *cols.last().unwrap()) as f32 / 2.0;
+        let centre = SLOT_W as f32 / 2.0;
+        assert!(
+            (mid - centre).abs() <= 2.0,
+            "{console:?}: opening centred at {mid} on a {SLOT_W} px panel"
         );
     }
 }

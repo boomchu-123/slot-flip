@@ -103,6 +103,8 @@ struct BezelSync {
 #[derive(Default)]
 struct WallpaperSync {
     tex: Option<TexId>,
+    /// The same image with the menu scrim baked in, for `draw_menu_ground`.
+    scrim: Option<TexId>,
     image: Option<(String, (u32, u32))>,
     label: String,
     dim: Option<TexId>,
@@ -380,6 +382,9 @@ impl Frontend {
         if let Some(rgba) = slot_ui::blur_background() {
             let id = compositor.create_texture(OUT_W, OUT_H, rgba);
             self.session.app_mut().set_blur(id);
+            let scrim = slot_ui::menu_ground_face(rgba);
+            let id = compositor.create_texture(OUT_W, OUT_H, &scrim);
+            self.session.app_mut().set_menu_blur(id);
         }
     }
 
@@ -1423,6 +1428,19 @@ fn sync_wallpaper(app: &mut App, compositor: &mut Compositor, state: &mut Wallpa
                     }
                 };
                 app.set_wallpaper(id);
+                let scrim = slot_ui::menu_ground_face(&rgba);
+                let dim = match state.scrim {
+                    Some(id) => {
+                        compositor.update_texture(id, w, h, &scrim);
+                        id
+                    }
+                    None => {
+                        let id = compositor.create_texture(w, h, &scrim);
+                        state.scrim = Some(id);
+                        id
+                    }
+                };
+                app.set_menu_wallpaper(dim);
             }
         }
     }

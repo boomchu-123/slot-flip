@@ -153,13 +153,17 @@ buttons, power, backlight and cores.
   GBA holds 57 to 58 of 59.7 frames a second, mGBA on GB and GBC about 60, mGBA on
   GBA about 49. MinUI leaves the CPU at its 504 MHz menu speed when a Tool starts;
   asking for 1296 MHz fixed it
-- 🚧 **Sound.** Games are silent. ALSA is out (exp-v0.4.2's log: no process holds
-  `/dev/snd`, the card is `MI Alsa`). exp-v0.4.4 reached the console's own audio
-  interface (`MI_AO`, the way MinUI plays sound): the library loads and answers,
-  and `Enable` was refused as "not configured" because slot had not set the device
-  up itself. exp-v0.4.5 sets it up the way MinUI's driver does. It has run against
-  a stand-in that reproduces that refusal, **not on a device**. This is the one
-  hard unknown left
+- ✅ **Sound** (exp-v0.4.10, confirmed by a tester by ear on every core). It plays
+  through `/dev/dsp`, which the console's `libpadsp` hands to the audio server;
+  the vendor interface (`MI_AO`) stays refused while that server runs. Possible
+  slight slowdown in gpSP, not measured. Delay, headphones and long play not
+  checked
+- 🟡 **Large GBA games with a clock chip on mGBA** (Pokemon Emerald): the crash at
+  load is fixed by loading ROMs of 8 MiB and up by path (exp-v0.4.11, confirmed).
+  It still crashes a moment later, when mGBA asks for a 32 MB map of its own with
+  about 30 MB available. gpSP plays it, so this is a known limit rather than a
+  release blocker. Slot's own memory (62 MB resident at the time) is being measured
+  because the PS1 core will need the room
 - 📋 **Install on the Mini Plus's own launcher.** Today it is a MinUI Tool
   (`Tools/miyoomini/Slot.pak`). 1.0 needs the same shape as the Flip: one zip at
   the card root, an entry in the launcher the device ships with, and no MinUI.

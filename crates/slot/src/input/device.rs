@@ -7,6 +7,8 @@ use std::time::Instant;
 
 use slot_input::{Btn, InputSource, Millis, RawEvent};
 
+#[cfg(feature = "miyoomini")]
+use super::evdev::code_to_btn;
 use super::evdev::{
     decode, device_name, pick_devices, to_raw, Ev, Hat, EVENT_BYTES, EV_ABS, EV_KEY, EV_SYN,
 };
@@ -41,6 +43,14 @@ impl DeviceInput {
     fn open_traced(dev: &Path, sys: &Path, trace: Option<Arc<Trace>>) -> Self {
         let pending: Arc<Mutex<Vec<RawEvent>>> = Arc::new(Mutex::new(Vec::new()));
         let stick = Arc::new(AtomicBool::new(false));
+        // The Mini Plus reports every button on one node, but its power key and
+        // battery may live on another. One line per node, always in the log,
+        // says what is there and what was picked; on that handheld the answer
+        // was not visible anywhere else.
+        #[cfg(feature = "miyoomini")]
+        for line in trace::survey(dev, sys) {
+            eprintln!("slot: input {line}");
+        }
         for node in pick_devices(dev, sys) {
             eprintln!(
                 "slot: input {} ({})",
@@ -152,6 +162,20 @@ fn read_node(
         for ev in buf[..read].chunks_exact(EVENT_BYTES).filter_map(decode) {
             if let Some(trace) = trace {
                 trace.event(&label, ev);
+            }
+            // Experimental Mini Plus builds have no proven button table yet:
+            // every key's raw code and what it mapped to goes in the log, so a
+            // tester's report identifies each physical button instead of us
+            // guessing from actions that happened to do something.
+            #[cfg(feature = "miyoomini")]
+            if ev.kind == EV_KEY {
+                eprintln!(
+                    "slot: key {label} code={} value={} -> {}",
+                    ev.code,
+                    ev.value,
+                    code_to_btn(ev.code)
+                        .map_or_else(|| "unmapped".to_string(), |b| format!("{b:?}"))
+                );
             }
             if (ev.kind == EV_KEY && ev.value == 1) || (ev.kind == EV_ABS && ev.value != 0) {
                 crate::latency::read();

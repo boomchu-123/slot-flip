@@ -20,7 +20,13 @@ use slot_store::Platform;
 use crate::bitmaps::{SLOT_H, SLOT_W};
 use crate::text;
 
-const W: u32 = SLOT_W;
+/// The width the console art is drawn at: the 720 px design canvas, the same
+/// one the pre-drawn GBA strips are authored on. A narrower panel shows the
+/// middle of it (see `fit`), exactly as `bitmaps::load` crops a 720 px template
+/// to a 640 px panel. Drawing straight at the panel width instead left every
+/// console's opening about 40 px off centre on the software canvas, so the
+/// centred cart looked shifted left inside it.
+const W: u32 = 720;
 const H: u32 = SLOT_H;
 
 /// The opening, matched to the cart slot's: 254 wide about the centre, 44 deep.
@@ -773,14 +779,27 @@ pub fn console_slot(console: Console, light: bool) -> ConsoleStrips {
     }
 
     ConsoleStrips {
-        back: back(&p, st.inside).rgba,
-        front: front.rgba,
-        plugged: plugged.rgba,
+        back: fit(back(&p, st.inside).rgba),
+        front: fit(front.rgba),
+        plugged: fit(plugged.rgba),
     }
 }
 
-/// How deep the opening is cut at this column of the strip, for tests and callers
-/// that line something up with it.
+/// The middle of the 720 px design that a panel shows. At 720 this is the whole
+/// strip; at 640 it is the centre crop, which keeps the opening on the panel's
+/// centre line and the decorations where the design put them relative to it.
+fn fit(strip: Vec<u8>) -> Vec<u8> {
+    if W == SLOT_W {
+        strip
+    } else {
+        crate::bitmaps::crop_centre(&strip, W, H, SLOT_W)
+    }
+}
+
+/// How deep the opening is cut at this column of the panel, for tests and
+/// callers that line something up with it. `x` is a panel column, so it is
+/// shifted onto the design sheet the art is actually drawn on.
 pub fn opening_depth(console: Console, x: u32) -> f32 {
-    open_depth(style(console).opening, x)
+    let design = x + W.saturating_sub(SLOT_W) / 2;
+    open_depth(style(console).opening, design)
 }

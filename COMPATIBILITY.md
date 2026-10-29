@@ -133,11 +133,24 @@ All three on Genesis Plus GX.
   **Accepted as a known issue for 1.0:** it is not one of the release checks, and
   the workaround is the default (Analog Sticks off).
 
-- **The Mini Plus has no sound yet.** ALSA reports the device busy, and no process
-  has it open, so the vendor's own audio interface is what has to be used instead.
-  exp-v0.4.4 reached that interface and was refused at the last step (below);
-  exp-v0.4.5 is the next attempt and is unconfirmed. See
-  [Miyoo Mini Plus](#miyoo-mini-plus-miyoomini).
+- **The Mini Plus cannot run large GBA games with a clock chip on mGBA.** Pokemon
+  Emerald (16 MB) closes slot on mGBA, and gpSP plays the same game. Two steps, as
+  the reports showed them:
+  - exp-v0.4.10 crashed as the game loaded: mGBA copies what it is given into a
+    memory map of its own, and the map failed. exp-v0.4.11 gives mGBA the file's
+    path instead for ROMs of 8 MiB and up, and the crash at load **is gone**
+    (confirmed by the next report).
+  - It then crashes a moment later, in mGBA's `_pristineCow`. For a cartridge with
+    GPIO hardware (Emerald's clock), mGBA makes a private copy of the ROM in a
+    32 MB map and does not check that the map succeeded. The log at that point
+    shows 103 MB total, about 30 MB available and slot holding 62 MB, so the map
+    most likely fails for lack of memory. That is a reading of the kernel's
+    behaviour, **not a measurement**, and the cartridge having GPIO is likewise
+    inferred, not checked.
+  - **Accepted as a known limit for now.** GBA defaults to gpSP, which plays it,
+    and mGBA's own job on this console is GB and GBC, which are small. How much
+    of slot's 62 MB is its own is being measured (the heartbeat lines now carry
+    it); it also decides how much room the PS1 core will have.
 
 ## Checked on the device, beyond booting
 
@@ -243,7 +256,7 @@ assumed either way.
 
 **Checked on:** slot-flip exp-v0.4.0, exp-v0.4.2, exp-v0.4.3 and exp-v0.4.4 (the lines
 below say which), a Mini Plus, October 2026, installed as a MinUI Tool
-(`Tools/miyoomini/Slot.pak`). exp-v0.4.5 has not been reported on yet.
+(`Tools/miyoomini/Slot.pak`). Sound was reported on exp-v0.4.10 (below).
 
 - **Display:** upright with no setting to change, and the shelf and menu draw.
 - **Buttons:** every button registers, and the whole map was confirmed from the
@@ -280,20 +293,17 @@ below say which), a Mini Plus, October 2026, installed as a MinUI Tool
   follows the panel and adopts the nearest level; that is tested against a fake
   panel and **not yet confirmed on a device**.
 
+- **Sound (exp-v0.4.10):** works, on every core the tester tried: "it sounds good to
+  me in all cores", with a possible little audio slowdown in gpSP that may just be
+  the emulator running slow. It plays through `/dev/dsp`, which the console's
+  `libpadsp` hands to the audio server, the way the launcher's own sound goes. The
+  vendor interface (`MI_AO`) is refused for as long as that server runs, which is
+  every earlier build's silence. exp-v0.4.8 crashed because the shim calls an
+  unfilled pointer when `/dev/dsp` is the first file a program opens. Not judged:
+  how late the sound is, headphones, and long play.
+
 **Not checked, or known not to work:**
 
-- **Sound.** Games are silent in every build the tester has run. exp-v0.4.2's log
-  says **no process holds `/dev/snd`** and the only card is `MI Alsa`, so ALSA will
-  not open it. exp-v0.4.4 went through the console's own audio library, the one
-  MinUI uses, and the log shows how far it got: the library loaded from
-  `/config/lib`, `GetPubAttr` answered with a working setup (48 kHz, stereo, 768-point
-  chunks), and then `MI_AO_Enable` was refused with `0xa0052007` on every attempt.
-  The library's own error table makes the low byte 7 "not configured": the setup
-  belonged to another program, exp-v0.4.4 had chosen not to repeat it, and a device
-  this process has not configured will not enable. exp-v0.4.5 always sets the
-  attributes itself, as MinUI's driver does. That reading comes from one log and a
-  stand-in library that behaves the same way; it has **not** run on a console, so
-  whether it makes any sound is not known.
 - **Every system other than GBA, GB and GBC.** The other six systems' carts, cores
   and slots are unproven on this device.
 - **Installing without MinUI.** The port is still a MinUI Tool. Nothing has been
@@ -312,7 +322,7 @@ hold a release back.
   briefly rather than through.
 - **Sound.** Screenshots cannot hear. The stream was confirmed running at 48 kHz
   with the speaker path set on the Flip (see above), but no title on either device
-  has been listened to and judged. The Mini Plus has no sound at all yet.
+  has been listened to and judged. The Mini Plus has sound (exp-v0.4.10, by ear, one tester) but its delay has not been measured.
 - **Speed in heavy scenes.** Frame rate was not measured per game. On the Flip,
   Tekken 3 is the one PlayStation game timed (60 fps, above); Gran Turismo 2 is
   not, and no NES, SNES or Sega title has been timed.

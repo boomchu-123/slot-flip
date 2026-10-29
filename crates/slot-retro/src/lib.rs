@@ -18,7 +18,8 @@ pub use ffi::{
     NETPACKET_UNSEQUENCED,
 };
 pub use libretro::{
-    analog_stats, LibretroCore, SystemInformation, SWAP_CLOSE_FRAME, SWAP_SWITCH_FRAME,
+    analog_stats, memory_brief, memory_note, LibretroCore, SystemInformation, SWAP_CLOSE_FRAME,
+    SWAP_SWITCH_FRAME,
 };
 pub use link::{Link, LinkChannel, LoopbackLink};
 pub use mock::MockCore;

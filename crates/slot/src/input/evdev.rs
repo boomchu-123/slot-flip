@@ -302,13 +302,11 @@ const WANTED: [u16; 18] = [
     103, 108, 105, 106, 57, 29, 42, 56, 18, 20, 15, 14, 97, 28, 1, 115, 114, 116,
 ];
 
-// The Miyoo Mini Plus (miyoomini) routes its buttons through the gpio keyboard
-// node as standard Linux key codes. Codes taken from MinUI's own
-// workspace/miyoomini/platform/platform.h. Unlike the Flip, the Mini Plus has
-// working L1/R1/L2/R2 and no analogue stick or lid, so fast-forward stays on R2
-// and there is no stick/hall handling. The face-button codes happen to match
-// the Flip's remapped values, so A/B/X/Y already line up with the printed
-// labels. EXPERIMENTAL: unverified on hardware — see TESTERS.md.
+// The Miyoo Mini Plus (miyoomini) has all of its buttons on one gpio key node,
+// in the same key-code language as the Flip's gpio node but with the two
+// shoulders and two triggers in their own places, and no stick or right
+// shoulder this fork has to work around. Codes measured on the handheld; see
+// `notes/hardware.md` of the port this table was checked against.
 #[cfg(feature = "miyoomini")]
 pub fn code_to_btn(code: u16) -> Option<Btn> {
     Some(match code {
@@ -324,8 +322,8 @@ pub fn code_to_btn(code: u16) -> Option<Btn> {
         20 => Btn::R1,     // KEY_T
         15 => Btn::L2,     // KEY_TAB
         14 => Btn::R2,     // KEY_BACKSPACE
-        97 => Btn::Select, // KEY_RIGHTCTRL
         28 => Btn::Start,  // KEY_ENTER
+        97 => Btn::Select, // KEY_RIGHTCTRL
         1 => Btn::Menu,    // KEY_ESC
         115 => Btn::VolUp,
         114 => Btn::VolDown,
@@ -336,7 +334,7 @@ pub fn code_to_btn(code: u16) -> Option<Btn> {
 
 #[cfg(feature = "miyoomini")]
 const WANTED: [u16; 18] = [
-    103, 108, 105, 106, 57, 29, 42, 56, 18, 20, 15, 14, 97, 28, 1, 115, 114, 116,
+    103, 108, 105, 106, 57, 29, 42, 56, 18, 20, 15, 14, 28, 97, 1, 115, 114, 116,
 ];
 
 // The Miyoo Flip (my355) routes every working button through the gpio

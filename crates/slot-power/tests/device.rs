@@ -327,7 +327,11 @@ fn a_mono_led_is_on_except_when_the_battery_is_low() {
 #[test]
 fn the_flip_pair_shows_red_when_low_and_both_when_charging() {
     let d = sysfs("255", "87");
-    leds(&d, "work", &[("brightness", "0"), ("max_brightness", "255")]);
+    leds(
+        &d,
+        "work",
+        &[("brightness", "0"), ("max_brightness", "255")],
+    );
     leds(
         &d,
         "charger",
@@ -549,4 +553,136 @@ fn the_repair_result_is_read_once() {
         assert_eq!(slot_power::take_repair_result(&file), Some(want), "{text}");
         assert!(!file.exists(), "{text} was left to be shown again");
     }
+}
+
+/// The Mini Plus has no class backlight: its panel light is a raw PWM channel.
+fn pwm_sysfs(period: Option<&str>) -> TempDir {
+    let d = tempfile::tempdir().unwrap();
+    let pwm = d.path().join("class/pwm/pwmchip0/pwm0");
+    fs::create_dir_all(&pwm).unwrap();
+    fs::write(pwm.join("duty_cycle"), "100\n").unwrap();
+    fs::write(pwm.join("enable"), "1\n").unwrap();
+    if let Some(period) = period {
+        fs::write(pwm.join("period"), period).unwrap();
+    }
+    d
+}
+
+fn pwm_file(d: &TempDir, name: &str) -> String {
+    fs::read_to_string(d.path().join("class/pwm/pwmchip0/pwm0").join(name)).unwrap()
+}
+
+#[test]
+fn a_raw_pwm_channel_is_treated_as_the_backlight() {
+    let d = pwm_sysfs(Some("100\n"));
+    let mut p = platform(&d);
+    p.set_backlight(9);
+    assert_eq!(pwm_file(&d, "duty_cycle").trim(), "100");
+    p.set_backlight(1);
+    let dim = pwm_file(&d, "duty_cycle").trim().parse::<u32>().unwrap();
+    assert!(dim > 0 && dim < 100, "step 1 wrote {dim} of 100");
+    p.set_backlight(0);
+    assert_eq!(pwm_file(&d, "duty_cycle").trim(), "0");
+}
+
+#[test]
+fn a_pwm_channel_with_no_period_gets_the_vendor_value() {
+    let d = pwm_sysfs(None);
+    let mut p = platform(&d);
+    assert_eq!(pwm_file(&d, "period").trim(), "800");
+    p.set_backlight(9);
+    assert_eq!(pwm_file(&d, "duty_cycle").trim(), "100");
+}
+
+/// A Mini Plus reports a period of 800, but its panel is at full brightness by
+/// a duty of 100 (MinUI's whole range is 6 to 100). Scaling across the period
+/// made every step above the third look the same on the device.
+#[test]
+fn a_long_pwm_period_does_not_stretch_the_brightness_steps_past_what_the_panel_shows() {
+    let d = pwm_sysfs(Some("800\n"));
+    let mut p = platform(&d);
+    let mut seen = Vec::new();
+    for step in 1..=9u8 {
+        p.set_backlight(step);
+        seen.push(pwm_file(&d, "duty_cycle").trim().parse::<u32>().unwrap());
+    }
+    assert_eq!(seen[0], 6, "the dimmest step is MinUI's own: {seen:?}");
+    assert_eq!(seen[8], 100, "the top step is full brightness: {seen:?}");
+    assert!(
+        seen.windows(2).all(|w| w[0] < w[1]),
+        "every step is brighter than the one before: {seen:?}"
+    );
+    assert!(
+        seen[2] < 60,
+        "step 3 is dim enough to leave room above it: {seen:?}"
+    );
+    assert!(
+        platform(&d).report().contains("backlight pwm0 (0 to 100)"),
+        "{}",
+        platform(&d).report()
+    );
+}
+
+#[test]
+fn the_report_names_the_pwm_channel_it_found() {
+    let d = pwm_sysfs(Some("100\n"));
+    assert!(
+        platform(&d).report().contains("backlight pwm0 (0 to 100)"),
+        "{}",
+        platform(&d).report()
+    );
+}
+
+/// MinUI's Menu + volume control writes the duty directly. The app has to be able
+/// to see that, or its setting shows one level while the panel is at another.
+#[test]
+fn a_brightness_change_made_by_another_program_is_seen_and_mapped_to_a_step() {
+    let d = pwm_sysfs(Some("800\n"));
+    let mut p = platform(&d);
+    assert_eq!(p.backlight_moved_elsewhere(), None, "nothing written yet");
+    p.set_backlight(7);
+    assert_eq!(
+        p.backlight_moved_elsewhere(),
+        None,
+        "its own write is not news"
+    );
+    // Another program moves the panel to the duty this program calls step 3.
+    p.set_backlight(3);
+    let three = pwm_file(&d, "duty_cycle").trim().to_string();
+    p.set_backlight(7);
+    fs::write(d.path().join("class/pwm/pwmchip0/pwm0/duty_cycle"), &three).unwrap();
+    assert_eq!(p.backlight_moved_elsewhere(), Some(3));
+    assert_eq!(
+        p.backlight_moved_elsewhere(),
+        None,
+        "it is reported once, then it is the new normal"
+    );
+}
+
+#[test]
+fn every_step_comes_back_as_itself_and_a_duty_between_two_comes_back_as_the_nearer() {
+    let d = pwm_sysfs(Some("800\n"));
+    let mut p = platform(&d);
+    p.set_backlight(5);
+    for step in 1..=9u8 {
+        p.set_backlight(step);
+        let duty = pwm_file(&d, "duty_cycle").trim().to_string();
+        p.set_backlight(5);
+        fs::write(d.path().join("class/pwm/pwmchip0/pwm0/duty_cycle"), &duty).unwrap();
+        let want = if step == 5 { None } else { Some(step) };
+        assert_eq!(
+            p.backlight_moved_elsewhere(),
+            want,
+            "step {step} duty {duty}"
+        );
+    }
+}
+
+#[test]
+fn the_lids_own_darkness_is_not_another_programs_change() {
+    let d = pwm_sysfs(Some("800\n"));
+    let mut p = platform(&d);
+    p.set_backlight(6);
+    p.set_backlight(0);
+    assert_eq!(p.backlight_moved_elsewhere(), None);
 }

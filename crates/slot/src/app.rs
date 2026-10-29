@@ -81,6 +81,9 @@ const MENU_REVEAL_MS: Millis = 180;
 
 const CHARGE_POLL_MS: Millis = 1_000;
 const HEADPHONES_POLL_MS: Millis = 500;
+/// How often to look for the backlight having been moved by another program
+/// (MinUI's Menu + volume brightness control writes it directly).
+const BACKLIGHT_POLL_MS: Millis = 500;
 
 const BATTERY_LOW: u8 = 20;
 
@@ -433,6 +436,11 @@ pub struct App {
     ground: Option<TexId>,
     blur: Option<TexId>,
     wallpaper: Option<TexId>,
+    /// The menu-only copies of `blur` and `wallpaper`, stored with the scrim
+    /// already blended in. Drawn once per menu frame instead of a full-screen
+    /// blend over the top, which cost 17.7 ms a frame on the Mini Plus.
+    menu_blur: Option<TexId>,
+    menu_wallpaper: Option<TexId>,
     random_wallpaper: Option<Option<String>>,
     battery_percent: slot_ui::Printed,
     bolt: Option<TexId>,
@@ -470,6 +478,7 @@ pub struct App {
     charge_at: Millis,
     headphones: bool,
     headphones_at: Millis,
+    backlight_at: Millis,
     battery: Option<Battery>,
     last_led: Option<LedState>,
     powering_off: bool,
@@ -649,6 +658,8 @@ impl App {
             ground: None,
             blur: None,
             wallpaper: None,
+            menu_blur: None,
+            menu_wallpaper: None,
             random_wallpaper: None,
             battery_percent: slot_ui::Printed::default(),
             bolt: None,
@@ -686,6 +697,7 @@ impl App {
             charge_at: CHARGE_POLL_MS,
             headphones: false,
             headphones_at: 0,
+            backlight_at: 0,
             battery: None,
             last_led: None,
             powering_off: false,
@@ -1502,13 +1514,21 @@ impl App {
         [ground, blur, own]
     }
 
-    fn menu_ground(&self) -> Option<(TexId, u32)> {
+    /// The menu ground, and whether it already carries the scrim.
+    fn menu_ground_face(&self) -> (Option<(TexId, u32)>, bool) {
         let [_, blur, own] = self.grounds();
-        match &self.state.wallpaper {
-            WallpaperPick::None => None,
-            WallpaperPick::Default | WallpaperPick::Blur => blur,
-            WallpaperPick::Random if !self.random_drawn() => blur,
-            WallpaperPick::File(_) | WallpaperPick::Random => own,
+        let (face, dimmed) = match &self.state.wallpaper {
+            WallpaperPick::None => (None, None),
+            WallpaperPick::Default | WallpaperPick::Blur => (blur, self.menu_blur),
+            WallpaperPick::Random if !self.random_drawn() => (blur, self.menu_blur),
+            WallpaperPick::File(_) | WallpaperPick::Random => (own, self.menu_wallpaper),
+        };
+        let Some((_, w)) = face else {
+            return (None, false);
+        };
+        match dimmed {
+            Some(d) => (Some((d, w)), true),
+            None => (face, false),
         }
     }
 
@@ -1686,6 +1706,14 @@ impl App {
 
     pub fn set_ground(&mut self, face: TexId) {
         self.ground = Some(face);
+    }
+
+    pub fn set_menu_blur(&mut self, face: TexId) {
+        self.menu_blur = Some(face);
+    }
+
+    pub fn set_menu_wallpaper(&mut self, face: TexId) {
+        self.menu_wallpaper = Some(face);
     }
 
     pub fn set_blur(&mut self, face: TexId) {
@@ -3975,6 +4003,19 @@ impl App {
                 self.on_battery(b);
             }
         }
+        if self.now() >= self.backlight_at {
+            self.backlight_at = self.now() + BACKLIGHT_POLL_MS;
+            let moved = self
+                .power
+                .as_mut()
+                .and_then(|p| p.backlight_moved_elsewhere());
+            if let Some(step) = moved.filter(|&step| step != self.state.brightness) {
+                // Another program set the panel; take that as the setting so the
+                // number shown is the level the panel is at.
+                self.state.brightness = step;
+                self.persist_soon();
+            }
+        }
         if self.now() >= self.headphones_at {
             self.headphones_at = self.now() + HEADPHONES_POLL_MS;
             let on = self.power.as_ref().is_some_and(|p| p.headphones());
@@ -4293,30 +4334,34 @@ impl App {
                 picker.draw(self.canvas(), line, hint, back, out);
                 return;
             }
-            Phase::QuickMenu { row } => QuickMenu {
-                row: *row,
-                hidden: &self.hidden_rows(),
-                bound: Some(&self.bound_faces()),
-                description: self.description(*row),
-                values: QuickRow::ALL.map(|r| self.quick_value(r)),
-                clock: self.quick_clock_faces,
-                wallpaper: self.quick_wallpaper_faces,
-                faces: self.quick_menu_faces.as_ref(),
-                ground: self.menu_ground(),
-                bindings: self.keymap_faces.as_deref(),
-                bind_waiting: self.keymap_waiting_face,
-                bind_armed: self.keymap_waiting(),
-                palette: self.quick_palette_faces,
-                gba_bezel: self.quick_bezel_face(Platform::Gba),
-                gb_bezel: self.quick_bezel_face(Platform::Gb),
-                gbc_bezel: self.quick_bezel_face(Platform::Gbc),
-                bezel: None,
-                over_game: false,
-                footer_legends: true,
-                footer_top: OUT_H as f32,
-                canvas: self.canvas(),
+            Phase::QuickMenu { row } => {
+                let (ground, ground_dimmed) = self.menu_ground_face();
+                QuickMenu {
+                    row: *row,
+                    hidden: &self.hidden_rows(),
+                    bound: Some(&self.bound_faces()),
+                    description: self.description(*row),
+                    values: QuickRow::ALL.map(|r| self.quick_value(r)),
+                    clock: self.quick_clock_faces,
+                    wallpaper: self.quick_wallpaper_faces,
+                    faces: self.quick_menu_faces.as_ref(),
+                    ground,
+                    ground_dimmed,
+                    bindings: self.keymap_faces.as_deref(),
+                    bind_waiting: self.keymap_waiting_face,
+                    bind_armed: self.keymap_waiting(),
+                    palette: self.quick_palette_faces,
+                    gba_bezel: self.quick_bezel_face(Platform::Gba),
+                    gb_bezel: self.quick_bezel_face(Platform::Gb),
+                    gbc_bezel: self.quick_bezel_face(Platform::Gbc),
+                    bezel: None,
+                    over_game: false,
+                    footer_legends: true,
+                    footer_top: OUT_H as f32,
+                    canvas: self.canvas(),
+                }
+                .draw(out)
             }
-            .draw(out),
             Phase::Shelf => {
                 self.draw_background(out);
                 match (self.core_picker_shown(), self.selected_stem()) {
@@ -4361,7 +4406,8 @@ impl App {
                 );
             }
             Phase::About => {
-                slot_ui::draw_menu_ground(self.canvas(), self.menu_ground(), out);
+                let (ground, dimmed) = self.menu_ground_face();
+                slot_ui::draw_menu_ground(self.canvas(), ground, dimmed, out);
                 draw_sticker(self.canvas(), self.sticker_face, out);
                 self.draw_menu_footer(out);
                 return;
@@ -4460,6 +4506,7 @@ impl App {
                 wallpaper: None,
                 faces: self.quick_menu_faces.as_ref(),
                 ground: None,
+                ground_dimmed: false,
                 palette: self.quick_palette_faces,
                 gba_bezel: None,
                 gb_bezel: None,

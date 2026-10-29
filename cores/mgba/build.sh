@@ -5,6 +5,16 @@ here="$(cd "$(dirname "$0")" && pwd)"
 
 device_cflags="-flto=auto"
 
+# armv7 cross-builds for the 32-bit pair. Unset keeps the host recipe the
+# committed .meta records, byte for byte.
+cross_armv7=0
+if [ "${SLOT_CORE_PLATFORM:-}" = "armv7" ]; then
+	cross_armv7=1
+	# The armv7 recipe passes its own flags to cmake; -flto=auto is the
+	# aarch64 host build's and must not be recorded as if it applied.
+	device_cflags=""
+fi
+
 usage() {
 	echo "usage: $0 stamp COMMIT | build COMMIT WORKDIR OUT" >&2
 	exit 2
@@ -19,6 +29,13 @@ stamp() {
 	echo "commit=$1"
 	echo "source=https://github.com/libretro/mgba/tree/$1"
 	echo "device_cflags=$device_cflags"
+	if [ "$cross_armv7" = 1 ]; then
+		if [ -n "${SLOT_ARMV7_CC:-}" ]; then
+			echo "recipe=cross armv7, zig cc, glibc 2.17"
+		else
+			echo "recipe=cross armv7"
+		fi
+	fi
 	for p in "$here"/*.patch; do
 		echo "patch=$(basename "$p") sha256:$(sha256 "$p")"
 	done
@@ -54,8 +71,26 @@ build() {
 	if [ "$(uname -s)-$(uname -m)" = "Linux-aarch64" ]; then
 		cflags="$device_cflags"
 	fi
-	cmake -S "$src" -B "$obj" -DLIBMGBA_ONLY=ON -DBUILD_LIBRETRO=ON -DCMAKE_BUILD_TYPE=Release \
-		-DCMAKE_C_FLAGS="$cflags" >/dev/null
+	set -- -DLIBMGBA_ONLY=ON -DBUILD_LIBRETRO=ON -DCMAKE_BUILD_TYPE=Release
+	if [ "$cross_armv7" = 1 ]; then
+		if [ -n "${SLOT_ARMV7_CC:-}" ]; then
+			# Zig for glibc 2.17 (cores/armv7-zigcc), which fixes the CPU itself.
+			cross_dir="$(cd "$(dirname "$SLOT_ARMV7_CC")" && pwd)"
+			armflags=""
+			cc="$cross_dir/armv7-zigcc"
+			cxx="$cross_dir/armv7-zigc++"
+		else
+			armflags="-march=armv7ve -mfpu=neon-vfpv4 -mfloat-abi=hard"
+			cc=arm-linux-gnueabihf-gcc
+			cxx=arm-linux-gnueabihf-g++
+		fi
+		set -- "$@" -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=arm \
+			-DCMAKE_C_COMPILER="$cc" -DCMAKE_CXX_COMPILER="$cxx" \
+			-DCMAKE_C_FLAGS="$armflags" -DCMAKE_CXX_FLAGS="$armflags"
+	else
+		set -- "$@" -DCMAKE_C_FLAGS="$cflags"
+	fi
+	cmake -S "$src" -B "$obj" "$@" >/dev/null
 	cmake --build "$obj" --target mgba_libretro --parallel "$(getconf _NPROCESSORS_ONLN)" >/dev/null
 
 	for ext in dylib so; do

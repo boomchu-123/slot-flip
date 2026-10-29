@@ -86,6 +86,41 @@ git diff feat/miyoomini-software -- crates/slot/src/device_app.rs   # expect emp
   `crates/slot/src/audio/miao.rs`, `miyoo.rs` (Mini Plus branch only): these
   arrive as-is.
 
+## Done on `merge/mini-into-experimental` (28 October trial)
+
+This branch is the second merge, already carried out and checked, so the real one
+is a repeat of it. It is `merge/flip-into-experimental`, then the A30 branch
+(`fix/a30-input-discovery`), then the Mini Plus branch (`fix/miyoomini-capability-words`),
+which already holds the sound, large-ROM, logging, armv7-core and capability-word work.
+If either device branch gets new commits, **re-merge them onto a fresh branch from
+`merge/flip-into-experimental`**; do not patch this one by hand.
+
+Conflicts met, and what was done (the five in the table above, plus these):
+
+| File | Resolution |
+| --- | --- |
+| `crates/slot-power/src/lib.rs` | Union of the export lists (flip's additions plus `has_bit_in`). |
+| `crates/slot/tests/evdev.rs` (A30 merge) | Keep both sides; the shared closing braces interleave, so a textual "keep both" breaks the file. |
+| `crates/slot/tests/evdev.rs` (Mini Plus merge) | Keep the Mini Plus `a_mask_is_read_in_the_words_the_kernel_printed`, which is a superset, and drop the A30 copy of the same name. |
+| `COMPATIBILITY.md`, `ROADMAP.md` | Take the Mini Plus side for the Mini Plus hunks (sound is confirmed; the mGBA limit is recorded). |
+| `crates/slot/src/input/evdev.rs` | As in the table: Mini Plus table for `miyoomini`, whole `my282` table kept, the generic `cfg` widened to exclude `my282`. |
+
+**Silent hazard, found by building for armv7, not by `cargo check` on the host:**
+`crates/slot/src/crash.rs` gets a second `registers` function for
+`target_arch = "arm"` (both lines of work added one, in different places). It
+merges without a conflict and then fails to compile for any 32-bit ARM target
+with E0428. Delete one. A host `cargo check` does not see it.
+
+Both `has_bit_in` blocks (docs and code) are textually identical on the two
+branches on purpose; if one is edited, edit the other the same way or the merge
+conflicts again.
+
+Checked on this branch, none on a device: `cargo check` for `flip`, `miyoomini`,
+`my282`; the evdev integration tests (28); the `--lib` tests for all three
+features, and for `my282` and `miyoomini` run as armv7 under qemu-user (121 each);
+release builds: Mini Plus (armv7, no probe string, software renderer present),
+A30 (zigbuild, glibc 2.17), Flip.
+
 ## Checks after the second merge
 
 Run all of these; none was run on a device.
