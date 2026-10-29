@@ -6,6 +6,15 @@ This branch (`merge/flip-into-experimental`) is a trial. It is `experimental` wi
 `flip` merged in, so that the work of combining the branches is done and checked
 before anything real is touched. Nothing here has run on a device.
 
+**Current status:** this worktree now uses `merge/mini-into-experimental`, with
+both device tips merged. The earlier procedure below is retained as a conflict
+reference, not a statement that the second merge is still pending. Sound on the
+Mini Plus and upright input on the A30 have hardware reports, but the combined
+branch does not. Core bundles for all nine systems are published separately;
+the complete bundles are not yet present in the tracked device directories.
+The workflow on this trial branch is manual, build-only, and rejects incomplete
+bundles. No release is automatically published from here.
+
 ## The three lines of work
 
 | Branch | What it holds |
@@ -114,6 +123,10 @@ with E0428. Delete one. A host `cargo check` does not see it.
 Both `has_bit_in` blocks (docs and code) are textually identical on the two
 branches on purpose; if one is edited, edit the other the same way or the merge
 conflicts again.
+
+The Mini Plus branch's CI now runs on PRs into it (`feat/miyoomini-software` was
+missing from `pr.yml`'s trigger, so its PRs had no test run), and it runs the ARM
+attribute repair and the App handoff tests. The trial branch inherits both.
 
 Checked on this branch, none on a device: `cargo check` for `flip`, `miyoomini`,
 `my282`; the evdev integration tests (28); the `--lib` tests for all three
