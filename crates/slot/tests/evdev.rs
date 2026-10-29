@@ -396,6 +396,8 @@ fn only_the_skus_nextui_lists_with_a_left_stick_have_one() {
     }
     for t in ["rgsp", "rg35xxsp", "rg35xxplus", "rg34xx", "rg28xx", ""] {
         assert!(!has_left_stick(t), "{t}");
+    }
+}
 
 #[test]
 fn a_mask_is_read_in_the_words_the_kernel_printed() {
