@@ -49,24 +49,12 @@ impl DeviceInput {
             let name = node.display().to_string();
             let trace = trace.clone();
             #[cfg(feature = "flip")]
-            let stick_only =
-                super::evdev::is_gamepad_node(&sys.join(node.file_name().unwrap()).join("device"));
+            let stick_only = super::evdev::is_gamepad_node(&sys.join(node.file_name().unwrap()).join("device"));
             #[cfg(not(feature = "flip"))]
             let stick_only = false;
-            #[cfg(feature = "my282")]
-            let pad =
-                super::evdev::joystick_node(&sys.join(node.file_name().unwrap()).join("device"));
-            #[cfg(not(feature = "my282"))]
-            let pad: Option<Vec<u16>> = None;
-            if let Some(order) = &pad {
-                eprintln!(
-                    "slot: input {}: gamepad, SDL button order {order:#x?}",
-                    node.display()
-                );
-            }
             let spawned = std::thread::Builder::new()
                 .name(format!("slot-input-{name}"))
-                .spawn(move || read_node(&node, &queue, trace.as_deref(), stick_only, pad));
+                .spawn(move || read_node(&node, &queue, trace.as_deref(), stick_only));
             if let Err(e) = spawned {
                 eprintln!("slot: input {name}: {e}");
             }
@@ -104,14 +92,8 @@ fn quicken_poll(sys: &Path, node: &Path) {
     }
 }
 
-fn read_node(
-    node: &Path,
-    queue: &Mutex<Vec<RawEvent>>,
-    trace: Option<&Trace>,
-    stick_only: bool,
-    pad: Option<Vec<u16>>,
-) {
-    let _ = (stick_only, &pad);
+fn read_node(node: &Path, queue: &Mutex<Vec<RawEvent>>, trace: Option<&Trace>, stick_only: bool) {
+    let _ = stick_only;
     let label = node
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -153,13 +135,6 @@ fn read_node(
                     events.extend(stick.feed(ev));
                 }
                 continue;
-            }
-            #[cfg(feature = "my282")]
-            if let Some(order) = &pad {
-                if ev.kind == EV_KEY {
-                    events.extend(super::evdev::joystick_raw(order, ev));
-                    continue;
-                }
             }
             match ev.kind {
                 EV_ABS => {

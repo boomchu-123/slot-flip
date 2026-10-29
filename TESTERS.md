@@ -1,12 +1,12 @@
 # Testers wanted — Miyoo A30 and Miyoo Mini Plus
 
-The A30 has reached the clock screen on hardware, upright, but its buttons did
-nothing. Its buttons are read by MinUI through SDL as gamepad buttons, not as
-keyboard keys, and the device's input masks are in 32-bit words, which the
-old code read as 64-bit ones. exp-a30-v0.3.5 opens the gamepad node, numbers its
-buttons the way MinUI does, and always writes `Slot/input-trace.log` (no `DEBUG`
-file needed) with every input node and every raw event. On a retest, press each
-button once, then attach `Slot/slot.log` and `Slot/input-trace.log`.
+The A30 reaches the clock screen on hardware, upright, but its buttons did
+nothing. The trace from a retest showed why: the A30's kernel is 32-bit and writes
+input events at 16 bytes each, and slot read them as 24, so every event was
+garbled and none matched a button. exp-a30-v0.3.6 reads them at the right size.
+`Slot/input-trace.log` is always written now (no `DEBUG` file needed) with every
+input node and every raw event. On a retest, press each button once, then attach
+`Slot/slot.log` and `Slot/input-trace.log`.
 
 There are two **experimental** builds beyond the stable Miyoo Flip release. I
 only own a Flip, so these ports depend on logs from people who own the other

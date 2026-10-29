@@ -346,88 +346,6 @@ fn a_mask_is_read_in_the_words_the_kernel_printed() {
     assert!(!has_bit_in("1000000000000 0 0 0 0", 304, 32));
 }
 
-#[cfg(feature = "my282")]
-mod a30_pad {
-    use slot::input::evdev::{joystick_btn, joystick_order_in, joystick_raw, Ev};
-    use slot_input::{Btn, RawEvent};
-
-    const EV_KEY: u16 = 0x01;
-
-    // Keys 0x130, 0x131, 0x133, 0x134, 0x136, 0x137, 0x13a, 0x13b, 0x13c in a
-    // 32-bit kernel's words: bit 16 .. in word 9 from the end.
-    fn mask(codes: &[u16]) -> String {
-        let top = codes.iter().max().copied().unwrap() / 32;
-        (0..=top)
-            .rev()
-            .map(|w| {
-                let word = codes
-                    .iter()
-                    .filter(|c| **c / 32 == w)
-                    .fold(0u32, |acc, c| acc | 1 << (c % 32));
-                format!("{word:x}")
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
-    }
-
-    #[test]
-    fn sdl_numbers_the_buttons_from_btn_joystick_upwards() {
-        let codes = [
-            0x130, 0x131, 0x133, 0x134, 0x136, 0x137, 0x13a, 0x13b, 0x13c,
-        ];
-        let order = joystick_order_in(&mask(&codes), 32);
-        assert_eq!(order, codes);
-    }
-
-    #[test]
-    fn the_misc_range_follows_the_joystick_range() {
-        let order = joystick_order_in(&mask(&[0x130, 0x131, 0x100]), 32);
-        assert_eq!(order, [0x130, 0x131, 0x100]);
-    }
-
-    #[test]
-    fn a_pad_button_becomes_the_button_minui_names_for_its_number() {
-        let order = [0x130u16, 0x131, 0x133, 0x134];
-        let key = |code, value| Ev {
-            kind: EV_KEY,
-            code,
-            value,
-        };
-        assert_eq!(
-            joystick_raw(&order, key(0x130, 1)),
-            Some(RawEvent::Down(Btn::A))
-        );
-        assert_eq!(
-            joystick_raw(&order, key(0x131, 0)),
-            Some(RawEvent::Up(Btn::B))
-        );
-        assert_eq!(
-            joystick_raw(&order, key(0x133, 1)),
-            Some(RawEvent::Down(Btn::Y))
-        );
-        assert_eq!(
-            joystick_raw(&order, key(0x134, 1)),
-            Some(RawEvent::Down(Btn::X))
-        );
-        assert_eq!(joystick_raw(&order, key(0x999, 1)), None);
-        assert_eq!(joystick_raw(&order, key(0x130, 2)), None);
-    }
-
-    #[test]
-    fn the_numbers_minui_uses_are_all_named() {
-        for (n, want) in [
-            (6, Btn::Select),
-            (7, Btn::Start),
-            (8, Btn::Menu),
-            (13, Btn::Up),
-            (16, Btn::Down),
-        ] {
-            assert_eq!(joystick_btn(n), Some(want));
-        }
-        assert_eq!(joystick_btn(11), None);
-    }
-}
-
 #[test]
 fn an_event_is_read_at_the_size_this_kernel_writes_it() {
     // A key press is the key event plus its SYN report, back to back.
@@ -444,4 +362,32 @@ fn an_event_is_read_at_the_size_this_kernel_writes_it() {
     assert_eq!(EVENT_BYTES, 16);
     #[cfg(not(target_pointer_width = "32"))]
     assert_eq!(EVENT_BYTES, 24);
+}
+
+// The masks below are what the A30's kernel printed in a tester's log
+// (exp-a30-v0.3.5): 32-bit words, four nodes, the buttons on one of them.
+#[test]
+fn the_a30s_own_masks_show_every_button_slot_maps() {
+    use slot_power::has_bit_in;
+    let keys = "c1682 0 3000400 3014c002";
+    let buttons = [
+        103, 108, 105, 106, 57, 29, 42, 56, 18, 20, 15, 14, 97, 28, 1, 115, 114,
+    ];
+    for code in buttons {
+        assert!(has_bit_in(keys, code, 32), "key {code} missing from {keys}");
+    }
+    // Read as 64-bit words, which is what it was before, almost none are there.
+    let found = buttons.iter().filter(|c| has_bit_in(keys, **c, 64)).count();
+    assert!(found < buttons.len() / 2, "{found} found as 64-bit words");
+
+    // The power key is on a node of its own.
+    assert!(has_bit_in("8000 100000 0 0 0", 116, 32));
+    // The headset node carries only the volume keys (114 and 115) of the map,
+    // and the temperature sensor none.
+    let headset = "4 80000 0 0 c0000 0 0 0";
+    for code in buttons.iter().chain(&[116]) {
+        let volume = *code == 114 || *code == 115;
+        assert_eq!(has_bit_in(headset, *code, 32), volume, "{code}");
+        assert!(!has_bit_in("0", *code, 32), "{code}");
+    }
 }
