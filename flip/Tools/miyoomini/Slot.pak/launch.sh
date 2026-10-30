@@ -51,6 +51,14 @@ fi
 # moment it loaded). Smaller ROMs load as before.
 export SLOT_LOAD_BY_PATH=mGBA
 
+# The Genesis core carries 35 MB of zero-filled memory and the PlayStation core
+# 23 MB. On a console with about 100 MB the kernel's default heuristic refuses
+# to map that once the frontend is resident ("cannot map zero-fill pages"), so
+# three of the nine systems never load. Zero pages cost nothing until a core
+# writes to them; the price is that real exhaustion ends in the kernel's
+# out-of-memory kill rather than a failed load.
+[ ! -w /proc/sys/vm/overcommit_memory ] || echo 1 > /proc/sys/vm/overcommit_memory
+
 # Seed the emulator cores into Slot/System, replacing a copy that differs so a
 # core fix in a new pak reaches an existing card. `cmp -s` is the test the Flip
 # pak uses for the same reason.

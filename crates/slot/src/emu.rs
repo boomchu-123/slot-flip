@@ -229,6 +229,7 @@ impl EmuHandle {
         let join = std::thread::Builder::new()
             .name("slot-emu".into())
             .spawn(move || worker.run(core, rom, ring, sav, resume, worker_link))
+            .map_err(|e| eprintln!("slot: emu: the emulator thread could not start: {e}"))
             .ok();
         if join.is_none() {
             shared

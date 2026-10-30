@@ -63,6 +63,22 @@ fn the_picker_starts_from_the_clock_the_platform_already_has() {
 }
 
 #[test]
+fn a_clock_that_lost_its_year_starts_the_picker_in_this_decade() {
+    let d = tmp_root_with_carts(&["Emerald"]);
+    let (mut a, clock) = app_booting_at(d.path(), 1_476_000_000);
+    let year = a.picker().expect("the clock is asked for").secs();
+    assert!(
+        year >= 1_767_225_600,
+        "the picker started in 2016, so the year had to be scrolled up by hand"
+    );
+    a.confirm_clock();
+    assert!(
+        clock.get() >= 1_767_225_600,
+        "confirming the picker as shown did not set the clock to it"
+    );
+}
+
+#[test]
 fn a_field_wraps_rather_than_running_off_the_end() {
     let mut c = ClockPicker::from_secs(0);
     c.field(Field::Month);
