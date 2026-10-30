@@ -42,17 +42,16 @@ OS, Slot started from the stock launcher's **App** list, with input, sound, lid
 sleep, brightness and re-entering games all working. So the install is **one zip
 unzipped onto a FAT32 card**, which also makes the device start straight in Slot,
 and MinUI is a second entry that keeps working rather than a requirement.
-The Mini Plus is **not there yet**: it installs today as a MinUI Tool
-(`Tools/miyoomini/Slot.pak`), and moving it to its own launcher is part of the
-1.0 work, not an assumption.
+The Mini Plus now installs the same way: `Slot-miyoomini.zip` at the card root, an
+`App/Slot` entry, and `miyoo354/app/MainUI` booting into Slot with the stock
+launcher kept as `MainUI.stock`. It is **not at the 1.0 bar yet** on speed (below).
 
 That has three consequences worth stating:
 
 - **No MinUI needed.** MinUI was archived in November 2025 and has no licence
   file, so it was a poor thing to depend on. The `Tools/my355/Slot.pak` entry stays
   for the people who use it, but it is no longer tested for each release and no
-  longer part of the gate. The Mini Plus is still on that entry for now; its
-  stock-launcher entry is 1.0 work.
+  longer part of the gate. The Mini Plus has the stock-launcher entry too.
 - **Nothing on the device changes.** On the Flip, installing MinUI rewrites its
   internal system image; this writes only to the SD card, so uninstalling is
   deleting a folder.
@@ -159,26 +158,33 @@ buttons, power, backlight and cores.
   slight slowdown in gpSP, not measured. Delay, headphones and long play not
   checked
 - 🟡 **Large GBA games with a clock chip on mGBA** (Pokemon Emerald): the crash at
-  load is fixed by loading ROMs of 8 MiB and up by path (exp-v0.4.11, confirmed).
-  It still crashes a moment later, when mGBA asks for a 32 MB map of its own with
-  about 30 MB available. gpSP plays it, so this is a known limit rather than a
-  release blocker. Slot's own memory (62 MB resident at the time) is being measured
-  because the PS1 core will need the room
-- 🟡 **Cores for the other six systems** (exp-v0.4.13). NES, SNES, Mega Drive,
-  Master System, Game Gear and PlayStation are packaged, built against glibc 2.17
-  with Zig (`cores/armv7-zigcc`). Each passes its system's tests under an emulator
-  on a computer, which is not a console: **speed, memory and real games are
-  unproven**, and PlayStation is the one to watch on a 100 MB device
-- ✅ **Button node found on purpose, not by luck** (exp-v0.4.14). The kernel prints
-  capability masks in 32-bit words and slot read 64-bit ones: seven of the
-  eighteen wanted keys were found. Tested in code, not on a device
-- 📋 **Install on the Mini Plus's own launcher.** Today it is a MinUI Tool
-  (`Tools/miyoomini/Slot.pak`). 1.0 needs the same shape as the Flip: one zip at
-  the card root, an entry in the launcher the device ships with, and no MinUI.
-  The exact mechanism is to be found on the device, not assumed from the Flip's:
-  the two launchers are not the same.
+  load is fixed by loading ROMs of 8 MiB and up by path, but it still crashes a
+  moment later when mGBA asks for a 32 MB map with about 30 MB available. gpSP, the
+  default, plays it.
+- ✅ **All nine systems run on the stock firmware** (2026-10-30): a real game on each,
+  pictures read back from the panel. Cores are built for the console with Zig
+  (`cores/armv7-zigcc`) and ship in the pak.
+- ✅ **PlayStation stays up.** The kernel used to kill it before its first frame:
+  the core reserved a 16 MB translation cache (now 4 MiB, a build-time patch in
+  `cores/pcsx`), the frontend held 30 MB of pictures it was not drawing (now kept
+  compressed), and freed memory piled up in glibc's per-thread arenas (now
+  limited in `launch.sh`). Four minutes on Crash Bandicoot: 21 MB spare, no kill.
+- ✅ **The picture path went from about 14 ms to about 2.5 ms a frame**: the plain
+  scale (no scanline mask, no dimming) copies bytes instead of multiplying 16-bit
+  lanes twice.
+- 🟡 **Speed.** Game Boy, GBA, Master System and Game Gear are within a frame or two
+  of the core's rate. **Mega Drive and Super Nintendo run at about 51 frames a
+  second, Game Boy Color at 56, PlayStation at about 52.** What is left is the
+  emulator thread itself (about 16 ms of CPU a Mega Drive frame), not the picture
+  path. This is the open 1.0 item for the device.
+- ✅ **Button node found on purpose, not by luck** (exp-v0.4.14). Tested in code.
+- ✅ **Install on the console's own launcher.** `Slot-miyoomini.zip`, `install.sh`
+  (one script for both devices) and the CI job exist, and the installer is covered
+  by tests on stand-in folders. **The zip has not yet been installed on a real
+  card, and saves across a reboot, save states and a disc change have not been
+  checked on this console.**
 - 📋 **Which lines the stock launcher leaves unset**, the way `joy_type` is on the
-  Flip, so `launch.sh` sets them for itself and restores them on exit.
+  Flip, so `launch.sh` sets them for itself and restores them on exit. Not done.
 
 The port is **not** on the `experimental` branch: it lives on
 `feat/miyoomini-software`, cut from `flip`, and ships as `exp-v*` pre-releases

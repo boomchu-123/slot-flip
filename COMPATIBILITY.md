@@ -11,8 +11,9 @@ results, not hopes, and it says plainly what each result does and does not prove
   so treat the tables as v0.12.0 evidence.
 - **Device checks:** slot-flip v0.15.0 on the Flip's own firmware, 2026-10-25. See
   [Checked on the device](#checked-on-the-device-beyond-booting).
-- **Miyoo Mini Plus:** slot-flip exp-v0.4.0, on a Mini Plus running MinUI (the port
-  is installed as a MinUI Tool today), October 2026. See
+- **Miyoo Mini Plus:** the unreleased build after exp-v0.4.14, on a Mini Plus on its
+  own firmware with no MinUI, 2026-10-30, driven over adb. Earlier button, display
+  and sound checks were made on exp-v0.4.x as a MinUI Tool. See
   [Miyoo Mini Plus](#miyoo-mini-plus-miyoomini).
 
 ## What the results mean
@@ -250,77 +251,91 @@ not tried), L3/R3 reaching a game, and the analog sticks in Final Fantasy VII.
 
 ## Miyoo Mini Plus (`miyoomini`)
 
-No GPU: the picture is drawn by the CPU rasteriser, not the Flip's GLES path. The
-port is **not 1.0-ready**; this section exists so the gap is visible rather than
-assumed either way.
+No GPU: the picture is drawn by the CPU rasteriser, not the Flip's GLES path, and
+the console has about 100 MB of memory in all. **Not 1.0-ready:** all nine systems
+run, but Mega Drive, Super Nintendo and PlayStation are short of full speed.
 
-**Checked on:** slot-flip exp-v0.4.0, exp-v0.4.2, exp-v0.4.3 and exp-v0.4.4 (the lines
-below say which), a Mini Plus, October 2026, installed as a MinUI Tool
-(`Tools/miyoomini/Slot.pak`). Sound was reported on exp-v0.4.10 (below).
+**Checked on:** the build after exp-v0.4.14 (unreleased), a Mini Plus on its own
+firmware with no MinUI, 2026-10-30. Slot started from the card's own boot entry
+(`miyoo354/app/MainUI`), every run came from the console's cold boot or a restart of
+Slot, and the figures are the emulator's own frame count and the process's resident
+memory read from `/proc`, over a 40 second run after the first frame. One game per
+system; nothing was played through.
+
+| System | Game | Frames a second | The core's rate | Resident (peak) | Spare memory (lowest) |
+| --- | --- | --- | --- | --- | --- |
+| NES | Asterix (Europe) | 50.1 | 50 (a PAL game) | 32.8 MB | 46.9 MB |
+| Super Nintendo | Chrono Trigger | **51.4** | about 60 | 46.8 MB | 27.9 MB |
+| Mega Drive | Sonic the Hedgehog | **51.7** | 59.9 | 41.7 MB | 32.2 MB |
+| Master System | Phantasy Star | 59.5 | about 60 | 44.5 MB | 28.9 MB |
+| Game Gear | Shinobi II | 59.7 | about 60 | 46.8 MB | 26.7 MB |
+| Game Boy | Pokemon Red | 59.0 | 59.7 | 34.2 MB | 41.1 MB |
+| Game Boy Color | Link's Awakening DX | **56.0** | 59.7 | 40.0 MB | 35.0 MB |
+| Game Boy Advance | Pokemon Emerald | 58.7 | 59.7 | 53.3 MB | 20.9 MB |
+| PlayStation | Crash Bandicoot | **52.2** | 59.9 | 53.7 MB | 21.8 MB |
+
+Bold is short of the core's rate by more than a frame in ten. A picture was read
+back from the panel for each, and each was a real picture, not a blank. **Super
+Nintendo's rewind** costs it about six frames a second (57.4 with it off, measured
+once on `performance`); Mega Drive does not change with it.
+
+- **PlayStation runs and stays up.** It is the system the console could not hold
+  before: the core reserved a 16 MB translation cache and the frontend held 30 MB
+  of pictures it was not drawing, so the kernel killed the game before its first
+  frame, and later thrashed (a 2.9 second frame) at 2.6 MB spare. The core is now
+  built with a 4 MiB cache, pictures that are not on screen are kept compressed, and
+  allocator limits stop freed memory piling up. A four minute run on Crash
+  Bandicoot ended with 21 MB spare and no kernel kill. **At 52 frames a second it is
+  playable, not full speed.**
+- **Where the time goes.** The picture path costs about 2.5 ms a frame (it was
+  about 7 ms for the game plus 7 ms to copy it out); the shortfall is the emulator
+  thread itself, measured at about 16 ms of CPU per Mega Drive frame. A rebuild of
+  the Genesis core with this project's recipe came out byte-for-byte the same as the
+  one already on the card, so the core is not mis-built; why it is slow here is open.
+- **Install on the console's own launcher, no MinUI.** `App/Slot` is the launcher
+  entry and `miyoo354/app/MainUI` boots straight into Slot, with the console's own
+  launcher kept as `MainUI.stock`. A card's cold boot reached Slot by itself;
+  `Slot/Config/boot-menu` returns the stock menu. This was done by hand on the
+  tested card and by the installer's test suite on stand-in folders. **The release
+  zip itself has not yet been installed on a real card.**
+- **Display, buttons, power, brightness, sound** were checked on exp-v0.4.x as a
+  MinUI Tool (below) and have not been re-checked one by one on this build. The
+  nine runs were started through Slot's state file, not with buttons, and the sound
+  was not listened to. Mega Drive's audio queue under-ran heavily in the runs (the
+  core produces frames more slowly than the sound card consumes them), so expect it
+  to sound wrong until the speed is fixed.
+
+Earlier results, kept because they are still the evidence for buttons, display and
+sound:
 
 - **Display:** upright with no setting to change, and the shelf and menu draw.
 - **Buttons:** every button registers, and the whole map was confirmed from the
   device's own key log — Menu, D-pad, A/B/X/Y, L1/R1/L2/R2, Start, Select, POWER,
   volume up and down.
-- **Games:** GBA (gpSP), Game Boy and Game Boy Color (mGBA) each launch and play
-  (exp-v0.4.0).
 - **Power:** holding POWER shuts the device down.
 - **Menu:** opens and responds; the quick menu felt responsive to the person
   using it.
-- **Cart slot:** the Game Boy and Game Boy Color slots line up (exp-v0.4.2), after
-  the centring fix. Other consoles' slots are drawn the same way but not looked at.
-- **Speed (exp-v0.4.3):** games run at close to full speed, and the tester says
-  they feel normal. MinUI leaves the CPU at its 504 MHz menu speed when a Tool
-  starts; asking for 1296 MHz is what fixed it. Measured with the emulator's own
-  frame count (the Game Boy Advance core's rate is 59.7 frames a second):
-
-  | Run | Emulator frames a second while playing |
-  | --- | --- |
-  | Game Boy Advance on gpSP (the default) | steady 57 to 58; two short dips to 36 and 39 at the start and end of one run |
-  | Game Boy Color on mGBA | mostly 60, with stretches down to about 29 to 46 |
-  | Game Boy on mGBA | 60 |
-  | Game Boy Advance on mGBA | steady 48 to 50 (about 82 percent: mGBA has no JIT) |
-
-  The tester also saw mGBA slow down in busy scenes. gpSP is about 3 percent short
-  of full speed in these runs. Pokemon and Advance Wars were the games; nothing was
-  timed past a minute or so.
-- **Brightness (exp-v0.4.4):** the nine levels now all look different. exp-v0.4.2 only
-  moved the panel across levels 1 to 3, because the steps were spread over a range
-  eight times wider than the panel uses; exp-v0.4.3 narrowed them to MinUI's own 6
-  to 100, and the tester confirms that fixed it. One thing remained: MinUI's own
-  Menu + volume control writes the backlight directly, so slot's number did not follow
-  it, and opening the setting snapped the panel back to the old level. exp-v0.4.5
-  follows the panel and adopts the nearest level; that is tested against a fake
-  panel and **not yet confirmed on a device**.
-
-- **Sound (exp-v0.4.10):** works, on every core the tester tried: "it sounds good to
-  me in all cores", with a possible little audio slowdown in gpSP that may just be
-  the emulator running slow. It plays through `/dev/dsp`, which the console's
-  `libpadsp` hands to the audio server, the way the launcher's own sound goes. The
-  vendor interface (`MI_AO`) is refused for as long as that server runs, which is
-  every earlier build's silence. exp-v0.4.8 crashed because the shim calls an
-  unfilled pointer when `/dev/dsp` is the first file a program opens. Not judged:
-  how late the sound is, headphones, and long play.
+- **Cart slot:** the Game Boy and Game Boy Color slots line up (exp-v0.4.2). Other
+  consoles' slots are drawn the same way but not looked at.
+- **Brightness (exp-v0.4.4):** the nine levels all look different. Following the
+  firmware's own control (exp-v0.4.5) is tested against a fake panel and **not yet
+  confirmed on a device**.
+- **Sound (exp-v0.4.10):** works on every core the tester tried: "it sounds good to
+  me in all cores". It plays through `/dev/dsp`, which the console's `libpadsp` hands
+  to the audio server; the vendor interface (`MI_AO`) is refused for as long as that
+  server runs. Not judged: how late the sound is, headphones, and long play.
 
 **Not checked, or known not to work:**
 
-- **Every system other than GBA, GB and GBC.** exp-v0.4.13 carries the NES, SNES,
-  Mega Drive, Master System, Game Gear and PlayStation cores, built for the
-  console's processor and C library. Each loads under a newer C library in an
-  emulator on a computer and passes this project's own tests for its system there
-  (a test game: picture, sound, buttons, save states). **No real game on any of
-  the six has been run on a Mini Plus**, so speed, memory and the slots are
-  unproven. PlayStation is the likely one to struggle: the console has about
-  100 MB of memory in all.
-- **Installing without MinUI.** Nothing has been run from the Mini Plus's own
-  launcher. `flip/App-miyoomini/Slot/` is the entry it would need, and it only
-  hands over to the pak's `launch.sh`, which no device has executed that way.
-- **Buttons on a 32-bit kernel (exp-v0.4.14).** The Mini Plus's kernel prints
-  capability masks in 32-bit words, and slot read them as 64-bit ones. It found
-  its button node only because a wrong bit happened to be set: of the eighteen
-  keys it wants, seven are found that way and all eighteen are found the right
-  way (a test now pins the tester's real mask). Tested in code, **not on a
-  device**; if buttons were working before, this changes no behaviour.
+- **Saves across a reboot, save states and a PlayStation disc change** on this
+  console. They work on the Flip; nobody has done them here.
+- **Pokemon Emerald on mGBA** still fails a moment after loading (it asks for a 32 MB
+  map with about 30 MB spare). gpSP, the default, plays it.
+- **A second PlayStation game.** Only Crash Bandicoot was run; Tekken 3 and the
+  other four on the card are untried.
+- **Buttons on a 32-bit kernel (exp-v0.4.14).** The kernel prints capability masks in
+  32-bit words and slot read them as 64-bit ones. Tested in code, **not on a device
+  as a separate change**.
 
 ## Not checked yet
 

@@ -1,0 +1,60 @@
+#!/bin/sh
+# Boot straight into slot on the Miyoo Mini Plus's own firmware.
+#
+# /customer/main runs <card>/miyoo354/app/MainUI in place of the firmware's own
+# launcher whenever that folder exists, and runs it again each time slot exits.
+# This hands over to the pak and keeps the stock binary beside it as
+# MainUI.stock, so the menu is always one escape hatch away.
+#
+# Escape hatch: create <card>/Slot/Config/boot-menu and the stock menu starts
+# instead; delete it to come straight back into slot. The same happens when the
+# pak is not on the card at all, so a half-copied card never boots to nothing.
+SD="${SDCARD_PATH:-/mnt/SDCARD}"
+DIR="$(cd "$(dirname "$0")" && pwd)"
+PAK="$SD/Tools/miyoomini/Slot.pak"
+LOG="$SD/slot-launch.log"
+
+log() { echo "slot-boot: $*" >> "$LOG"; }
+since_boot() { cut -d. -f1 /proc/uptime; }
+
+stock_menu() {
+    exec "$DIR/MainUI.stock"
+}
+
+log "miyoo354/app/MainUI at $(since_boot)s"
+
+if [ -f "$SD/Slot/Config/boot-menu" ]; then
+    log "boot-menu flag set, starting the stock launcher"
+    stock_menu
+fi
+
+if [ ! -x "$PAK/launch.sh" ]; then
+    log "no pak at $PAK, starting the stock launcher"
+    stock_menu
+fi
+
+# Bring adb up in the background so a boot straight into slot can still be
+# reached over Wi-Fi. The app does nothing when adbd is already running, and it
+# is not part of the release, so this only fires on a card that has it.
+[ -x "$SD/App/ADB/launch.sh" ] && "$SD/App/ADB/launch.sh" >/dev/null 2>&1 &
+
+# A crash in the first seconds must not become a loop the card cannot be pulled
+# out of. Three quick returns in a row and the stock menu takes over.
+started=$(since_boot)
+"$PAK/launch.sh"
+ended=$(since_boot)
+ran=$((ended - started))
+if [ "$ran" -lt 15 ]; then
+    quick=$(cat /tmp/slot-quick-exits 2>/dev/null || echo 0)
+    quick=$((quick + 1))
+    echo "$quick" > /tmp/slot-quick-exits
+    log "slot returned after ${ran}s (quick exit $quick)"
+    if [ "$quick" -ge 3 ]; then
+        log "three quick exits, starting the stock launcher"
+        rm -f /tmp/slot-quick-exits
+        stock_menu
+    fi
+else
+    rm -f /tmp/slot-quick-exits
+    log "slot returned after ${ran}s"
+fi
