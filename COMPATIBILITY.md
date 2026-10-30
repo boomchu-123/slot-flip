@@ -285,7 +285,8 @@ once on `performance`); Mega Drive does not change with it.
   frame, and later thrashed (a 2.9 second frame) at 2.6 MB spare. The core is now
   built with a 4 MiB cache, pictures that are not on screen are kept compressed, and
   allocator limits stop freed memory piling up. A four minute run on Crash
-  Bandicoot ended with 21 MB spare and no kernel kill. **At 52 frames a second it is
+  Bandicoot, with the shelf's label art loaded and `DEBUG` tracing on, ended with
+  21 MB spare, a real picture on the panel and no kernel kill. **At 52 frames a second it is
   playable, not full speed.**
 - **Where the time goes.** The picture path costs about 2.5 ms a frame (it was
   about 7 ms for the game plus 7 ms to copy it out); the shortfall is the emulator
