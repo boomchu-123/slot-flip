@@ -133,7 +133,7 @@ jobs:
         run: |
           set -eu
           stage="$(mktemp -d)"
-          mkdir -p "$stage/Tools/miyoomini"
+          mkdir -p "$stage/Tools/miyoomini" "$stage/App"
           cp -R flip/Tools/miyoomini/Slot.pak "$stage/Tools/miyoomini/Slot.pak"
           cp -R flip/App-miyoomini/Slot "$stage/App/Slot"
           cp -R flip/autoboot/miyoo354 "$stage/miyoo354"
