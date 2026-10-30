@@ -180,9 +180,10 @@ buttons, power, backlight and cores.
 - ✅ **Button node found on purpose, not by luck** (exp-v0.4.14). Tested in code.
 - ✅ **Install on the console's own launcher.** `Slot-miyoomini.zip`, `install.sh`
   (one script for both devices) and the CI job exist, and the installer is covered
-  by tests on stand-in folders. **The zip has not yet been installed on a real
-  card, and saves across a reboot, save states and a disc change have not been
-  checked on this console.**
+  by tests on stand-in folders and was run on the console itself over an existing
+  install (cold boot reached Slot afterwards). **Not done: an install onto a card
+  that has never had Slot, and saves across a reboot, save states and a disc
+  change on this console.**
 - 📋 **Which lines the stock launcher leaves unset**, the way `joy_type` is on the
   Flip, so `launch.sh` sets them for itself and restores them on exit. Not done.
 

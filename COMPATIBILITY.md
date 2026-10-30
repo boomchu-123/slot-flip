@@ -253,7 +253,7 @@ not tried), L3/R3 reaching a game, and the analog sticks in Final Fantasy VII.
 
 No GPU: the picture is drawn by the CPU rasteriser, not the Flip's GLES path, and
 the console has about 100 MB of memory in all. **Not 1.0-ready:** all nine systems
-run, but Mega Drive, Super Nintendo and PlayStation are short of full speed.
+run, but Mega Drive, Super Nintendo, Game Boy Color and PlayStation are short of full speed.
 
 **Checked on:** the build after exp-v0.4.14 (unreleased), a Mini Plus on its own
 firmware with no MinUI, 2026-10-30. Slot started from the card's own boot entry
@@ -264,17 +264,17 @@ system; nothing was played through.
 
 | System | Game | Frames a second | The core's rate | Resident (peak) | Spare memory (lowest) |
 | --- | --- | --- | --- | --- | --- |
-| NES | Asterix (Europe) | 50.1 | 50 (a PAL game) | 32.8 MB | 46.9 MB |
-| Super Nintendo | Chrono Trigger | **51.4** | about 60 | 46.8 MB | 27.9 MB |
-| Mega Drive | Sonic the Hedgehog | **51.7** | 59.9 | 41.7 MB | 32.2 MB |
-| Master System | Phantasy Star | 59.5 | about 60 | 44.5 MB | 28.9 MB |
-| Game Gear | Shinobi II | 59.7 | about 60 | 46.8 MB | 26.7 MB |
-| Game Boy | Pokemon Red | 59.0 | 59.7 | 34.2 MB | 41.1 MB |
-| Game Boy Color | Link's Awakening DX | **56.0** | 59.7 | 40.0 MB | 35.0 MB |
-| Game Boy Advance | Pokemon Emerald | 58.7 | 59.7 | 53.3 MB | 20.9 MB |
-| PlayStation | Crash Bandicoot | **52.2** | 59.9 | 53.7 MB | 21.8 MB |
+| NES | Asterix (Europe) | 50.1 | 50 (a PAL game) | 30.1 MB | 49.2 MB |
+| Super Nintendo | Chrono Trigger | **51.1** | about 60 | 46.8 MB | 27.7 MB |
+| Mega Drive | Sonic the Hedgehog | **51.0** | 59.9 | 43.9 MB | 29.6 MB |
+| Master System | Phantasy Star | 58.6 | about 60 | 45.1 MB | 28.2 MB |
+| Game Gear | Shinobi II | 59.7 | about 60 | 44.9 MB | 28.4 MB |
+| Game Boy | Pokemon Red | 58.3 | 59.7 | 31.8 MB | 43.2 MB |
+| Game Boy Color | Link's Awakening DX | **56.2** | 59.7 | 37.7 MB | 37.1 MB |
+| Game Boy Advance | Pokemon Emerald | 58.7 | 59.7 | 53.1 MB | 20.8 MB |
+| PlayStation | Crash Bandicoot | **51.9** | 59.9 | 54.3 MB | 20.9 MB |
 
-Bold is short of the core's rate by more than a frame in ten. A picture was read
+Bold is short of the core's rate by more than a frame in twenty. A picture was read
 back from the panel for each, and each was a real picture, not a blank. **Super
 Nintendo's rewind** costs it about six frames a second (57.4 with it off, measured
 once on `performance`); Mega Drive does not change with it.
@@ -294,10 +294,15 @@ once on `performance`); Mega Drive does not change with it.
   one already on the card, so the core is not mis-built; why it is slow here is open.
 - **Install on the console's own launcher, no MinUI.** `App/Slot` is the launcher
   entry and `miyoo354/app/MainUI` boots straight into Slot, with the console's own
-  launcher kept as `MainUI.stock`. A card's cold boot reached Slot by itself;
-  `Slot/Config/boot-menu` returns the stock menu. This was done by hand on the
-  tested card and by the installer's test suite on stand-in folders. **The release
-  zip itself has not yet been installed on a real card.**
+  launcher kept as `MainUI.stock`. The release zip was built from the committed
+  tree, and its `install.sh` was run on the console itself (`--check`, `--dry-run`,
+  then a real install over an existing one, under the console's own BusyBox shell):
+  the installed files match the zip byte for byte, `MainUI.stock` survived, and
+  the next cold boot reached Slot by itself. The table above is that install's
+  run; an earlier run on the same build, before the install, agreed to within about
+  a frame. **Not done:** installing onto a card that has never had Slot, and
+  getting to the stock menu through `boot-menu` by hand on a fresh card (the flag
+  was used once to stop Slot for the install, and removed by the installer).
 - **Display, buttons, power, brightness, sound** were checked on exp-v0.4.x as a
   MinUI Tool (below) and have not been re-checked one by one on this build. The
   nine runs were started through Slot's state file, not with buttons, and the sound
