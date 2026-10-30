@@ -117,7 +117,7 @@ jobs:
           # The same sanity checks a user would trip over.
           file "$pak/slot" | grep -q "ELF 32-bit"
           file "$pak/slot" | grep -q ARM
-          for core in mgba gpsp pcsx_rearmed fceumm snes9x2005_plus genesis_plus_gx; do
+          for core in mgba gpsp pcsx_rearmed fceumm snes9x2005_plus picodrive; do
             file "$pak/System/${core}_libretro.so" | grep -q "ELF 32-bit"
           done
           test -x "$pak/launch.sh"

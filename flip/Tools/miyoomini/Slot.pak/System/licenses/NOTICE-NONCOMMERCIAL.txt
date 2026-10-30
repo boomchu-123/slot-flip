@@ -8,10 +8,11 @@ Two of the emulator cores inside it forbid commercial use:
     notice goes with every copy. In its words, commercial use includes charging
     money for it or for software derived from it, including in commercial game
     bundles, and using it as a promotion for a commercial product.
-  - Genesis Plus GX (System/genesis_plus_gx_libretro.so) is released under a licence
-    (genesis_plus_gx-LICENSE.txt, in this folder) that says redistributions may not
-    be sold, nor be used in a commercial product or activity, and must reproduce its
-    copyright notice. Its source is in genesis_plus_gx-src.tar.gz.
+  - PicoDrive (System/picodrive_libretro.so) is released under a licence
+    (picodrive-COPYING.txt, in this folder) that says redistributions may not be sold,
+    nor be used in a commercial product or activity, and must reproduce its copyright
+    notice. Its source, with the components it is built from, is in
+    picodrive-src.tar.gz.
 
 So, for this whole download (Slot.pak):
   - You may use it, copy it and share it, for free.
@@ -24,6 +25,6 @@ texts are in this folder too. The cores are separate programs the frontend loads
 run time, not part of it.
 
 If you want a build for sale, remove System/snes9x2005_plus_libretro.so and the files
-named snes9x2005* in this folder, and System/genesis_plus_gx_libretro.so and the files
-named genesis_plus_gx* in this folder; the rest has no such restriction. (This is a plain
+named snes9x2005* in this folder, and System/picodrive_libretro.so and the files
+named picodrive* in this folder; the rest has no such restriction. (This is a plain
 reading of the licences, not legal advice.)

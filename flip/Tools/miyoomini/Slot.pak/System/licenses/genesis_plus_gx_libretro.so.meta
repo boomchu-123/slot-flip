@@ -1,5 +1,0 @@
-commit=aa74d79634cd230f65cce4180e92688e53883d2f
-source=https://github.com/libretro/Genesis-Plus-GX/archive/aa74d79634cd230f65cce4180e92688e53883d2f.tar.gz
-recipe=cross armv7, zig cc, glibc 2.17: make -f Makefile.libretro platform=unix HAVE_CDROM=0
-device_cflags=
-shipped_source_omits=builds gx psp2 gcw0 sdl wiki

@@ -63,7 +63,7 @@ export SLOT_LOAD_BY_PATH=mGBA
 # core fix in a new pak reaches an existing card. `cmp -s` is the test the Flip
 # pak uses for the same reason.
 mkdir -p "$SLOT_ROOT/System"
-for c in mgba_libretro.so gpsp_libretro.so pcsx_rearmed_libretro.so fceumm_libretro.so snes9x2005_plus_libretro.so genesis_plus_gx_libretro.so; do
+for c in mgba_libretro.so gpsp_libretro.so pcsx_rearmed_libretro.so fceumm_libretro.so snes9x2005_plus_libretro.so picodrive_libretro.so; do
 	if [ -f "$DIR/System/$c" ] && ! cmp -s "$DIR/System/$c" "$SLOT_ROOT/System/$c"; then
 		cp "$DIR/System/$c" "$SLOT_ROOT/System/$c"
 	fi

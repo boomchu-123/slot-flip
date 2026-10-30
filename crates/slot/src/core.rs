@@ -12,6 +12,12 @@ pub fn dylib_name(core: Core) -> String {
         // The core's short name is `pcsx`; the library keeps its upstream name.
         Core::Pcsx => "pcsx_rearmed",
         Core::Snes9x => "snes9x2005_plus",
+        // The Mini Plus plays the Sega systems on PicoDrive, whose 68000 and Z80
+        // cores are ARM assembly: Sonic the Hedgehog runs at 58 frames a second
+        // there against 51 on Genesis Plus GX, and Master System and Game Gear at
+        // 60.1 against 59. It is still `Core::Genesis` to the rest of Slot, which
+        // only needs to know that one core plays all three.
+        Core::Genesis if cfg!(feature = "miyoomini") => "picodrive",
         Core::Genesis => "genesis_plus_gx",
         other => other.as_str(),
     };
@@ -410,5 +416,34 @@ mod tests {
             mgba, gpsp,
             "the override stopped winning for one of the cores"
         );
+    }
+}
+
+#[cfg(test)]
+mod library_names {
+    use super::*;
+
+    #[test]
+    fn the_sega_core_is_picodrive_on_the_mini_plus_and_genesis_plus_gx_elsewhere() {
+        let want = if cfg!(feature = "miyoomini") {
+            "picodrive"
+        } else {
+            "genesis_plus_gx"
+        };
+        assert_eq!(
+            dylib_name(Core::Genesis),
+            format!("{want}_libretro.{}", std::env::consts::DLL_EXTENSION)
+        );
+    }
+
+    #[test]
+    fn the_other_cores_keep_their_library_names() {
+        let ext = std::env::consts::DLL_EXTENSION;
+        assert_eq!(dylib_name(Core::Pcsx), format!("pcsx_rearmed_libretro.{ext}"));
+        assert_eq!(
+            dylib_name(Core::Snes9x),
+            format!("snes9x2005_plus_libretro.{ext}")
+        );
+        assert_eq!(dylib_name(Core::Fceumm), format!("fceumm_libretro.{ext}"));
     }
 }
