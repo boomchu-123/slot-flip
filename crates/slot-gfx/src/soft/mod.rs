@@ -315,6 +315,12 @@ struct Game {
     col: Vec<Col>,
     col_key: Option<ColKey>,
     line: Vec<u16>,
+    /// A whole destination row already in panel byte order. The common case is
+    /// a plain scale: no mask, no dimming. Then the row is a gather of source
+    /// texels rather than 16-bit products, and building it once per source row
+    /// and copying it out for every row that repeats costs about a third of the
+    /// two multiply passes it replaces.
+    line8: Vec<u8>,
 }
 
 impl Game {
@@ -331,6 +337,7 @@ impl Game {
             col: Vec::new(),
             col_key: None,
             line: Vec::new(),
+            line8: Vec::new(),
         }
     }
 
@@ -466,6 +473,15 @@ impl Game {
         }
         let line = &mut self.line;
 
+        // No scanline mask and no dimming: every factor in the whole pass is
+        // 1.0, so the row is the source texels at destination width with a
+        // solid alpha, and the two 16-bit multiply passes are pure overhead.
+        // This is the steady state of every game.
+        let plain = !lcd && bright == 1.0;
+        if plain && self.line8.len() != width * 4 {
+            self.line8.resize(width * 4, 0);
+        }
+
         let row_bytes = img.w as usize * 4;
 
         // The vertical scale reuses each source row several times over -- 480
@@ -490,6 +506,25 @@ impl Game {
                 bright
             };
             let yk = (yk * 256.0).round().clamp(0.0, 65535.0) as u32;
+
+            if plain {
+                if built != Some((sy, row_inside)) {
+                    let srow = &img.px[sy * row_bytes..(sy + 1) * row_bytes];
+                    for (e, c) in self.line8.chunks_exact_mut(4).zip(col.iter()) {
+                        // SAFETY: as below, `off` is a texel inside this row.
+                        let s = unsafe { &*(srow.as_ptr().add(c.off as usize) as *const [u8; 4]) };
+                        e.copy_from_slice(s);
+                        e[3] = 255;
+                    }
+                    built = Some((sy, row_inside));
+                }
+                // SAFETY: one row at a time, never two at once.
+                let Some(drow) = (unsafe { dest.row(py as usize, x0 as usize, width) }) else {
+                    continue;
+                };
+                drow.copy_from_slice(&self.line8[..width * 4]);
+                continue;
+            }
 
             if built != Some((sy, row_inside)) {
                 let srow = &img.px[sy * row_bytes..(sy + 1) * row_bytes];
@@ -2005,6 +2040,36 @@ mod direct_path_tests {
         }
         if let Some((x, y, got, want)) = first {
             panic!("{n} bytes differ; first at ({x}, {y}): {got} vs {want}");
+        }
+    }
+
+    /// A frame of one colour: with no scanline mask and no dimming the game
+    /// pass takes its byte-copy path, and every pixel inside the picture must
+    /// come out as that colour with a solid alpha. A wrong factor or lane order
+    /// shows up here rather than as a game that looks slightly off.
+    #[test]
+    fn a_plain_scale_keeps_the_colour_and_sets_a_solid_alpha() {
+        let mut g = Game::new();
+        g.effect = crate::lcd3x::ScreenEffect::None;
+        g.power = 1.0;
+        let frame = [0x11u8, 0x22, 0x33, 0].repeat((SRC_W * SRC_H) as usize);
+        g.upload(&frame);
+        let mut canvas = Image::new(OUT_W, OUT_H);
+        assert_eq!(g.draw(&mut canvas, None), 2);
+
+        let (rx, ry, rw, rh) = g.rect((OUT_W, OUT_H));
+        let (x0, y0) = (rx.ceil() as usize, ry.ceil() as usize);
+        let (x1, y1) = ((rx + rw).floor() as usize, (ry + rh).floor() as usize);
+        assert!(x1 > x0 && y1 > y0, "the picture covers no pixels");
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let i = (y * OUT_W as usize + x) * 4;
+                assert_eq!(
+                    &canvas.px[i..i + 4],
+                    &[0x11, 0x22, 0x33, 255],
+                    "pixel ({x}, {y}) inside the picture"
+                );
+            }
         }
     }
 

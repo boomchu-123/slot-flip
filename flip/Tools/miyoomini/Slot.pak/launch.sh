@@ -119,6 +119,17 @@ else
 fi
 printf 'slot: launcher: cpu now %s kHz\n' "$(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq 2>/dev/null || echo unreadable)" >> "$LOG"
 
+# glibc keeps freed memory in per-thread arenas and sizes text/icons by the
+# heap, which on this console is the difference between a PlayStation game
+# running and the kernel killing the frontend. Measured on the Mini Plus: the
+# shelf rested at 38.8 MB and plays out at 32.3 with these three; two arenas is
+# enough for nine threads and still beats one on the emulator's own thread.
+export MALLOC_ARENA_MAX=2
+# Above 64 KiB every image goes to its own mapping, so freeing a label or a
+# shelf page gives the memory back instead of leaving it in the heap.
+export MALLOC_MMAP_THRESHOLD_=65536
+export MALLOC_TRIM_THRESHOLD_=65536
+
 ./slot --init-root "$SLOT_ROOT" >> "$LOG" 2>&1
 ./slot >> "$LOG" 2>&1
 sync
