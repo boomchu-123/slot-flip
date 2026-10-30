@@ -105,6 +105,51 @@ pub fn canvas_size(window: (u32, u32)) -> (u32, u32) {
 
 struct Tex {
     img: Image,
+    packed: Option<Vec<u8>>,
+    used: bool,
+    compressible: bool,
+}
+
+impl Tex {
+    fn new(img: Image) -> Self {
+        let mut tex = Self {
+            img,
+            packed: None,
+            used: false,
+            compressible: true,
+        };
+        tex.pack();
+        tex
+    }
+
+    // Hidden menus and shelf faces otherwise occupy tens of MB on a GPU-less
+    // device. Keep them losslessly packed, but leave this frame's draws hot so
+    // a stationary shelf does not decompress the same pictures every frame.
+    fn pack(&mut self) -> bool {
+        if !self.compressible || self.packed.is_some() || self.img.px.is_empty() {
+            return false;
+        }
+        let packed = lz4_flex::compress_prepend_size(&self.img.px);
+        if packed.len() >= self.img.px.len() {
+            self.compressible = false;
+            return false;
+        }
+        self.packed = Some(packed);
+        self.img.px = Vec::new();
+        true
+    }
+
+    fn unpack(&mut self) {
+        if let Some(packed) = self.packed.take() {
+            self.img.px = lz4_flex::decompress_size_prepended(&packed)
+                .expect("texture compressed by this process must round-trip");
+        }
+        self.used = true;
+    }
+
+    fn bytes(&self) -> usize {
+        self.img.px.len() + self.packed.as_ref().map_or(0, Vec::len)
+    }
 }
 
 /// Where the game pass writes: the canvas, or the panel directly.
@@ -961,12 +1006,15 @@ impl Compositor {
     }
 
     fn take_image(&mut self, id: TexId) -> Option<Image> {
-        self.textures.get_mut(id.raw())?.take().map(|t: Tex| t.img)
+        self.textures.get_mut(id.raw())?.take().map(|mut t: Tex| {
+            t.unpack();
+            t.img
+        })
     }
 
     fn put_image(&mut self, id: TexId, img: Image) {
         if let Some(slot) = self.textures.get_mut(id.raw()) {
-            *slot = Some(Tex { img });
+            *slot = Some(Tex { img, packed: None, used: true, compressible: true });
         }
     }
 
@@ -1000,6 +1048,19 @@ impl Compositor {
 
     fn draw_sprites_inner(&mut self, items: &[Draw]) {
         for item in items {
+            // A texture this backend packed to save memory is unpacked here, once
+            // per draw that uses it. `Tex::pack` skips anything that does not
+            // shrink, so a frame's worth of work is only ever paid for the
+            // pictures on screen.
+            let tex = match *item {
+                Draw::Tex { tex, .. } | Draw::Part { tex, .. } | Draw::Turned { tex, .. } => Some(tex),
+                _ => None,
+            };
+            if let Some(t) = tex.and_then(|id| self.textures.get_mut(id.raw())) {
+                if let Some(t) = t.as_mut() {
+                    t.unpack();
+                }
+            }
             // Per draw, and only while profiling: 193 clock reads a frame is
             // ~20 us here, worth paying to learn which kind owns the stage.
             let at = self.profiling.then(std::time::Instant::now);
@@ -1141,9 +1202,7 @@ impl Compositor {
         if self.profiling {
             report_alpha(id, w, h, rgba);
         }
-        self.textures.push(Some(Tex {
-            img: Image::from_rgba(w, h, rgba),
-        }));
+        self.textures.push(Some(Tex::new(Image::from_rgba(w, h, rgba))));
         TexId::from_raw(id)
     }
 
@@ -1158,10 +1217,42 @@ impl Compositor {
             report_alpha(id.raw(), w, h, rgba);
         }
         if let Some(slot) = self.textures.get_mut(id.raw()) {
-            *slot = Some(Tex {
-                img: Image::from_rgba(w, h, rgba),
-            });
+            *slot = Some(Tex::new(Image::from_rgba(w, h, rgba)));
         }
+    }
+
+    /// How many textures are held and the bytes of pixels behind them. With no
+    /// GPU memory to put them in, they are slot's own memory on this backend, and
+    /// a report of where a small console's memory went needs the figure.
+    pub fn texture_bytes(&self) -> (usize, usize) {
+        self.textures
+            .iter()
+            .flatten()
+            .fold((0, 0), |(n, b), t| (n + 1, b + t.bytes()))
+    }
+
+    /// Frees a texture's pixels and keeps its id, which draws nothing until
+    /// `update_texture` puts an image there again. A game that fills the screen
+    /// needs none of the shelf's faces, and on a console with no GPU memory they
+    /// are slot's own.
+    pub fn release_texture(&mut self, id: TexId) {
+        if let Some(slot) = self.textures.get_mut(id.raw()) {
+            *slot = None;
+        }
+    }
+
+    /// The largest groups of same-sized textures: (width, height, how many).
+    pub fn texture_sizes(&self, top: usize) -> Vec<(u32, u32, usize)> {
+        let mut groups: Vec<(u32, u32, usize)> = Vec::new();
+        for t in self.textures.iter().flatten() {
+            match groups.iter_mut().find(|g| g.0 == t.img.w && g.1 == t.img.h) {
+                Some(g) => g.2 += 1,
+                None => groups.push((t.img.w, t.img.h, 1)),
+            }
+        }
+        groups.sort_by_key(|g| std::cmp::Reverse(g.0 as usize * g.1 as usize * g.2));
+        groups.truncate(top);
+        groups
     }
 
     pub fn set_blue_light(&mut self, step: u8) {
@@ -1244,6 +1335,9 @@ impl Compositor {
     }
 
     pub fn begin_frame(&mut self) {
+        for t in self.textures.iter_mut().flatten() {
+            t.used = false;
+        }
         self.game.fbo_scale = [
             self.canvas.w as f32 / OUT_W as f32,
             self.canvas.h as f32 / OUT_H as f32,
@@ -1294,6 +1388,20 @@ impl Compositor {
     pub fn end_frame(&mut self, window: (u32, u32)) {
         let t = std::time::Instant::now();
         self.output_frame(window);
+        let mut released = 0;
+        for t in self.textures.iter_mut().flatten() {
+            if !t.used && t.pack() {
+                released += 1;
+            }
+        }
+        // glibc keeps freed pages rather than returning them, so packing alone
+        // does not lower the resident size the kernel is judging.
+        #[cfg(target_env = "gnu")]
+        if released > 0 {
+            unsafe {
+                libc::malloc_trim(0);
+            }
+        }
         if self.profiling {
             let us = t.elapsed().as_micros() as u64;
             self.profile.out_us += us;
@@ -1532,6 +1640,39 @@ impl Compositor {
             }
         }
         let _ = SCALE;
+    }
+}
+
+#[cfg(test)]
+mod packed_texture_tests {
+    use super::{Image, Tex};
+
+    #[test]
+    fn hidden_texture_round_trips_without_losing_colour_or_alpha() {
+        let rgba: Vec<u8> = (0..4096).map(|i| (i % 251) as u8).collect();
+        let image = Image::from_rgba(32, 32, &rgba);
+        let expected = image.px.clone();
+        let mut tex = Tex::new(image);
+        assert!(tex.bytes() < expected.len());
+        assert!(tex.img.px.is_empty());
+        for _ in 0..3 {
+            tex.unpack();
+            assert!(tex.used);
+            assert_eq!(tex.img.px, expected);
+            assert_eq!((tex.img.w, tex.img.h), (32, 32));
+            assert!(tex.pack());
+            assert!(!tex.pack(), "already packed texture was compressed twice");
+        }
+    }
+
+    #[test]
+    fn tiny_incompressible_texture_stays_raw() {
+        let mut tex = Tex::new(Image::from_rgba(1, 1, &[1, 2, 3, 4]));
+        assert!(tex.packed.is_none());
+        assert_eq!(tex.bytes(), 4);
+        assert!(!tex.pack());
+        tex.unpack();
+        assert_eq!(tex.img.px, [3, 2, 1, 4]);
     }
 }
 

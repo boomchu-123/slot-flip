@@ -1832,7 +1832,19 @@ impl App {
         }
     }
 
+    /// Whether the shelf's pictures can be put down. On the Mini Plus they are
+    /// pixels in the frontend's own memory, about 13 MB of the roughly 75 MB the
+    /// kernel lets it have, and a game that fills the screen is where it needs
+    /// them least: the PlayStation core and large GBA ROMs ran the console out
+    /// of memory with them still held.
+    pub fn playing_lean(&self) -> bool {
+        cfg!(feature = "miyoomini") && matches!(self.phase, Phase::Playing { .. })
+    }
+
     pub fn face_wants(&self) -> Vec<FaceWant> {
+        if self.playing_lean() {
+            return Vec::new();
+        }
         let here = self.shelf();
         let screen = here.on_screen();
         let mut wants: Vec<(usize, usize)> = screen.iter().map(|i| (self.shelf_at, *i)).collect();
@@ -1870,9 +1882,17 @@ impl App {
 
     pub fn shed_faces(&mut self) -> Vec<TexId> {
         let neighbours = self.neighbour_shelves();
+        let lean = self.playing_lean();
         let mut shed = std::mem::take(&mut self.orphaned);
         for (at, (_, shelf)) in self.shelves.iter_mut().enumerate() {
-            let keep = if at == self.shelf_at {
+            let keep = if lean {
+                // The cart in the slot keeps its face: it is drawn again when it
+                // comes out.
+                match at == self.shelf_at {
+                    true => vec![shelf.index],
+                    false => Vec::new(),
+                }
+            } else if at == self.shelf_at {
                 shelf.around(FACE_KEEP)
             } else if neighbours.contains(&at) {
                 shelf.on_screen()

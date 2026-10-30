@@ -2413,3 +2413,36 @@ fn a_console_that_has_not_been_drawn_yet_falls_back_to_the_cart_slot_for_every_s
     assert!(a.console_slot_wanted());
     assert!(uses_tex(&a, 78), "a NES shelf drew no slot at all");
 }
+
+#[cfg(feature = "miyoomini")]
+#[test]
+fn a_game_on_a_small_console_lets_go_of_the_shelf_faces_and_takes_them_back() {
+    let mut a = app_with_carts(&["Emerald", "Fusion", "Zzz"]);
+    assert!(!a.playing_lean());
+    assert!(
+        !a.face_wants().is_empty(),
+        "the shelf wanted no faces before any game"
+    );
+
+    a.apply(Action::Insert);
+    a.on_core_ready();
+    for _ in 0..120 {
+        a.update(1.0 / 60.0);
+    }
+    assert!(matches!(a.phase(), Phase::Playing { .. }));
+    assert!(a.playing_lean(), "a playing game still holds the shelf");
+    assert!(
+        a.face_wants().is_empty(),
+        "a playing game still asked for faces"
+    );
+
+    a.apply(Action::Eject);
+    for _ in 0..120 {
+        a.update(1.0 / 60.0);
+    }
+    assert!(!a.playing_lean());
+    assert!(
+        !a.face_wants().is_empty(),
+        "the shelf did not ask for its faces back after the game"
+    );
+}

@@ -32,6 +32,9 @@ pub struct CartFaces {
     pending: HashSet<Key>,
     asked: Vec<FaceWant>,
     free: Vec<TexId>,
+    /// Whether the pages the faces held went back to the kernel for the game
+    /// that is playing: freeing a buffer only hands it to the allocator.
+    trimmed: bool,
 }
 
 impl CartFaces {
@@ -53,11 +56,25 @@ impl CartFaces {
             pending: HashSet::new(),
             asked: Vec::new(),
             free: Vec::new(),
+            trimmed: false,
         }
     }
 
     pub fn sync(&mut self, app: &mut App, compositor: &mut Compositor) {
         self.free.extend(app.shed_faces());
+        #[cfg(feature = "miyoomini")]
+        {
+            let lean = app.playing_lean();
+            if lean {
+                for tex in &self.free {
+                    compositor.release_texture(*tex);
+                }
+                if !self.trimmed {
+                    unsafe { libc::malloc_trim(0) };
+                }
+            }
+            self.trimmed = lean;
+        }
         while let Ok((key, face, interior)) = self.built.try_recv() {
             self.place(app, compositor, key, face, interior);
         }
