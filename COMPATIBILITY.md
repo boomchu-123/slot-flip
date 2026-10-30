@@ -253,10 +253,11 @@ not tried), L3/R3 reaching a game, and the analog sticks in Final Fantasy VII.
 
 No GPU: the picture is drawn by the CPU rasteriser, not the Flip's GLES path, and
 the console has about 100 MB of memory in all. **Not 1.0-ready:** all nine systems
-run, but Mega Drive, Super Nintendo, Game Boy Color and PlayStation are short of full speed.
+run, but Super Nintendo, Game Boy Color and PlayStation are short of full speed.
 
-**Checked on:** the build after exp-v0.4.14 (unreleased), a Mini Plus on its own
-firmware with no MinUI, 2026-10-30. Slot started from the card's own boot entry
+**Checked on:** the exp-v0.5.0 release-candidate build and the later PicoDrive
+development zip, on a Mini Plus running its own firmware with no MinUI, 2026-10-30.
+Slot started from the card's own boot entry
 (`miyoo354/app/MainUI`), every run came from the console's cold boot or a restart of
 Slot, and the figures are the emulator's own frame count and the process's resident
 memory read from `/proc`, over a 40 second run after the first frame. One game per
@@ -266,9 +267,9 @@ system; nothing was played through.
 | --- | --- | --- | --- | --- | --- |
 | NES | Asterix (Europe) | 50.1 | 50 (a PAL game) | 30.1 MB | 49.2 MB |
 | Super Nintendo | Chrono Trigger | **51.1** | about 60 | 46.8 MB | 27.7 MB |
-| Mega Drive | Sonic the Hedgehog | **51.0** | 59.9 | 43.9 MB | 29.6 MB |
-| Master System | Phantasy Star | 58.6 | about 60 | 45.1 MB | 28.2 MB |
-| Game Gear | Shinobi II | 59.7 | about 60 | 44.9 MB | 28.4 MB |
+| Mega Drive | Sonic the Hedgehog | 58.2 | 60.0 | 38.3 MB | 39.9 MB |
+| Master System | Phantasy Star | 60.1 | 60.0 | 28.6 MB | 46.6 MB |
+| Game Gear | Shinobi II | 60.1 | 60.0 | 35.3 MB | 40.0 MB |
 | Game Boy | Pokemon Red | 58.3 | 59.7 | 31.8 MB | 43.2 MB |
 | Game Boy Color | Link's Awakening DX | **56.2** | 59.7 | 37.7 MB | 37.1 MB |
 | Game Boy Advance | Pokemon Emerald | 58.7 | 59.7 | 53.1 MB | 20.8 MB |
@@ -277,7 +278,8 @@ system; nothing was played through.
 Bold is short of the core's rate by more than a frame in twenty. A picture was read
 back from the panel for each, and each was a real picture, not a blank. **Super
 Nintendo's rewind** costs it about six frames a second (57.4 with it off, measured
-once on `performance`); Mega Drive does not change with it.
+once on `performance`). The Sega figures are from the later PicoDrive build installed
+from its complete zip; the other rows are from the exp-v0.5.0 release-candidate build.
 
 - **PlayStation runs and stays up.** It is the system the console could not hold
   before: the core reserved a 16 MB translation cache and the frontend held 30 MB
@@ -289,27 +291,27 @@ once on `performance`); Mega Drive does not change with it.
   21 MB spare, a real picture on the panel and no kernel kill. **At 52 frames a second it is
   playable, not full speed.**
 - **Where the time goes.** The picture path costs about 2.5 ms a frame (it was
-  about 7 ms for the game plus 7 ms to copy it out); the shortfall is the emulator
-  thread itself, measured at about 16 ms of CPU per Mega Drive frame. A rebuild of
-  the Genesis core with this project's recipe came out byte-for-byte the same as the
-  one already on the card, so the core is not mis-built; why it is slow here is open.
+  about 7 ms for the game plus 7 ms to copy it out). Genesis Plus GX itself took
+  about 16 ms of CPU per Mega Drive frame; a byte-identical rebuild ruled out a bad
+  build. PicoDrive's ARM assembly cores bring Mega Drive to 58.2 fps and Master
+  System and Game Gear to 60.1, while using less memory. The remaining shortfalls
+  are in the other emulator threads.
 - **Install on the console's own launcher, no MinUI.** `App/Slot` is the launcher
   entry and `miyoo354/app/MainUI` boots straight into Slot, with the console's own
   launcher kept as `MainUI.stock`. The release zip was built from the committed
   tree, and its `install.sh` was run on the console itself (`--check`, `--dry-run`,
   then a real install over an existing one, under the console's own BusyBox shell):
   the installed files match the zip byte for byte, `MainUI.stock` survived, and
-  the next cold boot reached Slot by itself. The table above is that install's
-  run; an earlier run on the same build, before the install, agreed to within about
-  a frame. **Not done:** installing onto a card that has never had Slot, and
-  getting to the stock menu through `boot-menu` by hand on a fresh card (the flag
-  was used once to stop Slot for the install, and removed by the installer).
+  the next cold boot reached Slot by itself. The fresh-install path was also checked:
+  the stock `MainUI` was restored, the old App and pak removed, the zip installed,
+  and a cold boot reached Slot while keeping `MainUI.stock`. Creating
+  `Slot/Config/boot-menu` then cold-booted the stock menu; removing it returned the
+  next cold boot to Slot. The table above is the installed build's run.
 - **Display, buttons, power, brightness, sound** were checked on exp-v0.4.x as a
   MinUI Tool (below) and have not been re-checked one by one on this build. The
   nine runs were started through Slot's state file, not with buttons, and the sound
-  was not listened to. Mega Drive's audio queue under-ran heavily in the runs (the
-  core produces frames more slowly than the sound card consumes them), so expect it
-  to sound wrong until the speed is fixed.
+  was not listened to. Mega Drive's earlier Genesis Plus GX run under-ran heavily;
+  sound on the faster PicoDrive build has not been judged by ear.
 
 Earlier results, kept because they are still the evidence for buttons, display and
 sound:

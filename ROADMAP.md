@@ -120,7 +120,8 @@ that has to be merged twice.
 
 - **Stay free and open source.** No plans to sell. Donations never unlock
   anything. Non-commercial cores are bundled knowingly in the one free download
-  (snes9x2005, Genesis Plus GX, and PicoDrive if it is added), with their notices.
+  (snes9x2005 and Genesis Plus GX on the Flip; snes9x2005 and PicoDrive on the
+  Mini Plus), with their notices.
 - **Not a goal:** a desktop app. The `host` build is development and render-test
   tooling.
 
@@ -173,17 +174,18 @@ buttons, power, backlight and cores.
   scale (no scanline mask, no dimming) copies bytes instead of multiplying 16-bit
   lanes twice.
 - 🟡 **Speed.** Game Boy, GBA, Master System and Game Gear are within a frame or two
-  of the core's rate. **Mega Drive and Super Nintendo run at about 51 frames a
-  second, Game Boy Color at 56, PlayStation at about 52.** What is left is the
-  emulator thread itself (about 16 ms of CPU a Mega Drive frame), not the picture
-  path. This is the open 1.0 item for the device.
+  of the core's rate. Mega Drive moved from Genesis Plus GX to PicoDrive and rose
+  from 51.0 to 58.2 frames a second. **Super Nintendo runs at about 51 frames a
+  second, Game Boy Color at 56, and PlayStation at about 52.** What is left is in
+  those emulator threads, not the picture path. This is the open 1.0 item for the
+  device.
 - ✅ **Button node found on purpose, not by luck** (exp-v0.4.14). Tested in code.
 - ✅ **Install on the console's own launcher.** `Slot-miyoomini.zip`, `install.sh`
   (one script for both devices) and the CI job exist, and the installer is covered
-  by tests on stand-in folders and was run on the console itself over an existing
-  install (cold boot reached Slot afterwards). **Not done: an install onto a card
-  that has never had Slot; in-game saves, a PlayStation memory card and a disc
-  change on this console. (Resume states do round-trip across a restart.)**
+  by tests on stand-in folders. Both update and fresh-install paths were run on the
+  console itself; cold boot reached Slot, the stock menu escape worked, and
+  `MainUI.stock` survived. **Not done: in-game saves, a PlayStation memory card and
+  a disc change on this console. (Resume states do round-trip across a restart.)**
 - 📋 **Which lines the stock launcher leaves unset**, the way `joy_type` is on the
   Flip, so `launch.sh` sets them for itself and restores them on exit. Not done.
 

@@ -30,7 +30,7 @@ for this fork are in the [changelog](CHANGELOG.md).
 | --- | --- | --- | --- | --- |
 | **Miyoo Flip** | `my355` | `Tools/my355/Slot.pak` (MinUI) or `App/Slot` (stock firmware) | ✅ **Supported** (stable) | [Latest release](https://github.com/boomchu-123/slot-flip/releases/latest) |
 | **Miyoo A30** | `my282` | `Tools/my282/Slot.pak` | 🧪 **Experimental** — has a GPU, may work; unverified | [Pre-releases](https://github.com/boomchu-123/slot-flip/releases) |
-| **Miyoo Mini Plus** | `miyoomini` | `App/Slot` (stock firmware) or `Tools/miyoomini/Slot.pak` (MinUI) | 🟡 **Release candidate** — all nine systems run on the stock firmware; Mega Drive, Super Nintendo and PlayStation are below full speed | [Latest release](https://github.com/boomchu-123/slot-flip/releases/latest) |
+| **Miyoo Mini Plus** | `miyoomini` | `App/Slot` (stock firmware) or `Tools/miyoomini/Slot.pak` (MinUI) | 🟡 **Release candidate** — all nine systems run on the stock firmware; Super Nintendo, Game Boy Color and PlayStation are below full speed | [Pre-releases](https://github.com/boomchu-123/slot-flip/releases) |
 | Any other MinUI device | — | — | ❌ Not supported | — |
 
 The Flip's stock firmware is supported: unzip `Slot-my355.zip` at the card root and
@@ -47,9 +47,10 @@ platform folder doesn't match, and even if copied across it won't run.
 and the console starts in Slot on its own firmware, with its own menu kept as
 `miyoo354/app/MainUI.stock`. It has **no GPU**, so it draws with a CPU rasteriser,
 and about 100 MB of memory in all. On the tested console every one of the nine
-systems runs, but only the Game Boy, Game Boy Advance, Master System and Game Gear
-are within a frame or two of full speed; **Mega Drive and Super Nintendo run at
-about 51 frames a second, Game Boy Color at 56, and PlayStation at about 52**. The
+systems runs. Mega Drive moved from Genesis Plus GX to PicoDrive on this device and
+now runs at about 58 frames a second; Master System and Game Gear hold 60. **Super
+Nintendo runs at about 51 frames a second, Game Boy Color at 56, and PlayStation at
+about 52.** The
 numbers, and what has not been checked, are in
 [COMPATIBILITY.md](COMPATIBILITY.md); the install is in [INSTALL.md](INSTALL.md).
 
@@ -366,8 +367,9 @@ save made in MinUI does not carry over.
 Put games in `Slot/Games/MD` (`.md`, `.gen`, `.smd`, `.bin`), `Slot/Games/SMS` (`.sms`)
 and `Slot/Games/GG` (`.gg`). A shelf appears for each system that has games, and each
 game is a black cartridge with a label; put art in `Slot/Labels/MD/` (or `SMS`, `GG`)
-as for the other systems. All three run on one core, Genesis Plus GX, which is
-licensed for non-commercial use only: see [Credits & licence](#credits--licence). The
+as for the other systems. All three run on Genesis Plus GX on the Flip and PicoDrive
+on the Mini Plus. Both cores are licensed for non-commercial use only: see
+[Credits & licence](#credits--licence). The
 `.bin` extension is only taken from the `MD` folder, so it never mixes with a
 PlayStation disc's tracks.
 
@@ -583,13 +585,13 @@ is **not** affiliated with or endorsed by the original author.
   GPL fork, source stays open.
 
 Emulation is by libretro cores: **mGBA** (MPL-2.0), **gpSP**, **PCSX-ReARMed** and
-**fceumm** (GPL-2.0), **snes9x2005** and **Genesis Plus GX**. Their licences, and the
+**fceumm** (GPL-2.0), **snes9x2005**, **Genesis Plus GX** and **PicoDrive**. Their licences, and the
 source of the ones that ask for it, are in `Slot.pak/System/licenses/`.
 
 **This download is free and has to stay free.** snes9x2005, the Super Nintendo
 core inside it, may be used, copied and shared for non-commercial purposes only, and
-Genesis Plus GX, which plays the Sega systems, may not be sold or used in a
-commercial product or activity. So you may use and share this download, but do not
+Genesis Plus GX and PicoDrive, which play the Sega systems on the two devices, may
+not be sold or used in a commercial product or activity. So you may use and share this download, but do not
 sell it, charge for it, or bundle it with anything that is sold. Donations to the project are fine, and
 never unlock anything. See `System/licenses/NOTICE-NONCOMMERCIAL.txt`. (A plain
 reading of the licences, not legal advice.)
