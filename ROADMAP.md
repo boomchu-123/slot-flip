@@ -182,8 +182,8 @@ buttons, power, backlight and cores.
   (one script for both devices) and the CI job exist, and the installer is covered
   by tests on stand-in folders and was run on the console itself over an existing
   install (cold boot reached Slot afterwards). **Not done: an install onto a card
-  that has never had Slot, and saves across a reboot, save states and a disc
-  change on this console.**
+  that has never had Slot; in-game saves, a PlayStation memory card and a disc
+  change on this console. (Resume states do round-trip across a restart.)**
 - 📋 **Which lines the stock launcher leaves unset**, the way `joy_type` is on the
   Flip, so `launch.sh` sets them for itself and restores them on exit. Not done.
 

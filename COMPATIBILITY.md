@@ -332,8 +332,12 @@ sound:
 
 **Not checked, or known not to work:**
 
-- **Saves across a reboot, save states and a PlayStation disc change** on this
-  console. They work on the Flip; nobody has done them here.
+- **Resume works; in-game saves and a disc change are untried.** Stopping Slot
+  cleanly (SIGTERM) writes `resume.state` and the next start reads it back; this was
+  seen for Pokemon Emerald (426 KB) and Crash Bandicoot (4.4 MB) on 2026-10-30. No
+  game was played to a save point, so a battery save, a PlayStation memory-card write
+  and a disc change have **not** been exercised on this console (the memory card
+  and disc change work on the Flip). Quick-menu save states were not used either.
 - **Pokemon Emerald on mGBA** still fails a moment after loading (it asks for a 32 MB
   map with about 30 MB spare). gpSP, the default, plays it.
 - **A second PlayStation game.** Only Crash Bandicoot was run; Tekken 3 and the
