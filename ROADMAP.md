@@ -173,19 +173,28 @@ buttons, power, backlight and cores.
 - ✅ **The picture path went from about 14 ms to about 2.5 ms a frame**: the plain
   scale (no scanline mask, no dimming) copies bytes instead of multiplying 16-bit
   lanes twice.
-- 🟡 **Speed.** Game Boy, GBA, Master System and Game Gear are within a frame or two
-  of the core's rate. Mega Drive moved from Genesis Plus GX to PicoDrive and rose
-  from 51.0 to 58.2 frames a second. **Super Nintendo runs at about 51 frames a
-  second, Game Boy Color at 56, and PlayStation at about 52.** What is left is in
-  those emulator threads, not the picture path. This is the open 1.0 item for the
-  device.
+- 🟡 **Speed.** Game Boy, GBA, Master System, Game Gear and Mega Drive are within a
+  frame or two of the core's rate (Mega Drive moved from Genesis Plus GX to PicoDrive
+  and rose from 51.0 to 58.2). **Super Nintendo runs at about 52 frames a second,
+  Game Boy Color at 56 and PlayStation at 48 to 52.** The picture path is no longer
+  the cost. Recording rewind history costs Super Nintendo about 5 frames a second
+  and Game Boy Color about 4 (Game Boy Color is at full speed with it off), so
+  making rewind cheaper here is the next step, then Super Nintendo's core and
+  PlayStation's render thread. This is the open 1.0 item for the device. The working
+  plan, in order, is [MINI-PLUS-1.0-PLAN.md](MINI-PLUS-1.0-PLAN.md).
+- ✅ **Published as a release candidate** (`exp-v0.5.0`, pre-release): the zip that
+  was built locally and tested on a console. It predates PicoDrive. CI builds the
+  same zip (the `release` job passes since the packaging fix), but the published
+  asset was not built by CI.
 - ✅ **Button node found on purpose, not by luck** (exp-v0.4.14). Tested in code.
 - ✅ **Install on the console's own launcher.** `Slot-miyoomini.zip`, `install.sh`
   (one script for both devices) and the CI job exist, and the installer is covered
   by tests on stand-in folders. Both update and fresh-install paths were run on the
   console itself; cold boot reached Slot, the stock menu escape worked, and
-  `MainUI.stock` survived. **Not done: in-game saves, a PlayStation memory card and
-  a disc change on this console. (Resume states do round-trip across a restart.)**
+  `MainUI.stock` survived. **Not done: in-game saves, a PlayStation memory card, a
+  disc change, quick-menu save states and listening to the sound on this console.
+  (Resume states do round-trip across a restart.)** Three `miyoomini` app tests also
+  fail and are on the plan.
 - 📋 **Which lines the stock launcher leaves unset**, the way `joy_type` is on the
   Flip, so `launch.sh` sets them for itself and restores them on exit. Not done.
 

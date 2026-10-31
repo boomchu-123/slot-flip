@@ -277,8 +277,9 @@ system; nothing was played through.
 
 Bold is short of the core's rate by more than a frame in twenty. A picture was read
 back from the panel for each, and each was a real picture, not a blank. **Super
-Nintendo's rewind** costs it about six frames a second (57.4 with it off, measured
-once on `performance`). The Sega figures are from the later PicoDrive build installed
+Nintendo's rewind** costs it about five frames a second (51.7 with it on and 56.6
+off, measured on 2026-10-31) and **Game Boy Color's** about four (55.9 and 59.9);
+rewind is on by default. The Sega figures are from the later PicoDrive build installed
 from its complete zip; the other rows are from the exp-v0.5.0 release-candidate build.
 
 - **PlayStation runs and stays up.** It is the system the console could not hold
