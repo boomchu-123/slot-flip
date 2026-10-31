@@ -1,8 +1,9 @@
 name: release
 
-# Builds the Miyoo Flip (my355) frontend for the tag and publishes a ready-to-use
-# Slot.pak-my355.zip. The emulator cores in Slot.pak/System/ are committed, so CI
-# only has to build the `slot` binary and package everything up.
+# Builds both 1.0 devices for the tag -- the Miyoo Flip (my355, aarch64) and the
+# Miyoo Mini Plus (miyoomini, armv7) -- and publishes Slot-my355.zip and
+# Slot-miyoomini.zip. The emulator cores in each pak's System/ are committed, so
+# CI only has to build the `slot` binary and package everything up.
 
 on:
   push:
@@ -85,9 +86,78 @@ jobs:
             Slot-my355.zip
           if-no-files-found: error
 
+  build-miyoomini:
+    name: miyoomini pak
+    runs-on: ubuntu-24.04-arm
+    container: rust:1-bullseye
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install zip and the armv7 linker
+        run: |
+          set -eu
+          sed -i '/bullseye-security/d' /etc/apt/sources.list || true
+          apt-get -o Acquire::Check-Valid-Until=false update
+          apt-get install -y --no-install-recommends zip gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
+
+      - name: Build the Mini Plus frontend (armv7)
+        env:
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
+        run: |
+          set -eu
+          rustup target add armv7-unknown-linux-gnueabihf
+          cargo build --release -p slot --no-default-features --features miyoomini --target armv7-unknown-linux-gnueabihf --target-dir target-miyoomini
+
+      - name: Assemble Slot.pak
+        run: |
+          set -eu
+          pak="flip/Tools/miyoomini/Slot.pak"
+          cp target-miyoomini/armv7-unknown-linux-gnueabihf/release/slot "$pak/slot"
+          chmod +x "$pak/slot" "$pak/launch.sh"
+          # The same sanity checks a user would trip over.
+          file "$pak/slot" | grep -q "ELF 32-bit"
+          file "$pak/slot" | grep -q ARM
+          for core in mgba gpsp pcsx_rearmed fceumm snes9x2005_plus picodrive; do
+            file "$pak/System/${core}_libretro.so" | grep -q "ELF 32-bit"
+          done
+          test -x "$pak/launch.sh"
+          sh tools/check-pak-licences.sh "$pak"
+          for f in gpsp-GPL-2.0.txt mgba-MPL-2.0.txt gpsp-src.tar.gz \
+            pcsx-GPL-2.0.txt pcsx-src.tar.gz pcsx_rearmed_libretro.so.meta \
+            NOTICE-NONCOMMERCIAL.txt; do
+            test -f "$pak/System/licenses/$f"
+          done
+
+      - name: Package
+        id: package
+        run: |
+          set -eu
+          stage="$(mktemp -d)"
+          mkdir -p "$stage/Tools/miyoomini" "$stage/App"
+          cp -R flip/Tools/miyoomini/Slot.pak "$stage/Tools/miyoomini/Slot.pak"
+          cp -R flip/App-miyoomini/Slot "$stage/App/Slot"
+          cp -R flip/autoboot/miyoo354 "$stage/miyoo354"
+          cp tools/install-slot.sh "$stage/install.sh"
+          chmod +x "$stage/install.sh"
+          ( cd "$stage" && zip -qry "$GITHUB_WORKSPACE/Slot-miyoomini.zip" App Tools miyoo354 install.sh )
+          unzip -l Slot-miyoomini.zip | grep -q "App/Slot/config.json"
+          unzip -l Slot-miyoomini.zip | grep -q "Tools/miyoomini/Slot.pak/launch.sh"
+          unzip -l Slot-miyoomini.zip | grep -q "miyoo354/app/MainUI"
+          unzip -l Slot-miyoomini.zip | grep -q "install.sh"
+          unzip -l Slot-miyoomini.zip | grep -q "pcsx_rearmed_libretro.so"
+          unzip -l Slot-miyoomini.zip | grep -q "NOTICE-NONCOMMERCIAL.txt"
+          echo "zip=Slot-miyoomini.zip" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.package.outputs.zip }}
+          path: |
+            Slot-miyoomini.zip
+          if-no-files-found: error
+
   publish:
     name: release
-    needs: build
+    needs: [build, build-miyoomini]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
@@ -97,17 +167,27 @@ jobs:
         with:
           name: Slot-my355.zip
 
+      - uses: actions/download-artifact@v8
+        with:
+          name: Slot-miyoomini.zip
+
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
           cat > notes.md <<'NOTES'
-          Miyoo Flip (my355) build of slot, for the Flip's own firmware.
+          slot for both Miyoo 1.0 devices, each on the firmware it ships with and
+          with no MinUI needed:
 
-          **Install:** unzip `Slot-my355.zip` at the **root of your SD card**. Slot
-          then appears in the launcher's App list, and the device boots straight
-          into Slot. Nothing on the device is changed and nothing is reformatted.
+          - **Miyoo Flip** -- `Slot-my355.zip`
+          - **Miyoo Mini Plus** -- `Slot-miyoomini.zip`
+
+          **Install:** unzip the zip for your device at the **root of your SD card**.
+          Slot then appears in the launcher's App list, and the device boots straight
+          into Slot. On the Mini Plus the stock launcher is kept beside the hand-over
+          script as `miyoo354/app/MainUI.stock`. Nothing on the device is changed
+          and nothing is reformatted.
 
           **Prefer a script?** The zip has `install.sh` in it: run it and it finds
           the card, checks it, backs up what it replaces and copies everything.
@@ -125,7 +205,7 @@ jobs:
           affiliated with the upstream author or Nintendo. Use your own
           legally-dumped ROMs.
           NOTES
-          gh release create "$GITHUB_REF_NAME" Slot-my355.zip \
+          gh release create "$GITHUB_REF_NAME" Slot-my355.zip Slot-miyoomini.zip \
             --repo "$GITHUB_REPOSITORY" \
-            --title "slot-flip $GITHUB_REF_NAME (Miyoo Flip)" \
+            --title "slot-flip $GITHUB_REF_NAME (Miyoo Flip, Miyoo Mini Plus)" \
             --notes-file notes.md

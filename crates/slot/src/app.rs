@@ -130,6 +130,12 @@ const ALERT_GONE: f32 = 0.9;
 
 const CLOCK_FLOOR: i64 = 1_577_836_800;
 
+/// Where the clock picker starts when the clock has lost its year: 2026-01-01.
+/// A console whose clock resets reads 2016 on first boot, and a picker that
+/// starts there makes the person scroll the year up ten times before the date
+/// can even be right. The build predates nothing earlier than this.
+const CLOCK_DEFAULT: i64 = 1_767_225_600;
+
 pub enum PendingUndo {
     Save {
         stamp: String,
@@ -1826,7 +1832,19 @@ impl App {
         }
     }
 
+    /// Whether the shelf's pictures can be put down. On the Mini Plus they are
+    /// pixels in the frontend's own memory, about 13 MB of the roughly 75 MB the
+    /// kernel lets it have, and a game that fills the screen is where it needs
+    /// them least: the PlayStation core and large GBA ROMs ran the console out
+    /// of memory with them still held.
+    pub fn playing_lean(&self) -> bool {
+        cfg!(feature = "miyoomini") && matches!(self.phase, Phase::Playing { .. })
+    }
+
     pub fn face_wants(&self) -> Vec<FaceWant> {
+        if self.playing_lean() {
+            return Vec::new();
+        }
         let here = self.shelf();
         let screen = here.on_screen();
         let mut wants: Vec<(usize, usize)> = screen.iter().map(|i| (self.shelf_at, *i)).collect();
@@ -1864,9 +1882,17 @@ impl App {
 
     pub fn shed_faces(&mut self) -> Vec<TexId> {
         let neighbours = self.neighbour_shelves();
+        let lean = self.playing_lean();
         let mut shed = std::mem::take(&mut self.orphaned);
         for (at, (_, shelf)) in self.shelves.iter_mut().enumerate() {
-            let keep = if at == self.shelf_at {
+            let keep = if lean {
+                // The cart in the slot keeps its face: it is drawn again when it
+                // comes out.
+                match at == self.shelf_at {
+                    true => vec![shelf.index],
+                    false => Vec::new(),
+                }
+            } else if at == self.shelf_at {
                 shelf.around(FACE_KEEP)
             } else if neighbours.contains(&at) {
                 shelf.on_screen()
@@ -6447,8 +6473,11 @@ fn ff_next(from: u8, right: bool) -> u8 {
 }
 
 fn clock_screen(utc: i64, offset_min: i16, from_menu: bool) -> Phase {
+    // The picker starts somewhere sensible, but the seed stays the real time:
+    // confirming adds the distance the picker moved to the clock as it is.
+    let shown = if utc < CLOCK_FLOOR { CLOCK_DEFAULT } else { utc };
     Phase::SetClock {
-        picker: ClockPicker::local(utc, offset_min),
+        picker: ClockPicker::local(shown, offset_min),
         seed: utc - utc.rem_euclid(60),
         from_menu,
     }

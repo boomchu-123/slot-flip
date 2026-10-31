@@ -33,29 +33,46 @@ if [ -f "$DIR/DEBUG" ]; then
 	export SLOT_TRACE_LATENCY=1
 fi
 
-# Which sound output to use, if the default gives trouble. Slot calls the vendor
-# audio library the way the launcher's own SDL does, so the preloaded libpadsp
-# in front of it can hand the calls to the console's audio server, and falls back
-# to ALSA by itself. A file Config/audio holding "alsa" makes it use ALSA
-# straight away; "takeover" makes it stop the audio server and take the sound
-# device if the device is refused, which silences the console's own sounds until
-# slot exits. Comparing them is a one-line change, not a rebuild.
+# Which sound output to use, if the default gives trouble. Slot plays through the
+# console's audio server (the /dev/dsp the launcher's own sound uses, answered by
+# the preloaded libpadsp), then tries the vendor audio calls, then ALSA. A file
+# Config/audio holding "alsa" makes it use ALSA straight away; "vendor" tries the
+# vendor calls first; "takeover" makes it stop the audio server and take the
+# sound device, which silences the console's own sounds until slot exits.
+# Comparing them is a one-line change, not a rebuild.
 if [ -f "$SLOT_ROOT/Config/audio" ]; then
 	SLOT_AUDIO="$(tr -cd 'a-zA-Z' < "$SLOT_ROOT/Config/audio")"
 	[ -z "$SLOT_AUDIO" ] || export SLOT_AUDIO
 fi
 
+# Give mGBA the ROM's path and not its bytes, for a ROM of 8 MiB or more. It
+# copies what it is given into a memory map of its own, and the console has too
+# little memory for that on a large ROM (Pokemon Emerald, 16 MB, crashed it the
+# moment it loaded). Smaller ROMs load as before.
+export SLOT_LOAD_BY_PATH=mGBA
+
+# The Genesis core carries 35 MB of zero-filled memory and the PlayStation core
+# 23 MB. On a console with about 100 MB the kernel's default heuristic refuses
+# to map that once the frontend is resident ("cannot map zero-fill pages"), so
+# three of the nine systems never load. Zero pages cost nothing until a core
+# writes to them; the price is that real exhaustion ends in the kernel's
+# out-of-memory kill rather than a failed load.
+[ ! -w /proc/sys/vm/overcommit_memory ] || echo 1 > /proc/sys/vm/overcommit_memory
+
 # Seed the emulator cores into Slot/System, replacing a copy that differs so a
 # core fix in a new pak reaches an existing card. `cmp -s` is the test the Flip
 # pak uses for the same reason.
 mkdir -p "$SLOT_ROOT/System"
-for c in mgba_libretro.so gpsp_libretro.so; do
+for c in mgba_libretro.so gpsp_libretro.so pcsx_rearmed_libretro.so fceumm_libretro.so snes9x2005_plus_libretro.so picodrive_libretro.so; do
 	if [ -f "$DIR/System/$c" ] && ! cmp -s "$DIR/System/$c" "$SLOT_ROOT/System/$c"; then
 		cp "$DIR/System/$c" "$SLOT_ROOT/System/$c"
 	fi
 done
 
 cd "$DIR"
+# Keep the last run's log: a report of a crash is usually about the run before
+# this one, which relaunching would otherwise overwrite.
+[ ! -s "$LOG" ] || mv -f "$LOG" "$LOG.prev"
 # The package name goes first so a report can never be mistaken for another
 # build again: the first tester log was from the previous package and nothing
 # in it said so.
@@ -101,6 +118,17 @@ else
 	printf 'slot: cpu: no overclock.elf, the clock is left as it was\n' >> "$LOG"
 fi
 printf 'slot: launcher: cpu now %s kHz\n' "$(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq 2>/dev/null || echo unreadable)" >> "$LOG"
+
+# glibc keeps freed memory in per-thread arenas and sizes text/icons by the
+# heap, which on this console is the difference between a PlayStation game
+# running and the kernel killing the frontend. Measured on the Mini Plus: the
+# shelf rested at 38.8 MB and plays out at 32.3 with these three; two arenas is
+# enough for nine threads and still beats one on the emulator's own thread.
+export MALLOC_ARENA_MAX=2
+# Above 64 KiB every image goes to its own mapping, so freeing a label or a
+# shelf page gives the memory back instead of leaving it in the heap.
+export MALLOC_MMAP_THRESHOLD_=65536
+export MALLOC_TRIM_THRESHOLD_=65536
 
 ./slot --init-root "$SLOT_ROOT" >> "$LOG" 2>&1
 ./slot >> "$LOG" 2>&1

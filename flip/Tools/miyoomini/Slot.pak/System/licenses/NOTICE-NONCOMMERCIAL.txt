@@ -1,0 +1,30 @@
+This download is free, and must stay free.
+
+Two of the emulator cores inside it forbid commercial use:
+
+  - snes9x2005 (System/snes9x2005_plus_libretro.so) is a Snes9x derivative. Its
+    licence (snes9x2005-copyright.txt, in this folder) allows use, copying,
+    modification and distribution for NON-COMMERCIAL purposes only, provided that
+    notice goes with every copy. In its words, commercial use includes charging
+    money for it or for software derived from it, including in commercial game
+    bundles, and using it as a promotion for a commercial product.
+  - PicoDrive (System/picodrive_libretro.so) is released under a licence
+    (picodrive-COPYING.txt, in this folder) that says redistributions may not be sold,
+    nor be used in a commercial product or activity, and must reproduce its copyright
+    notice. Its source, with the components it is built from, is in
+    picodrive-src.tar.gz.
+
+So, for this whole download (Slot.pak):
+  - You may use it, copy it and share it, for free.
+  - Do not sell it, charge for it, or bundle it with anything that is sold.
+  - Keep this folder, with its licence texts, whenever you share it.
+
+The rest of slot-flip is free software under its own licences (the frontend is
+GPL-3.0-or-later; mGBA is MPL-2.0; gpSP, PCSX-ReARMed and fceumm are GPL-2.0). Their
+texts are in this folder too. The cores are separate programs the frontend loads at
+run time, not part of it.
+
+If you want a build for sale, remove System/snes9x2005_plus_libretro.so and the files
+named snes9x2005* in this folder, and System/picodrive_libretro.so and the files
+named picodrive* in this folder; the rest has no such restriction. (This is a plain
+reading of the licences, not legal advice.)

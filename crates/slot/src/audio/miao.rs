@@ -10,13 +10,15 @@
 //! running the library answers `SetPubAttr` with `0xa0052009`, "operation not
 //! allowed" — it will not configure a device somebody else is playing through.
 //!
-//! The launcher gets round that without touching the server. Its SDL links the
-//! library, and the preloaded `libpadsp` defines the same function names ahead of
-//! it and passes the calls to the server. So these calls are looked up through
-//! everything the process has loaded (where that preload comes first) and not in
-//! the library's own table, which is what the first versions did, and which
-//! reaches the device behind the server's back. The log says, for each call,
-//! which file answered it.
+//! The console's own programs do not use this interface directly. Their sound
+//! goes through `/dev/dsp`, which the preloaded `libpadsp` answers on the
+//! server's behalf (see `oss.rs`); that shim exports only `open`, `openat`,
+//! `write`, `ioctl` and `close`, and nothing stands in front of these calls. So
+//! this backend is the fallback to the server's output, and the way a program
+//! reaches the device when no server is running. Its calls are looked up
+//! through everything the process has loaded rather than in the library's own
+//! table, so a program that does put something in front of them is answered by
+//! it, and the log says, for each call, which file answered.
 //!
 //! Stopping the server and taking the device (`MiAoSink::taking`) is the other
 //! way, kept for comparison. Onion does it, but on a tester's console the device
@@ -1029,7 +1031,7 @@ fn dump_procfs(when: &str) {
 /// Gives the calling thread a higher scheduling priority. A thread has its own
 /// nice value on Linux, and 0 means the calling one. It is only a request: a
 /// process that may not raise it keeps running at the priority it had.
-fn raise_priority() {
+pub(super) fn raise_priority() {
     let code = unsafe { libc::setpriority(libc::PRIO_PROCESS as _, 0, AUDIO_NICE) };
     match code {
         0 => eprintln!("slot: audio: thread priority raised to {AUDIO_NICE}"),

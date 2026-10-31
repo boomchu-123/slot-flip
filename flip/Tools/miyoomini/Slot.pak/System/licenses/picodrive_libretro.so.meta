@@ -1,0 +1,4 @@
+commit=1890c2932234c9d30f4cd3851d02228baae8f09e
+source=https://github.com/libretro/picodrive at 1890c2932234c9d30f4cd3851d02228baae8f09e, with its submodules (cores/picodrive/build.sh fetch)
+recipe=cross armv7, zig cc, glibc 2.17, assembly by GNU as: make -f Makefile.libretro platform=unix
+device_cflags=

@@ -1,4 +1,7 @@
-# Installing Slot on a Miyoo Flip
+# Installing Slot on a Miyoo Flip or Mini Plus
+
+This page is written for the Flip. The Mini Plus has the same two ways and its own
+section, [Installing on a Miyoo Mini Plus](#installing-on-a-miyoo-mini-plus), below.
 
 Two ways: unzip a folder onto the card, or run the installer that does it for you.
 Both do the same thing, and neither needs MinUI, a firmware download, or a
@@ -148,12 +151,63 @@ Which games have actually been run is in
 [COMPATIBILITY.md](../COMPATIBILITY.md); "boots" and "plays through" are tracked
 separately there.
 
+## Installing on a Miyoo Mini Plus
+
+Same idea, different folders, and again no MinUI, firmware download or reformat.
+You need the Mini Plus on its own firmware, a FAT32 card, and about two minutes.
+
+1. **Download** `Slot-miyoomini.zip` from
+   [Releases](https://github.com/boomchu-123/slot-flip/releases/latest).
+2. **Switch the Mini Plus off** and move the SD card to your computer.
+3. **Unzip the zip at the root of the card** (the folder that holds `miyoo354/`,
+   `Roms/` and the rest of what the console put there). You should end up with:
+
+   ```
+   <SD CARD>/App/Slot/
+   <SD CARD>/Tools/miyoomini/Slot.pak/
+   <SD CARD>/miyoo354/app/MainUI
+   ```
+
+   **Before you copy `miyoo354/app/MainUI`, make a copy of the one already on the
+   card and call it `MainUI.stock`, in the same folder.** That file is the
+   console's own menu, and the hand-over script starts it when you ask for the stock
+   menu. `install.sh` does this for you and refuses to overwrite an existing
+   `MainUI.stock`, which is why the script way is the safer one here.
+4. **Put the card back and switch the console on.** It starts straight in Slot.
+5. **MENU** opens the in-game menu, which is also the way back to the shelf. Games go in
+   `Slot/Games/<GBA|GB|GBC|PS1|NES|SNES|MD|SMS|GG>`; ROMs must be unzipped, and a
+   PlayStation game wants a `.chd` or a `.cue` with its `.bin` files.
+
+The script way is the same as the Flip's:
+
+```sh
+unzip Slot-miyoomini.zip -d slot
+cd slot
+./install.sh --check      # look at the card; change nothing
+./install.sh --dry-run    # say what it would do; change nothing
+./install.sh              # do it, after asking
+```
+
+It recognises which device the zip is for, keeps the console's launcher as
+`MainUI.stock`, backs up whatever else it replaces to `~/slot-flip-backups/`, and
+leaves `Slot/` (games, saves, states) alone.
+
+**Getting the stock menu back.** Create an empty file `Slot/Config/boot-menu` on
+the card and reboot; delete it to start in Slot again. If Slot crashes three times
+in a row within its first fifteen seconds, or its folder is missing, the console
+starts its own menu by itself rather than looping. To remove Slot completely, delete
+`App/Slot` and `Tools/miyoomini/Slot.pak`, and put `MainUI.stock` back as `MainUI`.
+
+**Memory.** The console has about 100 MB in all, and PlayStation uses more than
+half of it. Slot gives the shelf's pictures back while a game plays, so there is
+room; if a game ever closes by itself, `Slot/slot.log` and `slot-launch.log` at the
+card root say what the kernel did.
+
+---
+
 ## Other devices
 
-The Miyoo Mini Plus is the fork's second 1.0 device: it installs as a MinUI Tool
-today and moves to its own launcher as part of the 1.0 work, and its builds are
-pre-releases until its sound and install are checked on hardware. The A30 is
-still experimental and has never run on a device. Slot's data folder and
+The A30 is still experimental and has never run on a device. Slot's data folder and
 settings are device-independent. What a port needs is in
 [PORTING.md](../PORTING.md), and the devices that could come next are in
 [SYSTEMS.md](../SYSTEMS.md).

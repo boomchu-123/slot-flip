@@ -42,17 +42,16 @@ OS, Slot started from the stock launcher's **App** list, with input, sound, lid
 sleep, brightness and re-entering games all working. So the install is **one zip
 unzipped onto a FAT32 card**, which also makes the device start straight in Slot,
 and MinUI is a second entry that keeps working rather than a requirement.
-The Mini Plus is **not there yet**: it installs today as a MinUI Tool
-(`Tools/miyoomini/Slot.pak`), and moving it to its own launcher is part of the
-1.0 work, not an assumption.
+The Mini Plus now installs the same way: `Slot-miyoomini.zip` at the card root, an
+`App/Slot` entry, and `miyoo354/app/MainUI` booting into Slot with the stock
+launcher kept as `MainUI.stock`. It is **not at the 1.0 bar yet** on speed (below).
 
 That has three consequences worth stating:
 
 - **No MinUI needed.** MinUI was archived in November 2025 and has no licence
   file, so it was a poor thing to depend on. The `Tools/my355/Slot.pak` entry stays
   for the people who use it, but it is no longer tested for each release and no
-  longer part of the gate. The Mini Plus is still on that entry for now; its
-  stock-launcher entry is 1.0 work.
+  longer part of the gate. The Mini Plus has the stock-launcher entry too.
 - **Nothing on the device changes.** On the Flip, installing MinUI rewrites its
   internal system image; this writes only to the SD card, so uninstalling is
   deleting a folder.
@@ -121,7 +120,8 @@ that has to be merged twice.
 
 - **Stay free and open source.** No plans to sell. Donations never unlock
   anything. Non-commercial cores are bundled knowingly in the one free download
-  (snes9x2005, Genesis Plus GX, and PicoDrive if it is added), with their notices.
+  (snes9x2005 and Genesis Plus GX on the Flip; snes9x2005 and PicoDrive on the
+  Mini Plus), with their notices.
 - **Not a goal:** a desktop app. The `host` build is development and render-test
   tooling.
 
@@ -153,20 +153,50 @@ buttons, power, backlight and cores.
   GBA holds 57 to 58 of 59.7 frames a second, mGBA on GB and GBC about 60, mGBA on
   GBA about 49. MinUI leaves the CPU at its 504 MHz menu speed when a Tool starts;
   asking for 1296 MHz fixed it
-- 🚧 **Sound.** Games are silent. ALSA is out (exp-v0.4.2's log: no process holds
-  `/dev/snd`, the card is `MI Alsa`). exp-v0.4.4 reached the console's own audio
-  interface (`MI_AO`, the way MinUI plays sound): the library loads and answers,
-  and `Enable` was refused as "not configured" because slot had not set the device
-  up itself. exp-v0.4.5 sets it up the way MinUI's driver does. It has run against
-  a stand-in that reproduces that refusal, **not on a device**. This is the one
-  hard unknown left
-- 📋 **Install on the Mini Plus's own launcher.** Today it is a MinUI Tool
-  (`Tools/miyoomini/Slot.pak`). 1.0 needs the same shape as the Flip: one zip at
-  the card root, an entry in the launcher the device ships with, and no MinUI.
-  The exact mechanism is to be found on the device, not assumed from the Flip's:
-  the two launchers are not the same.
+- ✅ **Sound** (exp-v0.4.10, confirmed by a tester by ear on every core). It plays
+  through `/dev/dsp`, which the console's `libpadsp` hands to the audio server;
+  the vendor interface (`MI_AO`) stays refused while that server runs. Possible
+  slight slowdown in gpSP, not measured. Delay, headphones and long play not
+  checked
+- 🟡 **Large GBA games with a clock chip on mGBA** (Pokemon Emerald): the crash at
+  load is fixed by loading ROMs of 8 MiB and up by path, but it still crashes a
+  moment later when mGBA asks for a 32 MB map with about 30 MB available. gpSP, the
+  default, plays it.
+- ✅ **All nine systems run on the stock firmware** (2026-10-30): a real game on each,
+  pictures read back from the panel. Cores are built for the console with Zig
+  (`cores/armv7-zigcc`) and ship in the pak.
+- ✅ **PlayStation stays up.** The kernel used to kill it before its first frame:
+  the core reserved a 16 MB translation cache (now 4 MiB, a build-time patch in
+  `cores/pcsx`), the frontend held 30 MB of pictures it was not drawing (now kept
+  compressed), and freed memory piled up in glibc's per-thread arenas (now
+  limited in `launch.sh`). Four minutes on Crash Bandicoot: 21 MB spare, no kill.
+- ✅ **The picture path went from about 14 ms to about 2.5 ms a frame**: the plain
+  scale (no scanline mask, no dimming) copies bytes instead of multiplying 16-bit
+  lanes twice.
+- 🟡 **Speed.** Game Boy, GBA, Master System, Game Gear and Mega Drive are within a
+  frame or two of the core's rate (Mega Drive moved from Genesis Plus GX to PicoDrive
+  and rose from 51.0 to 58.2). **Super Nintendo runs at about 52 frames a second,
+  Game Boy Color at 56 and PlayStation at 48 to 52.** The picture path is no longer
+  the cost. Recording rewind history costs Super Nintendo about 5 frames a second
+  and Game Boy Color about 4 (Game Boy Color is at full speed with it off), so
+  making rewind cheaper here is the next step, then Super Nintendo's core and
+  PlayStation's render thread. This is the open 1.0 item for the device. The working
+  plan, in order, is [MINI-PLUS-1.0-PLAN.md](MINI-PLUS-1.0-PLAN.md).
+- ✅ **Published as a release candidate** (`exp-v0.5.0`, pre-release): the zip that
+  was built locally and tested on a console. It predates PicoDrive. CI builds the
+  same zip (the `release` job passes since the packaging fix), but the published
+  asset was not built by CI.
+- ✅ **Button node found on purpose, not by luck** (exp-v0.4.14). Tested in code.
+- ✅ **Install on the console's own launcher.** `Slot-miyoomini.zip`, `install.sh`
+  (one script for both devices) and the CI job exist, and the installer is covered
+  by tests on stand-in folders. Both update and fresh-install paths were run on the
+  console itself; cold boot reached Slot, the stock menu escape worked, and
+  `MainUI.stock` survived. **Not done: in-game saves, a PlayStation memory card, a
+  disc change, quick-menu save states and listening to the sound on this console.
+  (Resume states do round-trip across a restart.)** Three `miyoomini` app tests also
+  fail and are on the plan.
 - 📋 **Which lines the stock launcher leaves unset**, the way `joy_type` is on the
-  Flip, so `launch.sh` sets them for itself and restores them on exit.
+  Flip, so `launch.sh` sets them for itself and restores them on exit. Not done.
 
 The port is **not** on the `experimental` branch: it lives on
 `feat/miyoomini-software`, cut from `flip`, and ships as `exp-v*` pre-releases

@@ -220,13 +220,47 @@ pub fn run() {
             if heartbeat.0.elapsed() >= Duration::from_secs(2) {
                 let published = frontend.frames_published();
                 eprintln!(
-                    "slot: heartbeat: {} loops, {} emu frames in {:?} (settling {}, period {:.2} ms)",
+                    "slot: heartbeat: {} loops, {} emu frames in {:?} (settling {}, period {:.2} ms); {}",
                     heartbeat.1,
                     published.saturating_sub(heartbeat.2),
                     heartbeat.0.elapsed(),
                     frontend.core_settling(),
                     pacer.period.as_secs_f64() * 1e3,
+                    slot_retro::memory_brief(),
                 );
+                #[cfg(feature = "miyoomini")]
+                {
+                    let (count, bytes) = compositor.texture_bytes();
+                    eprintln!(
+                        "slot: textures: {count} held, {:.1} MB of pixels",
+                        bytes as f64 / 1048576.0
+                    );
+                    for (w, h, n) in compositor.texture_sizes(8) {
+                        eprintln!(
+                            "slot: textures:   {n} of {w}x{h} = {:.1} MB",
+                            (w as usize * h as usize * 4 * n) as f64 / 1048576.0
+                        );
+                    }
+                    let mut classes = [(0usize, 0usize); 4];
+                    for (w, h, n) in compositor.texture_sizes(usize::MAX) {
+                        let each = w as usize * h as usize * 4;
+                        let class = match each {
+                            0..=9_999 => 0,
+                            10_000..=99_999 => 1,
+                            100_000..=999_999 => 2,
+                            _ => 3,
+                        };
+                        classes[class].0 += n;
+                        classes[class].1 += each * n;
+                    }
+                    eprintln!(
+                        "slot: textures: under 10 KB {}={:.1} MB, 10-100 KB {}={:.1} MB, 100 KB-1 MB {}={:.1} MB, over 1 MB {}={:.1} MB",
+                        classes[0].0, classes[0].1 as f64 / 1048576.0,
+                        classes[1].0, classes[1].1 as f64 / 1048576.0,
+                        classes[2].0, classes[2].1 as f64 / 1048576.0,
+                        classes[3].0, classes[3].1 as f64 / 1048576.0,
+                    );
+                }
                 heartbeat = (Instant::now(), 0, published);
                 // Only worth a line while sticks are the game's: how often the core
                 // asked for them and the furthest it was given.

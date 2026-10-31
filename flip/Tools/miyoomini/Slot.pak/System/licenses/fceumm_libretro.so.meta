@@ -1,0 +1,4 @@
+commit=ac0d00a7fc01166f84c7bac01d1084ebfd2b865e
+source=https://github.com/libretro/libretro-fceumm/archive/ac0d00a7fc01166f84c7bac01d1084ebfd2b865e.tar.gz
+recipe=cross armv7, zig cc, glibc 2.17: make -f Makefile.libretro platform=unix
+device_cflags=
