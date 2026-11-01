@@ -282,6 +282,16 @@ off, measured on 2026-10-31) and **Game Boy Color's** about four (55.9 and 59.9)
 rewind is on by default. The Sega figures are from the later PicoDrive build installed
 from its complete zip; the other rows are from the exp-v0.5.0 release-candidate build.
 
+**These are upper bounds, not a verdict on play.** Each is an average over one short
+run, with nothing measuring how evenly frames arrive or whether the sound underran.
+On 2026-11-01 a 32 MB GBA ROM hack (Pokemon Unbound, gpSP) was reported **choppy and
+laggy throughout** by the maintainer, although its title screen had measured 54.2
+frames a second (59.8 for a second hack of the same size), both with rewind off,
+unlike a player's default. That GBA result is open and tracked in
+[MINI-PLUS-1.0-PLAN.md](MINI-PLUS-1.0-PLAN.md); until it is measured in play, do not
+read the GBA row as "full speed" for large ROMs. About 12 MB of memory was spare with
+that ROM loaded.
+
 - **PlayStation runs and stays up.** It is the system the console could not hold
   before: the core reserved a 16 MB translation cache and the frontend held 30 MB
   of pictures it was not drawing, so the kernel killed the game before its first

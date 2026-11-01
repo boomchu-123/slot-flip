@@ -117,6 +117,10 @@ that has to be merged twice.
   installed**, **and** `install.sh` does the same from a blank card, checked on
   hardware on both; the download passes `tools/check-pak-licences.sh`; the README
   table matches reality; and the release has been installed and run on both devices.
+  Three more were added on 2026-11-01 (see the Mini Plus section): Slot can be quit to
+  the device's own menu from inside, on both devices; games hold full speed in
+  **sustained play** with default settings, on the Mini Plus; and the settings and About
+  screen describe the device they are on.
 
 - **Stay free and open source.** No plans to sell. Donations never unlock
   anything. Non-commercial cores are bundled knowingly in the one free download
@@ -152,7 +156,9 @@ buttons, power, backlight and cores.
 - ✅ **Speed.** Games run at close to full speed (exp-v0.4.3), measured: gpSP on
   GBA holds 57 to 58 of 59.7 frames a second, mGBA on GB and GBC about 60, mGBA on
   GBA about 49. MinUI leaves the CPU at its 504 MHz menu speed when a Tool starts;
-  asking for 1296 MHz fixed it
+  asking for 1296 MHz fixed it. **Superseded for 1.0:** these were short runs at a
+  title screen or intro, and the first real play (below) found a GBA game that is
+  choppy throughout
 - ✅ **Sound** (exp-v0.4.10, confirmed by a tester by ear on every core). It plays
   through `/dev/dsp`, which the console's `libpadsp` hands to the audio server;
   the vendor interface (`MI_AO`) stays refused while that server runs. Possible
@@ -197,6 +203,65 @@ buttons, power, backlight and cores.
   fail and are on the plan.
 - 📋 **Which lines the stock launcher leaves unset**, the way `joy_type` is on the
   Flip, so `launch.sh` sets them for itself and restores them on exit. Not done.
+
+#### Found in the first real play (2026-11-01): three new 1.0 items
+
+The maintainer took the console away from the bench and played a 32 MB Pokemon
+FireRed hack (Pokemon Unbound) on it. It was **choppy and laggy everywhere**, and there
+was **no way to get to the console's own menu** to set up Wi-Fi. Taken together, the
+Mini Plus build is **not releasable as 1.0**. These three are now 1.0 gates, and the
+first applies to both devices.
+
+- 📋 **Quit Slot from inside Slot, on every device and every release.** Today there is
+  no way out: when Slot exits, the card's launcher starts it again, and the only ways
+  to the console's own menu are to edit the card on a computer (create
+  `Slot/Config/boot-menu`) or to make Slot exit three times inside its first fifteen
+  seconds, which is a crash safeguard and not a feature. That strands anyone who needs
+  the stock menu away from a card reader (Wi-Fi setup, firmware settings). Needed:
+  an **Exit** row in the menu that hands over to the stock launcher for that session
+  without leaving a flag on the card, so the next boot is Slot again; Slot stays in the
+  stock launcher's App list as the way back in. Both launcher wrappers
+  (`miyoo354/app/MainUI`, `miyoo355/app/MainUI`) have to learn the difference between
+  "Slot exited, start it again" and "the player asked to leave", and the Flip's
+  existing fall-back-on-failure behaviour should be checked as a possible shortcut. It
+  ships in the next release of **both** devices (the Flip's `v0.15.1` has no such
+  row). Until it exists, INSTALL.md says to create the `boot-menu` file before
+  travelling.
+- 📋 **Make games actually run at full speed on the Mini Plus.** The measured figures
+  were averages over short runs at a title screen, with rewind off for the GBA games,
+  so they said nothing about play. The 1.0 bar for this device is now **sustained
+  play, with the settings a player has by default (rewind on)**, per system: the
+  overworld and a battle, not the title. Work, in order:
+  1. **Measure what play really costs.** Record emulator frames a second over a
+     several-minute session, not one average, and the worst two seconds. The audio
+     counters (samples dropped and starved) are only printed when a game ends, and the
+     sweep ended every run by killing Slot, so they read `?/?` throughout: **audio
+     underruns and frame pacing have never been measured on this console**, and there
+     is no per-frame time at all. An average of 54 can be choppy if the frames arrive
+     unevenly. The trace needs to print both while a game is running.
+  2. **Test the memory explanation for large GBA ROMs.** A 32 MB ROM cannot stay in
+     the page cache with about 12 MB spare, so gpSP may be re-reading the card during
+     play. Compare a 32 MB hack against an 8 MB game, and check what the core does
+     when the card is slow.
+  3. **Rewind** (plan item 4): cheaper recording, or off by default on this
+     console, since it costs 4 to 5 frames a second on Super Nintendo and Game Boy
+     Color and has not been measured on GBA.
+  4. Then the per-system items already on [MINI-PLUS-1.0-PLAN.md](MINI-PLUS-1.0-PLAN.md)
+     (Super Nintendo core, PlayStation render thread).
+  The 1.0 gate for this device is rewritten to match: a system counts as done only on
+  a sustained-play measurement, and a game the maintainer calls choppy is a failure
+  whatever the average says.
+- 📋 **Settings and screens that fit the device.** The menu and the About sticker were
+  built for the Flip and show it on the Mini Plus. Known: the About sticker prints
+  `MODEL NO. MY355` and the wordmark `MIYOO FLIP`; **Lid Power Off** is offered on a
+  console with no lid and the Mini Plus has no idle auto-sleep of its own to set in
+  its place; the **Rumble** row is shown, and the Mini Plus has no vibration motor
+  (to be confirmed on the device). Needed: each device describes itself (name, model,
+  which rows apply) from one place, rows that cannot work are hidden, and the Mini Plus
+  gains an **auto sleep** setting (idle time, then screen off or power off) that works
+  without a lid. Every other row should be reviewed once against the device (volume
+  and brightness steps, battery, clock, shaders). Hiding is driven by what the device
+  has, not by a scatter of feature checks, so the next device is cheaper.
 
 The port is **not** on the `experimental` branch: it lives on
 `feat/miyoomini-software`, cut from `flip`, and ships as `exp-v*` pre-releases

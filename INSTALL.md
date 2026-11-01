@@ -192,6 +192,11 @@ It recognises which device the zip is for, keeps the console's launcher as
 `MainUI.stock`, backs up whatever else it replaces to `~/slot-flip-backups/`, and
 leaves `Slot/` (games, saves, states) alone.
 
+**Slot cannot be quit from inside yet.** On both devices, leaving Slot (to set up
+Wi-Fi, for example) means editing the card on a computer, as below. If you will be
+away from a card reader, do it first. An in-app Exit is planned for 1.0
+([ROADMAP.md](ROADMAP.md)).
+
 **Getting the stock menu back.** Create an empty file `Slot/Config/boot-menu` on
 the card and reboot; delete it to start in Slot again. If Slot crashes three times
 in a row within its first fifteen seconds, or its folder is missing, the console

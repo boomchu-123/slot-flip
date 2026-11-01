@@ -13,7 +13,11 @@ with no MinUI.
 on `feat/miyoomini-software`. Everything below is, or is to be, measured on hardware
 driven over adb, not inferred from a build.
 
-**Last updated:** 2026-10-31.
+**Last updated:** 2026-11-01.
+
+**Status: not releasable as 1.0.** The first real play (2026-11-01, a 32 MB GBA hack)
+was choppy throughout, and there is no way to leave Slot for the console's own menu
+(Wi-Fi setup, for one). Sections 1 and 3 say what that changes.
 
 ---
 
@@ -35,12 +39,20 @@ a second from Slot's own trace:
 | Game Gear | PicoDrive | 60.1 of 60 | was 59.7 |
 | Game Boy | mGBA | 58.3 of 59.7 | |
 | Game Boy Color | mGBA | **55.9** of 59.7 (59.9 with rewind off) | short |
-| Game Boy Advance | gpSP | 58.7 of 59.7 | |
+| Game Boy Advance | gpSP | 58.7 of 59.7 | **disputed**: a 32 MB hack ran 54.2 at its title (rewind off), 59.8 for a second one, and was choppy in play |
 | PlayStation | PCSX-ReARMed | **48 to 52** of 59.9 | short; 21 MB spare after four minutes |
 
 The Mega Drive, Master System and Game Gear rows are from the zip with PicoDrive
 installed the way a user would; the rest are from the exp-v0.5.0 build, and the
 SNES and GBC rows were re-measured on 2026-10-31 for the rewind comparison.
+
+**How far to trust this table.** Every row is an average over 40 to 50 seconds,
+usually at a title screen or intro, with no measure of how evenly frames arrive and no
+audio underrun count (those print only when a game ends, and the sweep killed Slot).
+The two 32 MB hacks were measured with rewind **off** by accident, and a player runs
+with it on. The GBA row failed its first real test: the table said full speed, the
+player said choppy everywhere. Treat the whole table as an upper bound until section 3
+item 2 is done.
 
 **What each frame costs.** The picture path is about 2.5 ms a frame (it was about
 15). What is left is the emulator thread itself. Genesis Plus GX took about 16 ms of
@@ -95,36 +107,63 @@ Not gates: playing every title through, judging sound by ear, L3/R3 in a game.
 
 ## 3. Remaining for 1.0, in order
 
-1. **Make rewind cheaper on this console.** It is the largest known cost left and
+Items 1 to 3 were added on 2026-11-01 and come before everything else, because
+nothing below them can be judged, or even debugged away from the bench, without them.
+
+1. **Quit Slot from inside Slot (both devices, every release).** An Exit row in the
+   menu that hands over to the stock launcher for this session and leaves nothing on
+   the card, so the next boot is Slot. Both autoboot wrappers must tell "Slot exited,
+   start it again" from "the player asked to leave"; Slot stays in the stock App list
+   as the way back. Check whether the Flip wrapper's fall-back on a non-zero exit
+   already gives most of this. Until it ships, INSTALL.md tells people to create
+   `Slot/Config/boot-menu` before they travel. Done when it is run on both consoles:
+   Exit, set Wi-Fi in the stock menu, come back to Slot from the App list, reboot into
+   Slot.
+2. **Measure sustained play, then fix what it shows.** Add to the trace, while a game
+   runs: emulator frames per two seconds over several minutes (with the worst window),
+   audio dropped and starved counts, and frame time spread. Then take one game per
+   system into its heavy parts (overworld, battle, a 3D scene) with rewind **on**, and
+   compare a 32 MB GBA ROM with an 8 MB one to test whether the card is being
+   re-read during play (about 12 MB of memory spare with a 32 MB ROM). A system is
+   done only on that measurement. The maintainer calling a game choppy is a failure
+   whatever the average says.
+3. **Settings and About that fit this console.** Today the About sticker prints
+   `MODEL NO. MY355` and `MIYOO FLIP`, Lid Power Off is offered with no lid, and the
+   Rumble row is shown (no motor on this console, to be confirmed). Give each device
+   one description of itself (name, model, which rows apply), hide what cannot work,
+   add an **auto sleep** setting that works without a lid, and review every other
+   row once against the device. Test: a menu test per device that lists the rows it
+   shows.
+4. **Make rewind cheaper on this console.** It is the largest known cost left and
    the most certain win. Options, cheapest first: snapshot less often than every
    second presented frame here (`SNAPSHOT_EVERY` in `emu.rs`), record only while a
    rewind button is held (nothing to rewind to then, so decide on behaviour), or
    keep the snapshot off the emulator thread. Measure SNES and GBC with and without,
    and keep a few seconds of history if possible.
-2. **Super Nintendo.** Still about 3 frames short with rewind off. Measured once: the
+5. **Super Nintendo.** Still about 3 frames short with rewind off. Measured once: the
    non-Plus snes9x2005 build reached 53.0 against 51.4 with rewind on (small, one
    run). An ARM-mode build of the current core was built and not yet measured.
    snes9x2002 builds and loads for this console (glibc 2.7) and has not been run on
    a game; its licence and accuracy need reading before it could ship.
-3. **PlayStation speed.** 48 to 52 of 59.9. The next real step is rendering on a
+6. **PlayStation speed.** 48 to 52 of 59.9. The next real step is rendering on a
    second thread so the emulator and the picture pass stop sharing a core. The
    largest piece of work left, and not promised.
-4. **Game Boy Color.** Probably closed by item 1. A Gambatte build for this console
+7. **Game Boy Color.** Probably closed by item 4. A Gambatte build for this console
    exists and has not been measured, as a fallback.
-5. **Check on the console what has not been checked:**
+8. **Check on the console what has not been checked:**
    - in-game battery saves across a restart, and PicoDrive save RAM
    - a PlayStation memory-card write read back after a power cycle
    - a PlayStation disc change on a multi-disc game, and a second PlayStation game
    - quick-menu save states
    - sound by ear on each core (Mega Drive especially, after the core change) and
      headphones
-6. **Fix three failing `miyoomini` app tests**:
+9. **Fix three failing `miyoomini` app tests**:
    `a_game_boy_color_game_keeps_its_own_colour_and_shader`,
    `the_open_cart_rests_over_the_shelf_with_its_lid_turned` and
    `the_shader_shortcut_steps_the_seated_carts_shader_both_ways_and_names_it`.
-7. **Find what the stock launcher leaves unset**, as `joy_type` is on the Flip, so
+10. **Find what the stock launcher leaves unset**, as `joy_type` is on the Flip, so
    `launch.sh` sets it for itself and restores it on exit.
-8. **Cut the next pre-release** with PicoDrive and whatever speed work lands, re-run
+11. **Cut the next pre-release** with PicoDrive and whatever speed work lands, re-run
    the nine-system sweep and the fresh-install check against that zip, and update the
    table in COMPATIBILITY.md from it.
 
@@ -154,7 +193,10 @@ never deletes, so a card that had the earlier build keeps an unused
 
 ## 5. Definition of done
 
-- Every system in the table above is at its core's rate with sound, checked on the
+- Slot can be quit to the console's own menu from inside, and the way back works.
+- The menu and About screen describe this console and offer only what it has.
+- Every system in the table above holds its core's rate in sustained play with
+  default settings (rewind on), with sound and no audio underruns, checked on the
   device, and PlayStation says what it does on a five-minute run.
 - PS1 end to end: memory card across a reboot and a disc change, both checked on
   the device.
