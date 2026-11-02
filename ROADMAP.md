@@ -240,8 +240,12 @@ first applies to both devices.
   emulator run on separate cores, gpSP mixes audio at 32768 Hz instead of 65536, and
   alternate over-budget frames skip their picture conversion. That is one window at
   one save point, not a play-through. The maintainer found overworld play much better
-  and playable, but battles still felt a little slow; rewind was off. Other systems
-  and PlayStation are unchanged. The earlier figures were averages over short runs at
+  and playable, but battles still felt a little slow; rewind was off. A later
+  100-second trace covering two battles confirmed 115.0 of 120 frames per two seconds
+  on average, 105 worst, with audio starvation still growing. The core itself averaged
+  8-12 ms; small missed deadlines were being discarded by the software pacer instead
+  of recovered on the next cheap frame. Other systems and PlayStation are unchanged.
+  The earlier figures were averages over short runs at
   a title screen, so they said nothing about play. The 1.0 bar for this device is now **sustained
   play, with the settings a player has by default (rewind on)**, per system: the
   overworld and a battle, not the title. Work, in order:

@@ -1031,7 +1031,18 @@ impl Worker {
             let now = Instant::now();
             match deadline.checked_duration_since(now) {
                 Some(wait) => std::thread::sleep(wait),
-                None => deadline = now,
+                None => {
+                    // A software-rendered Mini Plus frame can miss its deadline by a
+                    // few milliseconds. Resetting the clock after every small miss
+                    // makes that time permanent: the core falls below 60 fps and the
+                    // audio producer can never refill the ring. Keep the old deadline
+                    // so the next cheap frame catches up. A real stall still resets it
+                    // instead of running a long burst of stale frames.
+                    let late = now.saturating_duration_since(deadline);
+                    if !cfg!(feature = "miyoomini") || late > period * 2 {
+                        deadline = now;
+                    }
+                }
             }
         }
         for cmd in self.cmds.try_iter() {
