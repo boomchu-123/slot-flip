@@ -1584,6 +1584,9 @@ impl App {
             WallpaperPick::File(_) | WallpaperPick::Random
         );
         let mut hidden = Vec::new();
+        if cfg!(feature = "miyoomini") {
+            hidden.extend([QuickRow::LidOff, QuickRow::Rumble]);
+        }
         if !own {
             hidden.push(QuickRow::WallpaperTint);
         }
