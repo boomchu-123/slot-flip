@@ -123,8 +123,9 @@ nothing below them can be judged, or even debugged away from the bench, without 
 2. **Measure sustained play, then fix what it shows.** *Started: the CPU governor,
    core pinning, gpSP's sound rate and frame skipping took a 32 MB hack from about 104
    to 118-121 frames per two seconds with the starvation counter flat after a minute.
-   The per-frame time spread is still not measured, the per-system sweep is not redone,
-   and the verdict is the maintainer's, from play.* Add to the trace, while a game
+   The maintainer found overworld play much better and playable, but battles still
+   felt a little slow. Rewind was off for that play. The per-system sweep is not
+   redone.* Add to the trace, while a game
    runs: emulator frames per two seconds over several minutes (with the worst window),
    audio dropped and starved counts, and frame time spread. Then take one game per
    system into its heavy parts (overworld, battle, a 3D scene) with rewind **on**, and
@@ -132,8 +133,9 @@ nothing below them can be judged, or even debugged away from the bench, without 
    re-read during play (about 12 MB of memory spare with a 32 MB ROM). A system is
    done only on that measurement. The maintainer calling a game choppy is a failure
    whatever the average says.
-3. **Settings and About that fit this console.** *Done in code (model, wordmark, Auto
-   Sleep, hidden Lid Power Off and Rumble); not yet looked at on the console.* Today the About sticker prints
+3. **Settings and About that fit this console.** *The General page was checked on the
+   console: Auto Sleep is shown, while Lid Power Off and Rumble are hidden. The About
+   sticker is done in code and has not been looked at on the console.* Today the About sticker prints
    `MODEL NO. MY355` and `MIYOO FLIP`, Lid Power Off is offered with no lid, and the
    Rumble row is shown (no motor on this console, to be confirmed). Give each device
    one description of itself (name, model, which rows apply), hide what cannot work,

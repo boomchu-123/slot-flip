@@ -239,11 +239,10 @@ first applies to both devices.
   held at the stock 1.2 GHz ceiling instead of dropping to 1.0 GHz, the frontend and
   emulator run on separate cores, gpSP mixes audio at 32768 Hz instead of 65536, and
   alternate over-budget frames skip their picture conversion. That is one window at
-  one save point, not a play-through, and the maintainer has not yet judged it by
-  playing. Rewind, other systems and PlayStation are unchanged. The figures were
-  averages over short runs at a title screen, so they said nothing about play. The 1.0 bar was
-  were averages over short runs at a title screen, with rewind off for the GBA games,
-  so they said nothing about play. The 1.0 bar for this device is now **sustained
+  one save point, not a play-through. The maintainer found overworld play much better
+  and playable, but battles still felt a little slow; rewind was off. Other systems
+  and PlayStation are unchanged. The earlier figures were averages over short runs at
+  a title screen, so they said nothing about play. The 1.0 bar for this device is now **sustained
   play, with the settings a player has by default (rewind on)**, per system: the
   overworld and a battle, not the title. Work, in order:
   1. **Measure what play really costs.** Record emulator frames a second over a
@@ -268,8 +267,8 @@ first applies to both devices.
 - 🚧 **Settings and screens that fit the device.** Done for the Mini Plus: the About
   sticker names the model and wordmark of the device it runs on, Lid Power Off and
   Rumble are hidden there, and an Auto Sleep row (idle time, then sleep, any button
-  wakes) replaces them. Tested in code; Auto Sleep and the sticker have not been looked
-  at on the console, and every other row still needs its review. As found: the menu and the About sticker were
+  wakes) replaces them. The General page was checked on the console; the About sticker
+  and every other row still need their review. As found: the menu and the About sticker were
   built for the Flip and show it on the Mini Plus. Known: the About sticker prints
   `MODEL NO. MY355` and the wordmark `MIYOO FLIP`; **Lid Power Off** is offered on a
   console with no lid and the Mini Plus has no idle auto-sleep of its own to set in
