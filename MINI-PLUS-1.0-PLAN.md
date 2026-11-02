@@ -133,9 +133,9 @@ nothing below them can be judged, or even debugged away from the bench, without 
    had been repeated by the earlier adaptive skip. With that skip removed, a final
    battle held all 13 active windows at 120-122 with no new audio starvation and felt
    effectively full speed. **This was with rewind off.** Rewind on averaged 118.4,
-   fell to 108, and starved audio. Recording 15 snapshots a second recovered full speed
-   but caused one isolated underrun at a 40.8 ms snapshot spike; the next build records
-   10 a second. The per-system sweep is not redone.* Add to the trace, while a game
+   fell to 108, and starved audio. Recording 10 snapshots a second then held all 73
+   automated windows at 120-123 with flat audio, and a battle plus actual rewind felt
+   good. **GBA now passes this test.** The per-system sweep is not redone.* Add to the trace, while a game
    runs: emulator frames per two seconds over several minutes (with the worst window),
    audio dropped and starved counts, and frame time spread. Then take one game per
    system into its heavy parts (overworld, battle, a 3D scene) with rewind **on**, and
@@ -152,9 +152,9 @@ nothing below them can be judged, or even debugged away from the bench, without 
    add an **auto sleep** setting that works without a lid, and review every other
    row once against the device. Test: a menu test per device that lists the rows it
    shows.
-4. **Make rewind cheaper on this console.** *Recording every fourth frame recovered
-   full average speed but caused one isolated audio underrun; every sixth frame is the
-   next measurement.* It is the largest known cost left and
+4. **Make rewind cheaper on this console.** *Recording every sixth frame (10 snapshots
+   a second) passes GBA: 73/73 automated windows at full speed, no new underruns, and
+   actual rewind felt good. GBC and SNES are not retested.* It is the largest known cost left and
    the most certain win. Options, cheapest first: snapshot less often than every
    second presented frame here (`SNAPSHOT_EVERY` in `emu.rs`), record only while a
    rewind button is held (nothing to rewind to then, so decide on behaviour), or
