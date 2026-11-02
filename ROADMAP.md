@@ -260,9 +260,11 @@ first applies to both devices. State on 2026-11-02:
   wakes) and hides **Lid Power Off** and **Rumble**, which the console has no lid or
   motor for. The About sticker takes its model and wordmark from `build_info`
   (`MY354` / `MIYOO MINI PLUS` here; `MY355` / `MIYOO FLIP` on the Flip); that is
-  covered by tests and **not yet looked at on the console**. Every other row (volume
-  and brightness steps, battery, clock, shaders) still needs one review against the
-  device. Hiding is driven by what the device has, not by a scatter of feature checks,
+  covered by tests and **not yet looked at on the console**. The volume bar was wrong
+  (the console's own handler moves the real gain while slot kept a second volume on
+  top); slot now follows the console's step and the maintainer checked it on the
+  console. Every other row (brightness steps, battery, clock, shaders) still needs one
+  review against the device. Hiding is driven by what the device has, not by a scatter of feature checks,
   so the next device is cheaper.
 
 The port is **not** on the `experimental` branch: it lives on

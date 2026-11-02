@@ -327,6 +327,20 @@ played. The maintainer also saw the side volume key register once during a rewin
 pass; the log shows it as a separate key event, and an isolated press of the rewind key
 logged no volume change, so it was not reproduced.
 
+**Mini Plus volume (2026-11-02).** The sound went quiet and the volume bar stopped
+matching what was heard. The console's own volume handler (`keymon`) reads the same
+keys and moves the real output gain, from -58 dB at its lowest step to -3 dB at its top
+(step 20 of 20, read from `system.json`), while slot kept a second volume of its own on
+top. A gain left at the bottom stayed quiet at any bar, and the sound kept rising after
+the bar was full. Slot now plays at full scale on this console and its bar follows the
+console's step. Checked on the console by the maintainer: the bar moves with each press,
+the sound follows it, and holding Volume Up reached step 20 with the bar full. Not
+checked: headphones (this console's jack is not read), mute (slot's own mute chord is
+unchanged and was not tried on the console), and the shelf and menu sounds at the new
+fixed scale. The earlier unexplained volume change during a rewind pass is probably the
+same cause, since a stray key moved the console's gain separately from slot's bar; that
+was not reproduced.
+
 - **PlayStation runs and stays up.** It is the system the console could not hold
   before: the core reserved a 16 MB translation cache and the frontend held 30 MB
   of pictures it was not drawing, so the kernel killed the game before its first

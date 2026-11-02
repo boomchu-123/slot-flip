@@ -148,8 +148,10 @@ nothing below them can be judged, or even debugged away from the bench, without 
    the console; About not yet.* Auto Sleep is shown, and Lid Power Off and Rumble are
    hidden on the shelf menu (`App::hidden_rows`) and the in-game menu (`App::in_game_hidden`). The About
    sticker's model and wordmark come from `build_info` (`MY354`, `MIYOO MINI PLUS`) and
-   are covered by tests, not yet looked at. Every other row (volume and brightness
-   steps, battery, clock, shaders) is still to be reviewed once against the device.
+   are covered by tests, not yet looked at. The volume bar now follows the console's own
+   step instead of a second volume of slot's (checked on the console). Every other row
+   (brightness steps, battery, clock, shaders) is still to be reviewed once against the
+   device.
 4. **Make rewind cheaper on this console.** *Done for GBA:* `SNAPSHOT_EVERY` is 6 on
    this device (10 snapshots a second, was 30). Not measured: SNES and GBC (the two
    systems rewind cost most, 5 and 4 frames a second at the old rate), and how many
