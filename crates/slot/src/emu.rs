@@ -815,7 +815,6 @@ impl Worker {
                 let began = Instant::now();
                 let mut ran = 0u32;
                 let (mut skipped, mut drawn) = (None::<Duration>, Duration::ZERO);
-                let mut adaptive_skipped = false;
                 loop {
                     ran += 1;
                     let last = ran >= ceiling || cost.last(began.elapsed(), budget);
@@ -828,19 +827,7 @@ impl Worker {
                         }
                     };
                     turbo_frame = turbo_frame.wrapping_add(1);
-                    // A normal-speed present is one emulated frame, so the old
-                    // `!last` was always false there: gpSP's automatic frameskip
-                    // was enabled but Slot never advised it to skip. On the
-                    // CPU-only Mini Plus, repeat the previous picture on every
-                    // other over-budget frame. The core still advances game and
-                    // audio, trading only a video conversion for the time needed
-                    // to avoid slowing the game and starving sound.
-                    let adaptive_skip = cfg!(feature = "miyoomini")
-                        && speed == Speed::Normal
-                        && (cost.draw + post_cost > PRESENT)
-                        && turbo_frame.is_multiple_of(2);
-                    adaptive_skipped |= adaptive_skip;
-                    core.set_frame_skip(!last || adaptive_skip);
+                    core.set_frame_skip(!last);
                     let frame_began = Instant::now();
                     match cable.as_mut() {
                         Some(c) => {
@@ -974,12 +961,7 @@ impl Worker {
                     ring.push_blocking(&out);
                     paced += 1;
                     if crate::session::trace() && speed == Speed::Normal {
-                        play_trace.record(
-                            core_time,
-                            began.elapsed(),
-                            period,
-                            adaptive_skipped,
-                        );
+                        play_trace.record(core_time, began.elapsed(), period);
                         if play_trace.frames == TRACE_EVERY as u32 {
                             play_trace.print();
                             play_trace = FrameTrace::default();
@@ -1254,11 +1236,10 @@ struct FrameTrace {
     whole: Duration,
     whole_max: Duration,
     whole_over: u32,
-    adaptive_skipped: u32,
 }
 
 impl FrameTrace {
-    fn record(&mut self, core: Duration, whole: Duration, budget: Duration, skipped: bool) {
+    fn record(&mut self, core: Duration, whole: Duration, budget: Duration) {
         self.frames += 1;
         self.core += core;
         self.core_max = self.core_max.max(core);
@@ -1266,13 +1247,12 @@ impl FrameTrace {
         self.whole += whole;
         self.whole_max = self.whole_max.max(whole);
         self.whole_over += u32::from(whole > budget);
-        self.adaptive_skipped += u32::from(skipped);
     }
 
     fn print(&self) {
         let n = self.frames.max(1);
         eprintln!(
-            "slot: frame time: {} frames; core avg {:.2} max {:.2} ms, {} over budget; whole avg {:.2} max {:.2} ms, {} over budget; {} pictures skipped",
+            "slot: frame time: {} frames; core avg {:.2} max {:.2} ms, {} over budget; whole avg {:.2} max {:.2} ms, {} over budget",
             self.frames,
             (self.core / n).as_secs_f64() * 1000.0,
             self.core_max.as_secs_f64() * 1000.0,
@@ -1280,7 +1260,6 @@ impl FrameTrace {
             (self.whole / n).as_secs_f64() * 1000.0,
             self.whole_max.as_secs_f64() * 1000.0,
             self.whole_over,
-            self.adaptive_skipped,
         );
     }
 }

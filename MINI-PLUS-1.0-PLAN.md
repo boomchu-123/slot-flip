@@ -121,14 +121,17 @@ nothing below them can be judged, or even debugged away from the bench, without 
    Exit, set Wi-Fi in the stock menu, come back to Slot from the App list, reboot into
    Slot.
 2. **Measure sustained play, then fix what it shows.** *Started: the CPU governor,
-   core pinning, gpSP's sound rate and frame skipping took a 32 MB hack from about 104
-   to 118-121 frames per two seconds with the starvation counter flat after a minute.
+   core pinning and gpSP's sound rate took a 32 MB hack from about 104 to 118-121
+   frames per two seconds.
    The maintainer found overworld play much better and playable, but battles still
    felt a little slow. A 100-second trace covering two battles confirmed it: 115.0 of
    120 frames per two seconds on average, 105 worst, while audio starvation kept
    growing. Rewind was off. The core itself averaged 8-12 ms, exposing small missed
-   deadlines being discarded by the software pacer; the next build lets a cheap frame
-   recover that time. The per-system sweep is not redone.* Add to the trace, while a game
+   deadlines being discarded by the software pacer. After letting a cheap frame recover
+   that time, a second battle trace held all 42 windows at 120-122 with no new audio
+   starvation. Battles felt much better but perhaps slightly slow; 44 of 5,100 pictures
+   had been repeated by the earlier adaptive skip, which is removed for the next test.
+   The per-system sweep is not redone.* Add to the trace, while a game
    runs: emulator frames per two seconds over several minutes (with the worst window),
    audio dropped and starved counts, and frame time spread. Then take one game per
    system into its heavy parts (overworld, battle, a 3D scene) with rewind **on**, and

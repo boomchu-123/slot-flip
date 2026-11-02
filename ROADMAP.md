@@ -237,25 +237,26 @@ first applies to both devices.
   104 to 118-121 per two seconds (120 is full speed) and audio starvation, which grew
   for the whole run, stopped growing after about a minute. What changed: the CPU is
   held at the stock 1.2 GHz ceiling instead of dropping to 1.0 GHz, the frontend and
-  emulator run on separate cores, gpSP mixes audio at 32768 Hz instead of 65536, and
-  alternate over-budget frames skip their picture conversion. That is one window at
-  one save point, not a play-through. The maintainer found overworld play much better
+  emulator run on separate cores, and gpSP mixes audio at 32768 Hz instead of 65536.
+  That is one window at one save point, not a play-through. The maintainer found
+  overworld play much better
   and playable, but battles still felt a little slow; rewind was off. A later
   100-second trace covering two battles confirmed 115.0 of 120 frames per two seconds
   on average, 105 worst, with audio starvation still growing. The core itself averaged
   8-12 ms; small missed deadlines were being discarded by the software pacer instead
-  of recovered on the next cheap frame. Other systems and PlayStation are unchanged.
+  of recovered on the next cheap frame. After fixing that, a second battle trace held
+  all 42 windows at 120-122 with no new audio starvation. Battles felt much better but
+  perhaps slightly slow; 44 of 5,100 pictures had been repeated by the earlier adaptive
+  skip, which is removed for the next test. Other systems and PlayStation are unchanged.
   The earlier figures were averages over short runs at
   a title screen, so they said nothing about play. The 1.0 bar for this device is now **sustained
   play, with the settings a player has by default (rewind on)**, per system: the
   overworld and a battle, not the title. Work, in order:
   1. **Measure what play really costs.** Record emulator frames a second over a
      several-minute session, not one average, and the worst two seconds. The audio
-     counters (samples dropped and starved) are only printed when a game ends, and the
-     sweep ended every run by killing Slot, so they read `?/?` throughout: **audio
-     underruns and frame pacing have never been measured on this console**, and there
-     is no per-frame time at all. An average of 54 can be choppy if the frames arrive
-     unevenly. The trace needs to print both while a game is running.
+     counters (samples dropped and starved) and per-frame time spread while the game
+     runs. This now exists and has been used on GBA; every other system still needs it.
+     An average of 54 can be choppy if the frames arrive unevenly.
   2. **Test the memory explanation for large GBA ROMs.** A 32 MB ROM cannot stay in
      the page cache with about 12 MB spare, so gpSP may be re-reading the card during
      play. Compare a 32 MB hack against an 8 MB game, and check what the core does
