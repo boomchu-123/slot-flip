@@ -14,6 +14,7 @@ mod sfx;
 mod silence;
 mod sink;
 mod stub;
+pub mod stock_volume;
 pub mod volume;
 
 pub use alsa::AlsaSink;
