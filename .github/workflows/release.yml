@@ -17,7 +17,10 @@ jobs:
   build:
     name: flip pak
     runs-on: ubuntu-24.04-arm
-    container: rust:1-bullseye
+    # The console has glibc 2.28. Bullseye's armhf linker now emits references
+    # to GLIBC_2.29/2.30 with the current Rust toolchain: CI succeeds, but the
+    # binary exits before main on hardware. Buster links at the console's ABI.
+    container: rust:1-buster
     steps:
       - uses: actions/checkout@v7
 
@@ -96,7 +99,8 @@ jobs:
       - name: Install zip and the armv7 linker
         run: |
           set -eu
-          sed -i '/bullseye-security/d' /etc/apt/sources.list || true
+          sed -i 's/deb.debian.org/archive.debian.org/g; s/security.debian.org/archive.debian.org/g' /etc/apt/sources.list
+          sed -i '/buster-updates/d' /etc/apt/sources.list
           apt-get -o Acquire::Check-Valid-Until=false update
           apt-get install -y --no-install-recommends zip gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
 
@@ -117,6 +121,7 @@ jobs:
           # The same sanity checks a user would trip over.
           file "$pak/slot" | grep -q "ELF 32-bit"
           file "$pak/slot" | grep -q ARM
+          ! arm-linux-gnueabihf-readelf --version-info "$pak/slot" | grep -Eq 'GLIBC_2\.(29|3[0-9])'
           for core in mgba gpsp pcsx_rearmed fceumm snes9x2005_plus picodrive; do
             file "$pak/System/${core}_libretro.so" | grep -q "ELF 32-bit"
           done

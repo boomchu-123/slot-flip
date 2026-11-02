@@ -28,6 +28,12 @@ if [ -f "$SD/Slot/Config/boot-menu" ]; then
     stock_menu
 fi
 
+if [ -f /tmp/slot-stock-menu ]; then
+    rm -f /tmp/slot-stock-menu
+    log "Slot asked for the stock launcher"
+    stock_menu
+fi
+
 if [ ! -x "$PAK/launch.sh" ]; then
     log "no pak at $PAK, starting the stock launcher"
     stock_menu

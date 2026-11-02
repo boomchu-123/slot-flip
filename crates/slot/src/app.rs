@@ -380,6 +380,7 @@ pub struct App {
     starting: Option<LinkStarting>,
     link_transport: Option<(u16, Box<dyn LinkChannel>)>,
     restarting: bool,
+    leaving: bool,
     repairing: bool,
     repair_prompt: bool,
     reset_prompt: Option<QuickRow>,
@@ -469,6 +470,7 @@ pub struct App {
     clock: f64,
     power: Option<Power>,
     dozed_at: Millis,
+    idle_at: Millis,
     woke_on_press: bool,
     autosave_at: Millis,
     resume_at: Millis,
@@ -607,6 +609,7 @@ impl App {
             starting: None,
             link_transport: None,
             restarting: false,
+            leaving: false,
             repairing: false,
             repair_prompt: false,
             reset_prompt: None,
@@ -688,6 +691,7 @@ impl App {
             clock: 0.0,
             power: None,
             dozed_at: 0,
+            idle_at: 0,
             woke_on_press: false,
             autosave_at: AUTOSAVE_MS,
             resume_at: RESUME_MS,
@@ -1068,6 +1072,11 @@ impl App {
     pub fn in_game_hidden(&self) -> Vec<QuickRow> {
         let no_bezel = self.playing_platform() == Platform::Gba && !self.framed_panel();
         let mut hidden = Vec::new();
+        if cfg!(feature = "miyoomini") {
+            hidden.extend([QuickRow::LidOff, QuickRow::Rumble]);
+        } else {
+            hidden.push(QuickRow::AutoSleep);
+        }
         // A disc has no bezel, shader or colour correction of its own to change.
         if !self.playing_platform().has_screen_options() {
             hidden.extend([
@@ -1262,7 +1271,7 @@ impl App {
                 WallpaperTint::Medium => QuickValue::Medium,
                 WallpaperTint::High => QuickValue::High,
             }),
-            QuickRow::LidOff => QuickValue::LID_OFF
+            QuickRow::LidOff | QuickRow::AutoSleep => QuickValue::LID_OFF
                 .into_iter()
                 .find(|v| v.minutes() == Some(self.lid_off_min())),
             QuickRow::Theme => Some(if self.light() {
@@ -1272,6 +1281,7 @@ impl App {
             }),
             QuickRow::Buttons
             | QuickRow::DateTime
+            | QuickRow::ExitSlot
             | QuickRow::About
             | QuickRow::Screen
             | QuickRow::Game
@@ -2445,6 +2455,7 @@ impl App {
         // on a launcher daemon to have done it (see audio::route).
         crate::audio::route::apply(self.headphones);
         self.power = Some(power);
+        self.idle_at = self.now();
         self.battery_at = self.now();
         self.charge_at = self.now();
         self.last_led = None;
@@ -2766,7 +2777,28 @@ impl App {
         }
     }
 
+    pub fn leaving(&self) -> bool {
+        self.leaving
+    }
+
     pub fn apply(&mut self, action: Action) {
+        if cfg!(feature = "miyoomini")
+            && matches!(self.phase, Phase::Doze { .. })
+            && !matches!(
+                action,
+                Action::PowerPress
+                    | Action::PowerTap
+                    | Action::PowerHold
+                    | Action::PowerOff
+                    | Action::LidClose
+                    | Action::LidOpen
+            )
+        {
+            self.wake();
+            self.idle_at = self.now();
+            return;
+        }
+        self.idle_at = self.now();
         self.track_held_dir(action);
         match action {
             Action::LidClose => return self.doze(),
@@ -3061,6 +3093,7 @@ impl App {
             QuickRow::DateTime => {
                 self.phase = clock_screen(self.utc_secs(), self.state.utc_offset_min, true);
             }
+            QuickRow::ExitSlot => self.leaving = true,
             QuickRow::About => self.phase = Phase::About,
             QuickRow::BindReset => {
                 match crate::input::keymap::reset() {
@@ -3165,7 +3198,8 @@ impl App {
             | QuickRow::ScShaderBack
             | QuickRow::ScFastForward
             | QuickRow::ScRewind
-            | QuickRow::LidOff => {}
+            | QuickRow::LidOff
+            | QuickRow::AutoSleep => {}
             QuickRow::BindUp
             | QuickRow::BindDown
             | QuickRow::BindLeft
@@ -3267,7 +3301,7 @@ impl App {
             self.persist();
             return;
         }
-        if row == QuickRow::LidOff {
+        if matches!(row, QuickRow::LidOff | QuickRow::AutoSleep) {
             let n = LID_OFF_MIN.len();
             let at = LID_OFF_MIN
                 .iter()
@@ -3424,7 +3458,9 @@ impl App {
             | QuickRow::Controls
             | QuickRow::ControlsShelf
             | QuickRow::ControlsInGame
-            | QuickRow::LidOff => return,
+            | QuickRow::LidOff
+            | QuickRow::AutoSleep
+            | QuickRow::ExitSlot => return,
         }
         self.persist();
     }
@@ -3997,6 +4033,9 @@ impl App {
         }
         if self.doze_expired() {
             self.on_doze_timeout();
+        }
+        if self.auto_sleep_expired() {
+            self.doze();
         }
         self.settle_loading_mark();
         if self.now() >= self.autosave_at.min(self.resume_at) {
@@ -5789,6 +5828,17 @@ impl App {
             None => power.timeout().as_millis() as Millis,
         };
         self.now().saturating_sub(self.dozed_at) >= timeout
+    }
+
+    fn auto_sleep_expired(&self) -> bool {
+        if !cfg!(feature = "miyoomini")
+            || matches!(self.phase, Phase::Doze { .. })
+            || self.link_active()
+        {
+            return false;
+        }
+        let min = self.lid_off_min();
+        min != LID_OFF_NEVER && self.now().saturating_sub(self.idle_at) >= min as Millis * 60_000
     }
 
     pub fn settle_saves(&mut self) {

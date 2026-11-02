@@ -107,6 +107,8 @@ OVERCLOCK="$(command -v overclock.elf 2>/dev/null)"
 [ -n "$OVERCLOCK" ] || [ ! -x "$SD/.system/miyoomini/bin/overclock.elf" ] ||
 	OVERCLOCK="$SD/.system/miyoomini/bin/overclock.elf"
 KHZ=""
+GOV=/sys/devices/system/cpu/cpufreq/policy0/scaling_governor
+OLD_GOV="$(cat "$GOV" 2>/dev/null)"
 [ ! -f "$SLOT_ROOT/Config/cpu-khz" ] || KHZ="$(tr -cd '0-9' < "$SLOT_ROOT/Config/cpu-khz")"
 if [ -z "$KHZ" ] || [ "$KHZ" -lt 504000 ] || [ "$KHZ" -gt 1488000 ]; then
 	KHZ="${CPU_SPEED_GAME:-1296000}"
@@ -115,7 +117,11 @@ if [ -n "$OVERCLOCK" ]; then
 	printf 'slot: cpu: asking for %s kHz\n' "$KHZ" >> "$LOG"
 	"$OVERCLOCK" "$KHZ" >> "$LOG" 2>&1
 else
-	printf 'slot: cpu: no overclock.elf, the clock is left as it was\n' >> "$LOG"
+	printf 'slot: cpu: no overclock.elf, using the stock maximum\n' >> "$LOG"
+	# Stock firmware uses ondemand and repeatedly drops to 1.0 GHz while a game
+	# is running. That costs enough time for gpSP to underrun. Keep the stock
+	# 1.2 GHz ceiling, but hold it there while Slot owns the console.
+	[ ! -w "$GOV" ] || echo performance > "$GOV"
 fi
 printf 'slot: launcher: cpu now %s kHz\n' "$(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq 2>/dev/null || echo unreadable)" >> "$LOG"
 
@@ -133,3 +139,4 @@ export MALLOC_TRIM_THRESHOLD_=65536
 ./slot --init-root "$SLOT_ROOT" >> "$LOG" 2>&1
 ./slot >> "$LOG" 2>&1
 sync
+[ -z "$OLD_GOV" ] || [ ! -w "$GOV" ] || echo "$OLD_GOV" > "$GOV"

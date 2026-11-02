@@ -39,6 +39,13 @@ if [ -f "$SD/Slot/Config/boot-menu" ]; then
 	stock_menu
 fi
 
+
+if [ -f /tmp/slot-stock-menu ]; then
+	rm -f /tmp/slot-stock-menu
+	log "Slot asked for the stock launcher"
+	stock_menu
+fi
+
 if [ ! -x "$SD/Tools/my355/Slot.pak/launch.sh" ]; then
 	log "no pak at $SD/Tools/my355/Slot.pak; starting the stock launcher"
 	stock_menu

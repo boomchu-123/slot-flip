@@ -281,6 +281,13 @@ pub fn apply_core_options(
     if which == Core::Gpsp {
         core.set_option("gpsp_serial", serial);
         core.set_option("gpsp_rtc_time_source", "system");
+        if cfg!(feature = "miyoomini") {
+            // The full 65,536 Hz mixer costs enough CPU to make large games miss
+            // their frame and audio deadlines on this Cortex-A7. 32,768 Hz keeps
+            // exact timing, matches the GBA's normal PWM bandwidth and halves the
+            // core's audio-mixing work.
+            core.set_option("gpsp_sound_rate", "32768");
+        }
         if bios {
             core.set_option("gpsp_boot_mode", "bios");
         }

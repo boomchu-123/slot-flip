@@ -71,6 +71,7 @@ impl Pacer {
 }
 
 pub fn run() {
+    slot::cpu::pin_current(0, "frontend");
     slot::boot_time::mark("start");
     let _ = std::thread::Builder::new()
         .name("slot-fonts".into())
@@ -183,6 +184,12 @@ pub fn run() {
         if slot::crash::stopping() {
             eprintln!("slot: told to stop, saving first");
             frontend.stop();
+            return;
+        }
+        if frontend.leaving() {
+            eprintln!("slot: leaving for the device menu, saving first");
+            frontend.stop();
+            let _ = std::fs::write("/tmp/slot-stock-menu", b"");
             return;
         }
         frontend.step_emulator(pacer.period, STEP_TIMEOUT);

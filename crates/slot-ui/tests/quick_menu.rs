@@ -91,7 +91,9 @@ fn the_rows_run_in_the_order_the_user_chose() {
             "Recents",
             "Game Titles",
             "Lid Power Off",
-            "Date & Time"
+            "Auto Sleep",
+            "Date & Time",
+            "Exit Slot"
         ]
     );
     assert_eq!(
@@ -168,6 +170,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
         [
             QuickRow::Screen,
             QuickRow::DateTime,
+            QuickRow::ExitSlot,
             QuickRow::About,
             QuickRow::Game,
             QuickRow::Resume,
@@ -226,7 +229,7 @@ fn a_hidden_row_is_stepped_over_and_takes_no_place() {
     let hidden = [QuickRow::WallpaperTint];
     assert_eq!(QuickRow::Wallpaper.down(&hidden), QuickRow::Recents);
     assert_eq!(QuickRow::Recents.up(&hidden), QuickRow::Wallpaper);
-    assert_eq!(QuickRow::Theme.up(&hidden), QuickRow::DateTime);
+    assert_eq!(QuickRow::Theme.up(&hidden), QuickRow::ExitSlot);
     assert_eq!(QuickRow::Recents.position(&hidden), 2);
     assert_eq!(QuickRow::Wallpaper.down(&[]), QuickRow::WallpaperTint);
     assert_eq!(QuickRow::Recents.position(&[]), 3);

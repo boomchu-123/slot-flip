@@ -616,6 +616,7 @@ impl Worker {
         resume: Option<Vec<u8>>,
         link: Link,
     ) {
+        crate::cpu::pin_current(1, "emulator");
         eprintln!(
             "slot: emu: loading {} at {:.1} ms",
             rom.display(),
@@ -825,7 +826,18 @@ impl Worker {
                         }
                     };
                     turbo_frame = turbo_frame.wrapping_add(1);
-                    core.set_frame_skip(!last);
+                    // A normal-speed present is one emulated frame, so the old
+                    // `!last` was always false there: gpSP's automatic frameskip
+                    // was enabled but Slot never advised it to skip. On the
+                    // CPU-only Mini Plus, repeat the previous picture on every
+                    // other over-budget frame. The core still advances game and
+                    // audio, trading only a video conversion for the time needed
+                    // to avoid slowing the game and starving sound.
+                    let adaptive_skip = cfg!(feature = "miyoomini")
+                        && speed == Speed::Normal
+                        && (cost.draw + post_cost > PRESENT)
+                        && turbo_frame.is_multiple_of(2);
+                    core.set_frame_skip(!last || adaptive_skip);
                     let frame_began = Instant::now();
                     match cable.as_mut() {
                         Some(c) => {
