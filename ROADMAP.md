@@ -249,8 +249,10 @@ first applies to both devices.
   perhaps slightly slow; 44 of 5,100 pictures had been repeated by the earlier adaptive
   skip. With that skip removed, a final battle held all 13 active windows at 120-122
   with no new audio starvation and felt effectively full speed. This was with rewind
-  off. Rewind on averaged 118.4, fell to 108, and starved audio; the next build records
-  15 snapshots a second instead of 30. Other systems and PlayStation are unchanged.
+  off. Rewind on averaged 118.4, fell to 108, and starved audio. Recording 15 snapshots
+  a second recovered full average speed but caused one isolated underrun at a 40.8 ms
+  snapshot spike; the next build records 10 a second. Other systems and PlayStation
+  are unchanged.
   The earlier figures were averages over short runs at
   a title screen, so they said nothing about play. The 1.0 bar for this device is now **sustained
   play, with the settings a player has by default (rewind on)**, per system: the
