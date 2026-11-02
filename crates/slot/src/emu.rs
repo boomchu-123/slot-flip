@@ -41,6 +41,12 @@ const FAST_TARGET: Duration = Duration::from_micros(14_000);
 
 const COST_BLEND: u32 = 4;
 
+// Serializing and queueing a rewind state every other frame costs enough to slow
+// heavy games on the CPU-only Mini Plus. Fifteen snapshots a second still gives
+// smooth rewind there while leaving time for the game and audio.
+#[cfg(feature = "miyoomini")]
+const SNAPSHOT_EVERY: u32 = 4;
+#[cfg(not(feature = "miyoomini"))]
 const SNAPSHOT_EVERY: u32 = 2;
 
 const STALL: Duration = Duration::from_millis(25);
