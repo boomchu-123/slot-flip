@@ -110,36 +110,6 @@ fn a_doze_that_outlasts_the_timeout_powers_off_by_itself() {
     assert!(a.powering_off());
 }
 
-#[cfg(feature = "miyoomini")]
-#[test]
-fn the_mini_plus_sleeps_after_its_idle_time_and_any_button_wakes_it() {
-    let d = tmp_root_with_carts(&["Emerald"]);
-    write_slot_state(
-        d.path(),
-        &SlotState {
-            lid_off_min: Some(1),
-            ..SlotState::default()
-        },
-    )
-    .unwrap();
-    let mut a = boot(d.path());
-    a.set_power(panel(d.path(), Duration::from_secs(60)).0);
-    assert_eq!(a.lid_off_min(), 1);
-    for _ in 0..5000 {
-        a.update(DT);
-    }
-    assert!(matches!(a.phase(), Phase::Doze { .. }));
-    for _ in 0..4000 {
-        a.update(DT);
-    }
-    assert!(a.powering_off(), "sleep should still honour its power-off time");
-    let d = tmp_root_with_carts(&["Emerald"]);
-    let mut a = boot(d.path());
-    a.apply(Action::LidClose);
-    a.apply(Action::GbaDown(Btn::A));
-    assert!(matches!(a.phase(), Phase::Shelf));
-}
-
 #[test]
 fn a_stray_doze_timeout_does_not_power_off_a_running_game() {
     let d = tmp_root_with_carts(&["Emerald"]);

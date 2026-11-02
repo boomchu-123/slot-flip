@@ -92,7 +92,6 @@ fn the_mini_plus_shows_only_settings_its_hardware_has() {
     let hidden = a.hidden_rows();
     assert!(hidden.contains(&QuickRow::LidOff));
     assert!(hidden.contains(&QuickRow::Rumble));
-    assert!(!hidden.contains(&QuickRow::AutoSleep));
     assert!(!hidden.contains(&QuickRow::ExitSlot));
 }
 
@@ -289,6 +288,7 @@ fn fast_forward_steps_through_its_speeds_wraps_at_both_ends_and_saves_each_one()
 }
 
 #[test]
+#[cfg(not(feature = "miyoomini"))]
 fn rumble_and_fast_forward_sound_flip_on_either_arrow_and_save() {
     let (d, mut a, _) = on_carousel();
     let card = |d: &TempDir| {
@@ -371,8 +371,10 @@ fn the_game_page_flips_auto_load_eject_save_turbo_and_rewind_and_saves_each() {
     press(&mut a, Btn::Left);
     assert_eq!(card(&d), (true, true, false, false));
     assert!(!a.turbo());
-    press(&mut a, Btn::Down);
-    press(&mut a, Btn::Down);
+    // Rumble sits between Turbo and Load State, except where there is no motor.
+    for _ in 0..if cfg!(feature = "miyoomini") { 1 } else { 2 } {
+        press(&mut a, Btn::Down);
+    }
     assert_eq!(a.quick_menu(), Some(QuickRow::AutoLoad));
     press(&mut a, Btn::Right);
     assert_eq!(card(&d), (false, true, false, false));
@@ -865,7 +867,8 @@ fn the_arrows_stand_only_around_the_selected_rows_value() {
         press(&mut a, Btn::Up);
     }
     press(&mut a, Btn::A);
-    for _ in 0..QuickRow::LidOff.position(&a.hidden_rows()) {
+    // The row just above Date & Time, whichever rows this device shows.
+    for _ in 1..QuickRow::DateTime.position(&a.hidden_rows()) {
         press(&mut a, Btn::Down);
     }
     let out = frame(&a);
@@ -1374,17 +1377,13 @@ fn a_frame_file_that_is_gone_reads_back_as_none() {
 }
 
 #[test]
+#[cfg(not(feature = "miyoomini"))]
 fn lid_power_off_steps_through_its_minutes_wraps_and_saves() {
     let (d, mut a, _) = on_carousel_with(SlotState {
         lid_off_min: Some(3),
         ..Default::default()
     });
-    let row = if cfg!(feature = "miyoomini") {
-        QuickRow::AutoSleep
-    } else {
-        QuickRow::LidOff
-    };
-    open_at(&mut a, row);
+    open_at(&mut a, QuickRow::LidOff);
     assert_eq!(a.lid_off_min(), 3);
     // 0 is Never, the last choice before it wraps back to 1 minute.
     for want in [5, 10, 15, 30, 0, 1, 3] {
@@ -1399,6 +1398,7 @@ fn lid_power_off_steps_through_its_minutes_wraps_and_saves() {
 }
 
 #[test]
+#[cfg(not(feature = "miyoomini"))]
 fn lid_power_off_has_a_never_that_reads_as_never() {
     use slot_ui::QuickValue;
     assert_eq!(QuickValue::LID_OFF.last(), Some(&QuickValue::Never));
@@ -1408,12 +1408,7 @@ fn lid_power_off_has_a_never_that_reads_as_never() {
         lid_off_min: Some(0),
         ..Default::default()
     });
-    let row = if cfg!(feature = "miyoomini") {
-        QuickRow::AutoSleep
-    } else {
-        QuickRow::LidOff
-    };
-    open_at(&mut a, row);
+    open_at(&mut a, QuickRow::LidOff);
     assert_eq!(a.lid_off_min(), 0);
-    assert_eq!(a.quick_value(row), Some(QuickValue::Never));
+    assert_eq!(a.quick_value(QuickRow::LidOff), Some(QuickValue::Never));
 }

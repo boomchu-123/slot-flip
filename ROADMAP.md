@@ -267,17 +267,16 @@ first applies to both devices.
   whatever the average says.
 - 🚧 **Settings and screens that fit the device.** Done for the Mini Plus: the About
   sticker names the model and wordmark of the device it runs on, Lid Power Off and
-  Rumble are hidden there, and an Auto Sleep row (idle time, then sleep, any button
-  wakes) replaces them. Tested in code; Auto Sleep and the sticker have not been looked
-  at on the console, and every other row still needs its review. As found: the menu and the About sticker were
+  Rumble are hidden there. **No auto-sleep setting is offered on the Mini Plus** (the
+  earlier idle-sleep feature built on the Lid Power Off setting was removed). Tested
+  in code; the sticker has not been looked at on the console, and every other row still
+  needs its review. As found: the menu and the About sticker were
   built for the Flip and show it on the Mini Plus. Known: the About sticker prints
   `MODEL NO. MY355` and the wordmark `MIYOO FLIP`; **Lid Power Off** is offered on a
-  console with no lid and the Mini Plus has no idle auto-sleep of its own to set in
-  its place; the **Rumble** row is shown, and the Mini Plus has no vibration motor
-  (to be confirmed on the device). Needed: each device describes itself (name, model,
-  which rows apply) from one place, rows that cannot work are hidden, and the Mini Plus
-  gains an **auto sleep** setting (idle time, then screen off or power off) that works
-  without a lid. Every other row should be reviewed once against the device (volume
+  console with no lid; the **Rumble** row is shown, and the Mini Plus has no vibration
+  motor (to be confirmed on the device). Needed: each device describes itself (name,
+  model, which rows apply) from one place and rows that cannot work are hidden. Every
+  other row should be reviewed once against the device (volume
   and brightness steps, battery, clock, shaders). Hiding is driven by what the device
   has, not by a scatter of feature checks, so the next device is cheaper.
 

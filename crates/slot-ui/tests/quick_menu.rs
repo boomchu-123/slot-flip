@@ -91,7 +91,6 @@ fn the_rows_run_in_the_order_the_user_chose() {
             "Recents",
             "Game Titles",
             "Lid Power Off",
-            "Auto Sleep",
             "Date & Time",
             "Exit Slot"
         ]
