@@ -68,7 +68,7 @@ fn resume_and_b_each_close_it_back_into_the_game() {
 #[test]
 fn a_tap_of_menu_closes_it_from_any_page() {
     let (_d, mut a) = playing();
-    go_to(&mut a, QuickRow::Rewind);
+    go_to(&mut a, QuickRow::Rumble);
     a.apply(Action::QuickMenu);
     assert_eq!(a.in_game_menu(), None);
     assert!(matches!(a.phase(), Phase::Playing { .. }));
@@ -77,7 +77,7 @@ fn a_tap_of_menu_closes_it_from_any_page() {
 #[test]
 fn b_climbs_the_in_game_pages_and_never_the_shelf_ones() {
     let (_d, mut a) = playing();
-    go_to(&mut a, QuickRow::Rewind);
+    go_to(&mut a, QuickRow::Rumble);
     press(&mut a, Btn::B);
     assert_eq!(a.in_game_menu(), Some(QuickRow::PlayGameplay));
     press(&mut a, Btn::B);
@@ -90,12 +90,6 @@ fn b_climbs_the_in_game_pages_and_never_the_shelf_ones() {
 #[test]
 fn screen_shows_the_palette_only_when_palettes_are_live() {
     let (_d, mut a) = playing();
-    // The Mini Plus has no lid and no vibration motor.
-    let device: &[QuickRow] = if cfg!(feature = "miyoomini") {
-        &[QuickRow::LidOff, QuickRow::Rumble]
-    } else {
-        &[]
-    };
     let empty = [
         QuickRow::States,
         QuickRow::Screenshots,
@@ -105,7 +99,6 @@ fn screen_shows_the_palette_only_when_palettes_are_live() {
     assert_eq!(
         a.in_game_hidden(),
         [
-            device,
             &[
                 QuickRow::Palette,
                 QuickRow::Bezel,
@@ -121,7 +114,6 @@ fn screen_shows_the_palette_only_when_palettes_are_live() {
     assert_eq!(
         a.in_game_hidden(),
         [
-            device,
             &[
                 QuickRow::Bezel,
                 QuickRow::LeftStick,

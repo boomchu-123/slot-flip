@@ -132,13 +132,12 @@ nothing below them can be judged, or even debugged away from the bench, without 
    re-read during play (about 12 MB of memory spare with a 32 MB ROM). A system is
    done only on that measurement. The maintainer calling a game choppy is a failure
    whatever the average says.
-3. **Settings and About that fit this console.** *Done in code (model, wordmark,
-   hidden Lid Power Off and Rumble); not yet looked at on the console. No auto-sleep
-   setting is shown.* Today the About sticker prints
+3. **Settings and About that fit this console.** *Done in code (model, wordmark, Auto
+   Sleep, hidden Lid Power Off and Rumble); not yet looked at on the console.* Today the About sticker prints
    `MODEL NO. MY355` and `MIYOO FLIP`, Lid Power Off is offered with no lid, and the
    Rumble row is shown (no motor on this console, to be confirmed). Give each device
    one description of itself (name, model, which rows apply), hide what cannot work,
-   and review every other
+   add an **auto sleep** setting that works without a lid, and review every other
    row once against the device. Test: a menu test per device that lists the rows it
    shows.
 4. **Make rewind cheaper on this console.** It is the largest known cost left and

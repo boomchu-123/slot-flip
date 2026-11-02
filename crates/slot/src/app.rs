@@ -470,6 +470,7 @@ pub struct App {
     clock: f64,
     power: Option<Power>,
     dozed_at: Millis,
+    idle_at: Millis,
     woke_on_press: bool,
     autosave_at: Millis,
     resume_at: Millis,
@@ -690,6 +691,7 @@ impl App {
             clock: 0.0,
             power: None,
             dozed_at: 0,
+            idle_at: 0,
             woke_on_press: false,
             autosave_at: AUTOSAVE_MS,
             resume_at: RESUME_MS,
@@ -1072,6 +1074,8 @@ impl App {
         let mut hidden = Vec::new();
         if cfg!(feature = "miyoomini") {
             hidden.extend([QuickRow::LidOff, QuickRow::Rumble]);
+        } else {
+            hidden.push(QuickRow::AutoSleep);
         }
         // A disc has no bezel, shader or colour correction of its own to change.
         if !self.playing_platform().has_screen_options() {
@@ -1267,7 +1271,7 @@ impl App {
                 WallpaperTint::Medium => QuickValue::Medium,
                 WallpaperTint::High => QuickValue::High,
             }),
-            QuickRow::LidOff => QuickValue::LID_OFF
+            QuickRow::LidOff | QuickRow::AutoSleep => QuickValue::LID_OFF
                 .into_iter()
                 .find(|v| v.minutes() == Some(self.lid_off_min())),
             QuickRow::Theme => Some(if self.light() {
@@ -1580,10 +1584,6 @@ impl App {
             WallpaperPick::File(_) | WallpaperPick::Random
         );
         let mut hidden = Vec::new();
-        // The Mini Plus has no lid to close and no vibration motor.
-        if cfg!(feature = "miyoomini") {
-            hidden.extend([QuickRow::LidOff, QuickRow::Rumble]);
-        }
         if !own {
             hidden.push(QuickRow::WallpaperTint);
         }
@@ -2455,6 +2455,7 @@ impl App {
         // on a launcher daemon to have done it (see audio::route).
         crate::audio::route::apply(self.headphones);
         self.power = Some(power);
+        self.idle_at = self.now();
         self.battery_at = self.now();
         self.charge_at = self.now();
         self.last_led = None;
@@ -2781,6 +2782,23 @@ impl App {
     }
 
     pub fn apply(&mut self, action: Action) {
+        if cfg!(feature = "miyoomini")
+            && matches!(self.phase, Phase::Doze { .. })
+            && !matches!(
+                action,
+                Action::PowerPress
+                    | Action::PowerTap
+                    | Action::PowerHold
+                    | Action::PowerOff
+                    | Action::LidClose
+                    | Action::LidOpen
+            )
+        {
+            self.wake();
+            self.idle_at = self.now();
+            return;
+        }
+        self.idle_at = self.now();
         self.track_held_dir(action);
         match action {
             Action::LidClose => return self.doze(),
@@ -3180,7 +3198,8 @@ impl App {
             | QuickRow::ScShaderBack
             | QuickRow::ScFastForward
             | QuickRow::ScRewind
-            | QuickRow::LidOff => {}
+            | QuickRow::LidOff
+            | QuickRow::AutoSleep => {}
             QuickRow::BindUp
             | QuickRow::BindDown
             | QuickRow::BindLeft
@@ -3282,7 +3301,7 @@ impl App {
             self.persist();
             return;
         }
-        if row == QuickRow::LidOff {
+        if matches!(row, QuickRow::LidOff | QuickRow::AutoSleep) {
             let n = LID_OFF_MIN.len();
             let at = LID_OFF_MIN
                 .iter()
@@ -3440,6 +3459,7 @@ impl App {
             | QuickRow::ControlsShelf
             | QuickRow::ControlsInGame
             | QuickRow::LidOff
+            | QuickRow::AutoSleep
             | QuickRow::ExitSlot => return,
         }
         self.persist();
@@ -4013,6 +4033,9 @@ impl App {
         }
         if self.doze_expired() {
             self.on_doze_timeout();
+        }
+        if self.auto_sleep_expired() {
+            self.doze();
         }
         self.settle_loading_mark();
         if self.now() >= self.autosave_at.min(self.resume_at) {
@@ -5805,6 +5828,17 @@ impl App {
             None => power.timeout().as_millis() as Millis,
         };
         self.now().saturating_sub(self.dozed_at) >= timeout
+    }
+
+    fn auto_sleep_expired(&self) -> bool {
+        if !cfg!(feature = "miyoomini")
+            || matches!(self.phase, Phase::Doze { .. })
+            || self.link_active()
+        {
+            return false;
+        }
+        let min = self.lid_off_min();
+        min != LID_OFF_NEVER && self.now().saturating_sub(self.idle_at) >= min as Millis * 60_000
     }
 
     pub fn settle_saves(&mut self) {
