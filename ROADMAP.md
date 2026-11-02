@@ -212,7 +212,12 @@ was **no way to get to the console's own menu** to set up Wi-Fi. Taken together,
 Mini Plus build is **not releasable as 1.0**. These three are now 1.0 gates, and the
 first applies to both devices.
 
-- 📋 **Quit Slot from inside Slot, on every device and every release.** Today there is
+- 🚧 **Quit Slot from inside Slot, on every device and every release.** Built (General >
+  Exit Slot, then the card launcher starts the stock menu once, leaving nothing on the
+  card) and run on the Mini Plus: it reached the stock menu through the real menu row.
+  **Not yet run on the Flip**; its launcher has the same change. One console power-off
+  during testing, after a hand-made trigger rather than the menu, was not explained.
+  The problem as found: there is
   no way out: when Slot exits, the card's launcher starts it again, and the only ways
   to the console's own menu are to edit the card on a computer (create
   `Slot/Config/boot-menu`) or to make Slot exit three times inside its first fifteen
@@ -227,7 +232,16 @@ first applies to both devices.
   ships in the next release of **both** devices (the Flip's `v0.15.1` has no such
   row). Until it exists, INSTALL.md says to create the `boot-menu` file before
   travelling.
-- 📋 **Make games actually run at full speed on the Mini Plus.** The measured figures
+- 🚧 **Make games actually run at full speed on the Mini Plus.** First fixes are in and
+  measured on a 32 MB hack from a mid-game resume: emulator frames went from about
+  104 to 118-121 per two seconds (120 is full speed) and audio starvation, which grew
+  for the whole run, stopped growing after about a minute. What changed: the CPU is
+  held at the stock 1.2 GHz ceiling instead of dropping to 1.0 GHz, the frontend and
+  emulator run on separate cores, gpSP mixes audio at 32768 Hz instead of 65536, and
+  alternate over-budget frames skip their picture conversion. That is one window at
+  one save point, not a play-through, and the maintainer has not yet judged it by
+  playing. Rewind, other systems and PlayStation are unchanged. The figures were
+  averages over short runs at a title screen, so they said nothing about play. The 1.0 bar was
   were averages over short runs at a title screen, with rewind off for the GBA games,
   so they said nothing about play. The 1.0 bar for this device is now **sustained
   play, with the settings a player has by default (rewind on)**, per system: the
@@ -251,7 +265,11 @@ first applies to both devices.
   The 1.0 gate for this device is rewritten to match: a system counts as done only on
   a sustained-play measurement, and a game the maintainer calls choppy is a failure
   whatever the average says.
-- 📋 **Settings and screens that fit the device.** The menu and the About sticker were
+- 🚧 **Settings and screens that fit the device.** Done for the Mini Plus: the About
+  sticker names the model and wordmark of the device it runs on, Lid Power Off and
+  Rumble are hidden there, and an Auto Sleep row (idle time, then sleep, any button
+  wakes) replaces them. Tested in code; Auto Sleep and the sticker have not been looked
+  at on the console, and every other row still needs its review. As found: the menu and the About sticker were
   built for the Flip and show it on the Mini Plus. Known: the About sticker prints
   `MODEL NO. MY355` and the wordmark `MIYOO FLIP`; **Lid Power Off** is offered on a
   console with no lid and the Mini Plus has no idle auto-sleep of its own to set in

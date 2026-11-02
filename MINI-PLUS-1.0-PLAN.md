@@ -13,7 +13,7 @@ with no MinUI.
 on `feat/miyoomini-software`. Everything below is, or is to be, measured on hardware
 driven over adb, not inferred from a build.
 
-**Last updated:** 2026-11-01.
+**Last updated:** 2026-11-02.
 
 **Status: not releasable as 1.0.** The first real play (2026-11-01, a 32 MB GBA hack)
 was choppy throughout, and there is no way to leave Slot for the console's own menu
@@ -110,7 +110,8 @@ Not gates: playing every title through, judging sound by ear, L3/R3 in a game.
 Items 1 to 3 were added on 2026-11-01 and come before everything else, because
 nothing below them can be judged, or even debugged away from the bench, without them.
 
-1. **Quit Slot from inside Slot (both devices, every release).** An Exit row in the
+1. **Quit Slot from inside Slot (both devices, every release).** *Built; run on the
+   Mini Plus, not on the Flip.* An Exit row in the
    menu that hands over to the stock launcher for this session and leaves nothing on
    the card, so the next boot is Slot. Both autoboot wrappers must tell "Slot exited,
    start it again" from "the player asked to leave"; Slot stays in the stock App list
@@ -119,7 +120,11 @@ nothing below them can be judged, or even debugged away from the bench, without 
    `Slot/Config/boot-menu` before they travel. Done when it is run on both consoles:
    Exit, set Wi-Fi in the stock menu, come back to Slot from the App list, reboot into
    Slot.
-2. **Measure sustained play, then fix what it shows.** Add to the trace, while a game
+2. **Measure sustained play, then fix what it shows.** *Started: the CPU governor,
+   core pinning, gpSP's sound rate and frame skipping took a 32 MB hack from about 104
+   to 118-121 frames per two seconds with the starvation counter flat after a minute.
+   The per-frame time spread is still not measured, the per-system sweep is not redone,
+   and the verdict is the maintainer's, from play.* Add to the trace, while a game
    runs: emulator frames per two seconds over several minutes (with the worst window),
    audio dropped and starved counts, and frame time spread. Then take one game per
    system into its heavy parts (overworld, battle, a 3D scene) with rewind **on**, and
@@ -127,7 +132,8 @@ nothing below them can be judged, or even debugged away from the bench, without 
    re-read during play (about 12 MB of memory spare with a 32 MB ROM). A system is
    done only on that measurement. The maintainer calling a game choppy is a failure
    whatever the average says.
-3. **Settings and About that fit this console.** Today the About sticker prints
+3. **Settings and About that fit this console.** *Done in code (model, wordmark, Auto
+   Sleep, hidden Lid Power Off and Rumble); not yet looked at on the console.* Today the About sticker prints
    `MODEL NO. MY355` and `MIYOO FLIP`, Lid Power Off is offered with no lid, and the
    Rumble row is shown (no motor on this console, to be confirmed). Give each device
    one description of itself (name, model, which rows apply), hide what cannot work,
