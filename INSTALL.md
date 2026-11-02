@@ -117,8 +117,12 @@ to `Slot/Config/buttons.ini`.
 
 ## Getting the stock menu back
 
-Slot starts by default. To start in the stock menu instead, create an empty file
-`Slot/Config/boot-menu` on the card and reboot. Delete it to start in Slot again.
+For one session, choose **General > Exit Slot** in Slot's menu: it saves and starts
+the stock menu once, and the next boot is Slot again. (The launcher change behind it
+is in the Flip zip but has only been run on the Mini Plus so far.)
+
+Slot starts by default. To start in the stock menu every time instead, create an empty
+file `Slot/Config/boot-menu` on the card and reboot. Delete it to start in Slot again.
 Removing the `miyoo355` folder does the same thing.
 
 To remove Slot completely, delete `App/Slot`, `Tools/my355/Slot.pak` and
@@ -192,13 +196,15 @@ It recognises which device the zip is for, keeps the console's launcher as
 `MainUI.stock`, backs up whatever else it replaces to `~/slot-flip-backups/`, and
 leaves `Slot/` (games, saves, states) alone.
 
-**Slot cannot be quit from inside yet.** On both devices, leaving Slot (to set up
-Wi-Fi, for example) means editing the card on a computer, as below. If you will be
-away from a card reader, do it first. An in-app Exit is planned for 1.0
-([ROADMAP.md](ROADMAP.md)).
+**Leaving Slot from inside.** Open the menu and choose **General > Exit Slot**. Slot
+saves, then the console's own menu starts for that session (to set up Wi-Fi, for
+example). Nothing is left on the card, so the next boot is Slot again, and Slot stays
+in the stock menu's App list as the way back in. This has been run on the Mini Plus;
+the Flip's launcher has the same change but it has not been run there yet.
 
-**Getting the stock menu back.** Create an empty file `Slot/Config/boot-menu` on
-the card and reboot; delete it to start in Slot again. If Slot crashes three times
+**Staying in the stock menu.** To make the console start in its own menu every time,
+create an empty file `Slot/Config/boot-menu` on the card and reboot; delete it to
+start in Slot again. If Slot crashes three times
 in a row within its first fifteen seconds, or its folder is missing, the console
 starts its own menu by itself rather than looping. To remove Slot completely, delete
 `App/Slot` and `Tools/miyoomini/Slot.pak`, and put `MainUI.stock` back as `MainUI`.

@@ -15,9 +15,11 @@ driven over adb, not inferred from a build.
 
 **Last updated:** 2026-11-02.
 
-**Status: not releasable as 1.0.** The first real play (2026-11-01, a 32 MB GBA hack)
-was choppy throughout, and there is no way to leave Slot for the console's own menu
-(Wi-Fi setup, for one). Sections 1 and 3 say what that changes.
+**Status: GBA and the new release-critical controls pass; the device as a whole is not
+yet releasable as 1.0.** Pokémon Unbound now holds full speed through battles, including
+with rewind recording enabled. Exit Slot and the device-specific General page work on
+the console. SNES, GBC and PlayStation performance and the end-to-end checks below
+remain open.
 
 ---
 
@@ -39,20 +41,18 @@ a second from Slot's own trace:
 | Game Gear | PicoDrive | 60.1 of 60 | was 59.7 |
 | Game Boy | mGBA | 58.3 of 59.7 | |
 | Game Boy Color | mGBA | **55.9** of 59.7 (59.9 with rewind off) | short |
-| Game Boy Advance | gpSP | 58.7 of 59.7 | **disputed**: a 32 MB hack ran 54.2 at its title (rewind off), 59.8 for a second one, and was choppy in play |
+| Game Boy Advance | gpSP | **full speed in sustained play** | Unbound battles held 120-122 frames per two seconds; rewind-on held 120-123 |
 | PlayStation | PCSX-ReARMed | **48 to 52** of 59.9 | short; 21 MB spare after four minutes |
 
 The Mega Drive, Master System and Game Gear rows are from the zip with PicoDrive
 installed the way a user would; the rest are from the exp-v0.5.0 build, and the
 SNES and GBC rows were re-measured on 2026-10-31 for the rewind comparison.
 
-**How far to trust this table.** Every row is an average over 40 to 50 seconds,
-usually at a title screen or intro, with no measure of how evenly frames arrive and no
-audio underrun count (those print only when a game ends, and the sweep killed Slot).
-The two 32 MB hacks were measured with rewind **off** by accident, and a player runs
-with it on. The GBA row failed its first real test: the table said full speed, the
-player said choppy everywhere. Treat the whole table as an upper bound until section 3
-item 2 is done.
+**How far to trust this table.** GBA is the exception: it was measured during real
+overworld and battle play with live frame-time and audio counters, then repeated with
+rewind recording on. Every other row is an average over 40 to 50 seconds, usually at a
+title screen or intro, with no measure of how evenly frames arrive. Treat those rows as
+upper bounds until section 3 item 2 is done for each system.
 
 **What each frame costs.** The picture path is about 2.5 ms a frame (it was about
 15). What is left is the emulator thread itself. Genesis Plus GX took about 16 ms of
@@ -102,6 +102,15 @@ Not gates: playing every title through, judging sound by ear, L3/R3 in a game.
   licence ship in the pak and the notice names it. The Flip still uses Genesis Plus
   GX.
 - **Resume states** round-trip across a restart (Pokemon Emerald, Crash Bandicoot).
+- **Exit Slot** reaches the stock menu from **General > Exit Slot** on the Mini Plus;
+  its one-shot handoff is consumed and the next reboot returns to Slot.
+- **Device-fitting General page** shows Auto Sleep and hides Lid Power Off and Rumble
+  on the Mini Plus. The About identity is implemented and covered by tests; its visual
+  check remains open.
+- **GBA sustained play** now passes. The Mini Plus holds its stock 1.2 GHz ceiling,
+  separates frontend and emulator work across its two cores, uses gpSP's 32768 Hz audio
+  rate, recovers short pacing misses, and records rewind at 10 snapshots a second.
+  Unbound battles held full speed with flat audio counters, and actual rewind felt good.
 
 ---
 
@@ -110,56 +119,43 @@ Not gates: playing every title through, judging sound by ear, L3/R3 in a game.
 Items 1 to 3 were added on 2026-11-01 and come before everything else, because
 nothing below them can be judged, or even debugged away from the bench, without them.
 
-1. **Quit Slot from inside Slot (both devices, every release).** *Built; run on the
-   Mini Plus, not on the Flip.* An Exit row in the
-   menu that hands over to the stock launcher for this session and leaves nothing on
-   the card, so the next boot is Slot. Both autoboot wrappers must tell "Slot exited,
-   start it again" from "the player asked to leave"; Slot stays in the stock App list
-   as the way back. Check whether the Flip wrapper's fall-back on a non-zero exit
-   already gives most of this. Until it ships, INSTALL.md tells people to create
-   `Slot/Config/boot-menu` before they travel. Done when it is run on both consoles:
-   Exit, set Wi-Fi in the stock menu, come back to Slot from the App list, reboot into
-   Slot.
-2. **Measure sustained play, then fix what it shows.** *Started: the CPU governor,
-   core pinning and gpSP's sound rate took a 32 MB hack from about 104 to 118-121
-   frames per two seconds.
-   The maintainer found overworld play much better and playable, but battles still
-   felt a little slow. A 100-second trace covering two battles confirmed it: 115.0 of
-   120 frames per two seconds on average, 105 worst, while audio starvation kept
-   growing. Rewind was off. The core itself averaged 8-12 ms, exposing small missed
-   deadlines being discarded by the software pacer. After letting a cheap frame recover
-   that time, a second battle trace held all 42 windows at 120-122 with no new audio
-   starvation. Battles felt much better but perhaps slightly slow; 44 of 5,100 pictures
-   had been repeated by the earlier adaptive skip. With that skip removed, a final
-   battle held all 13 active windows at 120-122 with no new audio starvation and felt
-   effectively full speed. **This was with rewind off.** Rewind on averaged 118.4,
-   fell to 108, and starved audio. Recording 10 snapshots a second then held all 73
-   automated windows at 120-123 with flat audio, and a battle plus actual rewind felt
-   good. **GBA now passes this test.** The per-system sweep is not redone.* Add to the trace, while a game
-   runs: emulator frames per two seconds over several minutes (with the worst window),
-   audio dropped and starved counts, and frame time spread. Then take one game per
-   system into its heavy parts (overworld, battle, a 3D scene) with rewind **on**, and
-   compare a 32 MB GBA ROM with an 8 MB one to test whether the card is being
-   re-read during play (about 12 MB of memory spare with a 32 MB ROM). A system is
-   done only on that measurement. The maintainer calling a game choppy is a failure
-   whatever the average says.
-3. **Settings and About that fit this console.** *The General page was checked on the
-   console: Auto Sleep is shown, while Lid Power Off and Rumble are hidden. The About
-   sticker is done in code and has not been looked at on the console.* Today the About sticker prints
-   `MODEL NO. MY355` and `MIYOO FLIP`, Lid Power Off is offered with no lid, and the
-   Rumble row is shown (no motor on this console, to be confirmed). Give each device
-   one description of itself (name, model, which rows apply), hide what cannot work,
-   add an **auto sleep** setting that works without a lid, and review every other
-   row once against the device. Test: a menu test per device that lists the rows it
-   shows.
-4. **Make rewind cheaper on this console.** *Recording every sixth frame (10 snapshots
-   a second) passes GBA: 73/73 automated windows at full speed, no new underruns, and
-   actual rewind felt good. GBC and SNES are not retested.* It is the largest known cost left and
-   the most certain win. Options, cheapest first: snapshot less often than every
-   second presented frame here (`SNAPSHOT_EVERY` in `emu.rs`), record only while a
-   rewind button is held (nothing to rewind to then, so decide on behaviour), or
-   keep the snapshot off the emulator thread. Measure SNES and GBC with and without,
-   and keep a few seconds of history if possible.
+1. **Quit Slot from inside Slot (both devices, every release).** *Built and run on the
+   Mini Plus; **not yet run on the Flip**.* **General > Exit Slot** saves and hands over
+   to the stock launcher for one session, leaving nothing on the card, so the next boot
+   is Slot; Slot stays in the stock App list as the way back. Both autoboot wrappers
+   (`miyoo354`, `miyoo355`) carry the change; the Flip's has only been read and tested
+   in code. One console power-off during testing, after a hand-made trigger rather than
+   the menu row, is unexplained. Done when it is run on the Flip too: Exit, set Wi-Fi in
+   the stock menu, come back to Slot from the App list, reboot into Slot.
+2. **Measure sustained play, then fix what it shows.** *GBA is done; every other system
+   is open.* The trace now prints, while a game runs, emulator frames per two seconds,
+   per-frame time (core and whole, with the worst frame) and the audio dropped and
+   starved counts. On Pokemon Unbound from a mid-game resume, with the maintainer
+   playing:
+   - governor held at 1.2 GHz, frontend and emulator on separate cores, gpSP at
+     32768 Hz: overworld about 104 to 118-121 and much better, but a two-battle trace
+     averaged 115.0, worst 105, with starvation still growing (core only 8-12 ms)
+   - pacing no longer discards a missed frame's time: 42 of 42 battle windows at
+     120-122, flat audio; the temporary picture skip was then removed as unnecessary
+   - rewind **on**: every second frame averaged 118.4 (worst 108, starvation growing),
+     every fourth 120.9 (one underrun), **every sixth, 10 a second: 73 of 73 windows at
+     120-123, flat audio**, and the maintainer's battle and rewind felt good
+   Still to do: one game per system through its heavy parts with rewind **on**, and a
+   32 MB GBA ROM against an 8 MB one to test whether the card is re-read during play
+   (about 12 MB spare with the large ROM). A system is done only on that measurement,
+   and the maintainer calling a game choppy is a failure whatever the average says.
+3. **Settings and About that fit this console.** *General page done and looked at on
+   the console; About not yet.* Auto Sleep is shown, and Lid Power Off and Rumble are
+   hidden on the shelf menu (`App::hidden_rows`) and the in-game menu (`App::in_game_hidden`). The About
+   sticker's model and wordmark come from `build_info` (`MY354`, `MIYOO MINI PLUS`) and
+   are covered by tests, not yet looked at. Every other row (volume and brightness
+   steps, battery, clock, shaders) is still to be reviewed once against the device.
+4. **Make rewind cheaper on this console.** *Done for GBA:* `SNAPSHOT_EVERY` is 6 on
+   this device (10 snapshots a second, was 30). Not measured: SNES and GBC (the two
+   systems rewind cost most, 5 and 4 frames a second at the old rate), and how many
+   seconds of history 10 a second keep in the 4 MiB budget. If SNES or GBC still fall
+   short, the next options are recording only while a rewind button is held, or keeping
+   the snapshot off the emulator thread.
 5. **Super Nintendo.** Still about 3 frames short with rewind off. Measured once: the
    non-Plus snes9x2005 build reached 53.0 against 51.4 with rewind on (small, one
    run). An ARM-mode build of the current core was built and not yet measured.
@@ -186,6 +182,10 @@ nothing below them can be judged, or even debugged away from the bench, without 
 11. **Cut the next pre-release** with PicoDrive and whatever speed work lands, re-run
    the nine-system sweep and the fresh-install check against that zip, and update the
    table in COMPATIBILITY.md from it.
+    Before cutting it, the test console's leftovers must be cleared: the `DEBUG` file, the
+    forced `cart=` resume in `Config/slot.state`, `slot.prev` and other deployment
+    backups in the pak, and the maintainer's volume and rewind settings restored (they
+    are, as of 2026-11-02). None of those belong in a zip.
 
 Known consequences of PicoDrive to mention in the notes: a Mega Drive resume state
 written by Genesis Plus GX is refused by PicoDrive and set aside, and the installer

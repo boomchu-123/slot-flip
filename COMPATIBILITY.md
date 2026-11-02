@@ -253,7 +253,8 @@ not tried), L3/R3 reaching a game, and the analog sticks in Final Fantasy VII.
 
 No GPU: the picture is drawn by the CPU rasteriser, not the Flip's GLES path, and
 the console has about 100 MB of memory in all. **Not 1.0-ready:** all nine systems
-run, but Super Nintendo, Game Boy Color and PlayStation are short of full speed.
+run and GBA now holds full speed in sustained play, but Super Nintendo, Game Boy
+Color and PlayStation are short of full speed or not yet re-measured.
 
 **Checked on:** the exp-v0.5.0 release-candidate build and the later PicoDrive
 development zip, on a Mini Plus running its own firmware with no MinUI, 2026-10-30.
@@ -272,7 +273,7 @@ system; nothing was played through.
 | Game Gear | Shinobi II | 60.1 | 60.0 | 35.3 MB | 40.0 MB |
 | Game Boy | Pokemon Red | 58.3 | 59.7 | 31.8 MB | 43.2 MB |
 | Game Boy Color | Link's Awakening DX | **56.2** | 59.7 | 37.7 MB | 37.1 MB |
-| Game Boy Advance | Pokemon Emerald | 58.7 | 59.7 | 53.1 MB | 20.8 MB |
+| Game Boy Advance | Pokemon Emerald | 58.7 (a short run; see sustained play below) | 59.7 | 53.1 MB | 20.8 MB |
 | PlayStation | Crash Bandicoot | **51.9** | 59.9 | 54.3 MB | 20.9 MB |
 
 Bold is short of the core's rate by more than a frame in twenty. A picture was read
@@ -282,15 +283,49 @@ off, measured on 2026-10-31) and **Game Boy Color's** about four (55.9 and 59.9)
 rewind is on by default. The Sega figures are from the later PicoDrive build installed
 from its complete zip; the other rows are from the exp-v0.5.0 release-candidate build.
 
-**These are upper bounds, not a verdict on play.** Each is an average over one short
-run, with nothing measuring how evenly frames arrive or whether the sound underran.
-On 2026-11-01 a 32 MB GBA ROM hack (Pokemon Unbound, gpSP) was reported **choppy and
-laggy throughout** by the maintainer, although its title screen had measured 54.2
-frames a second (59.8 for a second hack of the same size), both with rewind off,
-unlike a player's default. That GBA result is open and tracked in
-[MINI-PLUS-1.0-PLAN.md](MINI-PLUS-1.0-PLAN.md); until it is measured in play, do not
-read the GBA row as "full speed" for large ROMs. About 12 MB of memory was spare with
-that ROM loaded.
+**These are upper bounds, not a verdict on play, except for GBA below.** Each is an
+average over one short run, with nothing measuring how evenly frames arrive or whether
+the sound underran. On 2026-11-01 a 32 MB GBA ROM hack (Pokemon Unbound, gpSP) was
+reported **choppy and laggy throughout**, although its title screen had measured 54.2
+frames a second, with rewind off.
+
+**GBA in sustained play (2026-11-02): Pokemon Unbound, played by the maintainer.** The
+trace now prints frames per two seconds (120 is full speed), per-frame time and the
+audio counters while a game runs. Every row is from the same resume point:
+
+| Build | Frames per two seconds | Audio |
+| --- | --- | --- |
+| Stock governor (1.0 GHz dips) | about 102 to 115 | starvation grew all run |
+| CPU held at 1.2 GHz, cores split, 32768 Hz sound, alternate-frame picture skip; two battles | average 115.0, worst 105, 37 of 51 windows under 118 | kept growing |
+| Plus pacing that recovers short missed frames; two battles | 120 to 122 in 42 of 42 windows | flat |
+| Picture skip removed; an unattended run | 60 windows, average 121.0, one at 119 | flat but for one underrun |
+| Picture skip removed; a battle, rewind off | 120 to 122 in every active window | flat |
+| Rewind **on**, recording every second frame | average 118.4, worst 108, 27 of 61 windows short | kept growing |
+| Rewind **on**, every fourth frame | average 120.9, worst 119, 3 of 62 short | one underrun at a 40.8 ms spike |
+| Rewind **on**, every sixth frame (10 a second) | 73 of 73 windows at 120 to 123 | flat |
+
+The maintainer judged the first pacing build "much better but slightly slow" in
+battle, the build without picture skipping "basically full speed, maybe even full
+speed", and the final build's battle "good", with rewind "working great". The windows
+that read low in the final battle log were the console sleeping and the menu open
+(the game is paused there), not play.
+
+What changed, in rough order of effect: the stock firmware let the CPU governor sit at
+1.0 GHz, so Slot's launcher now holds the stock 1.2 GHz ceiling with the `performance`
+governor and restores the old one on exit (MinUI's overclock helper is not used; its
+source has no licence); the frontend and emulator threads run on separate cores;
+gpSP mixes at 32768 Hz instead of 65536; a frame that misses its deadline by a few
+milliseconds no longer throws that time away; and rewind records 10 snapshots a second
+on this console instead of 30.
+
+Not covered: this is one game at one save point, and the sound was not judged
+separately from the battle. Another 32 MB ROM, an 8 MB one (to test whether the card is
+re-read during play; about 12 MB was spare with this ROM loaded) and how many seconds of
+rewind history 10 snapshots a second keep in 4 MiB have not been checked. The save was
+compared by SHA-256 around the automated runs and changed only while the maintainer
+played. The maintainer also saw the side volume key register once during a rewind
+pass; the log shows it as a separate key event, and an isolated press of the rewind key
+logged no volume change, so it was not reproduced.
 
 - **PlayStation runs and stays up.** It is the system the console could not hold
   before: the core reserved a 16 MB translation cache and the frontend held 30 MB
@@ -318,6 +353,15 @@ that ROM loaded.
   and a cold boot reached Slot while keeping `MainUI.stock`. Creating
   `Slot/Config/boot-menu` then cold-booted the stock menu; removing it returned the
   next cold boot to Slot. The table above is the installed build's run.
+- **Exit Slot and the device's General page (2026-11-02).** **General > Exit Slot**
+  was run on the console: it reached the stock menu, the one-shot request was
+  consumed, and the next boot started Slot again. The General page was looked at by the
+  maintainer: it shows **Auto Sleep** and hides **Lid Power Off** and **Rumble**, which
+  the console has no lid or motor for. Auto Sleep itself (idle, then sleep) was
+  covered by tests and seen in the menu, but a real idle sleep was not timed on
+  hardware beyond one console sleeping during a test. The About sticker's
+  Mini Plus identity (`MY354`, `MIYOO MINI PLUS`) is covered by tests and has **not**
+  been looked at on the console. On the Flip, Exit Slot has **not** been run.
 - **Display, buttons, power, brightness, sound** were checked on exp-v0.4.x as a
   MinUI Tool (below) and have not been re-checked one by one on this build. The
   nine runs were started through Slot's state file, not with buttons, and the sound

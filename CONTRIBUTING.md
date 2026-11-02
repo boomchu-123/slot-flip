@@ -22,8 +22,10 @@ for the full runbook. Short version:
 
 - **Miyoo A30 (`my282`)** — has a Mali GPU, so it uses the real renderer and has
   a real chance of working. Completely unverified.
-- **Miyoo Mini Plus (`miyoomini`)** — no GPU; the graphics path is still being
-  written, so this build only probes hardware and writes a log.
+- **Miyoo Mini Plus (`miyoomini`)** — no GPU, so a CPU rasteriser draws the
+  screen. All nine systems run on the stock firmware and Game Boy Advance holds
+  full speed in sustained play; Super Nintendo, Game Boy Color and PlayStation
+  still need speed work. See `MINI-PLUS-1.0-PLAN.md` for what is open.
 
 Grab a pre-release, run it with a `DEBUG` file present, and post
 `Slot/slot.log` (plus `Slot/input-trace.log`). That's how the Flip port got

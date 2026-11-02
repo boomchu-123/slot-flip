@@ -120,7 +120,10 @@ that has to be merged twice.
   Three more were added on 2026-11-01 (see the Mini Plus section): Slot can be quit to
   the device's own menu from inside, on both devices; games hold full speed in
   **sustained play** with default settings, on the Mini Plus; and the settings and About
-  screen describe the device they are on.
+  screen describe the device they are on. On 2026-11-02: Exit Slot has been run on the
+  Mini Plus and not yet on the Flip; GBA holds full speed in sustained play with rewind
+  on, and Super Nintendo, Game Boy Color and PlayStation are not yet there; the Mini
+  Plus General page is done and the About sticker is unchecked on the console.
 
 - **Stay free and open source.** No plans to sell. Donations never unlock
   anything. Non-commercial cores are bundled knowingly in the one free download
@@ -179,14 +182,14 @@ buttons, power, backlight and cores.
 - ✅ **The picture path went from about 14 ms to about 2.5 ms a frame**: the plain
   scale (no scanline mask, no dimming) copies bytes instead of multiplying 16-bit
   lanes twice.
-- 🟡 **Speed.** Game Boy, GBA, Master System, Game Gear and Mega Drive are within a
-  frame or two of the core's rate (Mega Drive moved from Genesis Plus GX to PicoDrive
-  and rose from 51.0 to 58.2). **Super Nintendo runs at about 52 frames a second,
-  Game Boy Color at 56 and PlayStation at 48 to 52.** The picture path is no longer
-  the cost. Recording rewind history costs Super Nintendo about 5 frames a second
-  and Game Boy Color about 4 (Game Boy Color is at full speed with it off), so
-  making rewind cheaper here is the next step, then Super Nintendo's core and
-  PlayStation's render thread. This is the open 1.0 item for the device. The working
+- 🟡 **Speed.** **GBA now holds full speed in sustained play** (below). Game Boy,
+  Master System, Game Gear and Mega Drive were within a frame or two of the core's
+  rate in short runs (Mega Drive moved from Genesis Plus GX to PicoDrive and rose from
+  51.0 to 58.2). **Super Nintendo ran at about 52 frames a second, Game Boy Color at 56
+  and PlayStation at 48 to 52** with rewind on. Those short-run figures predate the
+  governor, pacing and rewind changes below, which apply to every system on this
+  console, and **have not been re-measured**. The picture path is no longer the cost.
+  Super Nintendo's core and PlayStation's render thread are the open work. The working
   plan, in order, is [MINI-PLUS-1.0-PLAN.md](MINI-PLUS-1.0-PLAN.md).
 - ✅ **Published as a release candidate** (`exp-v0.5.0`, pre-release): the zip that
   was built locally and tested on a console. It predates PicoDrive. CI builds the
@@ -209,86 +212,58 @@ buttons, power, backlight and cores.
 The maintainer took the console away from the bench and played a 32 MB Pokemon
 FireRed hack (Pokemon Unbound) on it. It was **choppy and laggy everywhere**, and there
 was **no way to get to the console's own menu** to set up Wi-Fi. Taken together, the
-Mini Plus build is **not releasable as 1.0**. These three are now 1.0 gates, and the
-first applies to both devices.
+Mini Plus build was **not releasable as 1.0**. These three became 1.0 gates, and the
+first applies to both devices. State on 2026-11-02:
 
-- 🚧 **Quit Slot from inside Slot, on every device and every release.** Built (General >
-  Exit Slot, then the card launcher starts the stock menu once, leaving nothing on the
-  card) and run on the Mini Plus: it reached the stock menu through the real menu row.
-  **Not yet run on the Flip**; its launcher has the same change. One console power-off
-  during testing, after a hand-made trigger rather than the menu, was not explained.
-  The problem as found: there is
-  no way out: when Slot exits, the card's launcher starts it again, and the only ways
-  to the console's own menu are to edit the card on a computer (create
-  `Slot/Config/boot-menu`) or to make Slot exit three times inside its first fifteen
-  seconds, which is a crash safeguard and not a feature. That strands anyone who needs
-  the stock menu away from a card reader (Wi-Fi setup, firmware settings). Needed:
-  an **Exit** row in the menu that hands over to the stock launcher for that session
-  without leaving a flag on the card, so the next boot is Slot again; Slot stays in the
-  stock launcher's App list as the way back in. Both launcher wrappers
-  (`miyoo354/app/MainUI`, `miyoo355/app/MainUI`) have to learn the difference between
-  "Slot exited, start it again" and "the player asked to leave", and the Flip's
-  existing fall-back-on-failure behaviour should be checked as a possible shortcut. It
-  ships in the next release of **both** devices (the Flip's `v0.15.1` has no such
-  row). Until it exists, INSTALL.md says to create the `boot-menu` file before
-  travelling.
-- 🚧 **Make games actually run at full speed on the Mini Plus.** First fixes are in and
-  measured on a 32 MB hack from a mid-game resume: emulator frames went from about
-  104 to 118-121 per two seconds (120 is full speed) and audio starvation, which grew
-  for the whole run, stopped growing after about a minute. What changed: the CPU is
-  held at the stock 1.2 GHz ceiling instead of dropping to 1.0 GHz, the frontend and
-  emulator run on separate cores, and gpSP mixes audio at 32768 Hz instead of 65536.
-  That is one window at one save point, not a play-through. The maintainer found
-  overworld play much better
-  and playable, but battles still felt a little slow; rewind was off. A later
-  100-second trace covering two battles confirmed 115.0 of 120 frames per two seconds
-  on average, 105 worst, with audio starvation still growing. The core itself averaged
-  8-12 ms; small missed deadlines were being discarded by the software pacer instead
-  of recovered on the next cheap frame. After fixing that, a second battle trace held
-  all 42 windows at 120-122 with no new audio starvation. Battles felt much better but
-  perhaps slightly slow; 44 of 5,100 pictures had been repeated by the earlier adaptive
-  skip. With that skip removed, a final battle held all 13 active windows at 120-122
-  with no new audio starvation and felt effectively full speed. This was with rewind
-  off. Rewind on averaged 118.4, fell to 108, and starved audio. Recording 10 snapshots
-  a second then held all 73 automated windows at 120-123 with flat audio, and a battle
-  plus actual rewind felt good. GBA now passes this test; other systems and PlayStation
-  are unchanged.
-  The earlier figures were averages over short runs at
-  a title screen, so they said nothing about play. The 1.0 bar for this device is now **sustained
-  play, with the settings a player has by default (rewind on)**, per system: the
-  overworld and a battle, not the title. Work, in order:
-  1. **Measure what play really costs.** Record emulator frames a second over a
-     several-minute session, not one average, and the worst two seconds. The audio
-     counters (samples dropped and starved) and per-frame time spread while the game
-     runs. This now exists and has been used on GBA; every other system still needs it.
-     An average of 54 can be choppy if the frames arrive unevenly.
-  2. **Test the memory explanation for large GBA ROMs.** A 32 MB ROM cannot stay in
-     the page cache with about 12 MB spare, so gpSP may be re-reading the card during
-     play. Compare a 32 MB hack against an 8 MB game, and check what the core does
-     when the card is slow.
-  3. **Rewind** (plan item 4): cheaper recording, or off by default on this
-     console, since it costs 4 to 5 frames a second on Super Nintendo and Game Boy
-     Color and has not been measured on GBA.
-  4. Then the per-system items already on [MINI-PLUS-1.0-PLAN.md](MINI-PLUS-1.0-PLAN.md)
-     (Super Nintendo core, PlayStation render thread).
-  The 1.0 gate for this device is rewritten to match: a system counts as done only on
-  a sustained-play measurement, and a game the maintainer calls choppy is a failure
-  whatever the average says.
-- 🚧 **Settings and screens that fit the device.** Done for the Mini Plus: the About
-  sticker names the model and wordmark of the device it runs on, Lid Power Off and
-  Rumble are hidden there, and an Auto Sleep row (idle time, then sleep, any button
-  wakes) replaces them. The General page was checked on the console; the About sticker
-  and every other row still need their review. As found: the menu and the About sticker were
-  built for the Flip and show it on the Mini Plus. Known: the About sticker prints
-  `MODEL NO. MY355` and the wordmark `MIYOO FLIP`; **Lid Power Off** is offered on a
-  console with no lid and the Mini Plus has no idle auto-sleep of its own to set in
-  its place; the **Rumble** row is shown, and the Mini Plus has no vibration motor
-  (to be confirmed on the device). Needed: each device describes itself (name, model,
-  which rows apply) from one place, rows that cannot work are hidden, and the Mini Plus
-  gains an **auto sleep** setting (idle time, then screen off or power off) that works
-  without a lid. Every other row should be reviewed once against the device (volume
-  and brightness steps, battery, clock, shaders). Hiding is driven by what the device
-  has, not by a scatter of feature checks, so the next device is cheaper.
+- 🚧 **Quit Slot from inside Slot, on every device and every release.** Built and **run
+  on the Mini Plus**: **General > Exit Slot** saves, and the card's launcher starts the
+  stock menu once and leaves nothing on the card, so the next boot is Slot again; Slot
+  stays in the stock App list as the way back. **Not yet run on the Flip**; its launcher
+  (`miyoo355/app/MainUI`) has the same change, and the Flip's own release needs it too
+  (`v0.15.1` has no such row). One console power-off during testing, after a hand-made
+  trigger rather than the menu row, was not explained. The problem as found: when Slot
+  exited, the card's launcher started it again, and the only ways to the stock menu
+  were to edit the card on a computer (create `Slot/Config/boot-menu`) or to make Slot
+  exit three times inside its first fifteen seconds, which is a crash safeguard and not
+  a feature. Done when it is run on the Flip too: Exit, set Wi-Fi in the stock menu,
+  come back to Slot from the App list, reboot into Slot.
+- 🚧 **Make games actually run at full speed on the Mini Plus.** **GBA passes; the other
+  systems are not re-measured.** Measured on a 32 MB hack from a mid-game resume, by the
+  trace that now prints frames per two seconds, per-frame time and audio counters while
+  a game runs (120 is full speed):
+  - The stock firmware let the CPU drop to 1.0 GHz. The launcher now holds the stock
+    1.2 GHz ceiling with the `performance` governor and restores the old one on exit,
+    the frontend and emulator run on separate cores, and gpSP mixes at 32768 Hz instead
+    of 65536. That took overworld play from about 104 to 118-121 and the maintainer
+    found it much better, but battles still felt slow: a trace over two battles
+    averaged 115.0, worst 105, with audio starvation still growing.
+  - The emulator core itself averaged only 8-12 ms a frame. The loss was the pacer
+    throwing away the time of a frame that missed its deadline by a few milliseconds.
+    Keeping that time (a stall of more than two frames still resets it) held 42 of 42
+    battle windows at 120-122 with no new starvation. The temporary alternate-frame
+    picture skip that had been added was then removed: the pacing fix made it unnecessary,
+    and the maintainer found play smoother without it.
+  - **Rewind on** was the last cost: recording every second frame averaged 118.4, fell
+    to 108 and starved audio; every fourth frame was close (average 120.9, one
+    underrun at a 40.8 ms spike); **10 snapshots a second held 73 of 73 windows at
+    120-123 with flat audio**, and the maintainer played a battle and used rewind and
+    called both good.
+  - Not done: one game at one save point; the 8 MB-versus-32 MB test of whether the
+    card is re-read during play; how much rewind history 10 snapshots a second keep in
+    4 MiB; and every other system. Super Nintendo, Game Boy Color and PlayStation
+    still need the same sustained, rewind-on measurement, then their own work (plan
+    items 5 to 7). The 1.0 bar for this device is **sustained play with default
+    settings (rewind on), per system**, and a game the maintainer calls choppy is a
+    failure whatever the average says.
+- 🚧 **Settings and screens that fit the device.** Done and **looked at on the console**
+  for the General page: it shows **Auto Sleep** (idle time, then sleep, any button
+  wakes) and hides **Lid Power Off** and **Rumble**, which the console has no lid or
+  motor for. The About sticker takes its model and wordmark from `build_info`
+  (`MY354` / `MIYOO MINI PLUS` here; `MY355` / `MIYOO FLIP` on the Flip); that is
+  covered by tests and **not yet looked at on the console**. Every other row (volume
+  and brightness steps, battery, clock, shaders) still needs one review against the
+  device. Hiding is driven by what the device has, not by a scatter of feature checks,
+  so the next device is cheaper.
 
 The port is **not** on the `experimental` branch: it lives on
 `feat/miyoomini-software`, cut from `flip`, and ships as `exp-v*` pre-releases
