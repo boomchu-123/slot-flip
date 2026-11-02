@@ -17,10 +17,7 @@ jobs:
   build:
     name: flip pak
     runs-on: ubuntu-24.04-arm
-    # The console has glibc 2.28. Bullseye's armhf linker now emits references
-    # to GLIBC_2.29/2.30 with the current Rust toolchain: CI succeeds, but the
-    # binary exits before main on hardware. Buster links at the console's ABI.
-    container: rust:1-buster
+    container: rust:1-bullseye
     steps:
       - uses: actions/checkout@v7
 
@@ -92,7 +89,10 @@ jobs:
   build-miyoomini:
     name: miyoomini pak
     runs-on: ubuntu-24.04-arm
-    container: rust:1-bullseye
+    # The console has glibc 2.28. Bullseye's armhf linker now emits references
+    # to GLIBC_2.29/2.30 with the current Rust toolchain: CI succeeds, but the
+    # binary exits before main on hardware. Buster links at the console's ABI.
+    container: rust:1-buster
     steps:
       - uses: actions/checkout@v7
 
