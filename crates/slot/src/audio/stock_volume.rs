@@ -1,25 +1,24 @@
-//! The Mini Plus' volume belongs to the console, not to slot.
+//! The Mini Plus' hardware volume while slot owns the controls.
 //!
-//! The firmware's `keymon` listens to the same volume keys slot does and moves
-//! the output gain itself, keeping the step in `system.json`. A second volume
-//! inside slot stacks on top of that one: the bar stops at 100 while the sound
-//! keeps getting louder, and a gain left at its lowest step leaves slot quiet
-//! however far its own bar is raised. So on this console slot plays at full
-//! scale and only shows where the console's volume is.
+//! The firmware's `keymon` cannot run beside slot: it mistakes the L2 shoulder
+//! used for rewind for volume-down. The launcher stops it while slot runs, so
+//! volume keys update both the AO gain and the firmware's saved step here.
 
+use std::io::Write;
 use std::path::PathBuf;
 
 /// The console's own volume file.
 pub const SYSTEM_FILE: &str = "/appconfigs/system.json";
 
+/// The AO debug node accepts the same gain command the firmware uses.
+pub const AO_FILE: &str = "/proc/mi_modules/mi_ao/mi_ao0";
+
 /// The highest step the firmware's volume keys reach.
 pub const STEPS: u8 = 20;
 
-/// How long after a key press to keep looking for the console's answer. The
-/// firmware writes its step a moment after the key goes down, and keeps writing
-/// while the key is held.
-const WATCH_MS: u64 = 1_500;
-const POLL_MS: u64 = 50;
+const MIN_DB: i32 = -60;
+const FIRST_DB: i32 = -58;
+const MAX_DB: i32 = -3;
 
 /// The console's volume step from the text of `system.json`.
 pub fn parse(text: &str) -> Option<u8> {
@@ -35,58 +34,85 @@ pub fn percent(step: u8) -> u8 {
     (step.min(STEPS) as u16 * 100 / STEPS as u16) as u8
 }
 
-/// Follows the console's volume after each key press.
-pub struct Follow {
-    path: PathBuf,
-    step: Option<u8>,
-    until: u64,
-    next: u64,
+/// The gain measured from the stock handler: mute at zero, then -58 dB at step
+/// one through -3 dB at step twenty. Intermediate values are linearly spaced.
+fn gain(step: u8) -> i32 {
+    let step = step.min(STEPS);
+    if step == 0 {
+        return MIN_DB;
+    }
+    let span = MAX_DB - FIRST_DB;
+    FIRST_DB + (span * i32::from(step - 1) + i32::from(STEPS - 1) / 2)
+        / i32::from(STEPS - 1)
 }
 
-impl Follow {
-    pub fn new(path: impl Into<PathBuf>) -> Self {
-        Follow {
-            path: path.into(),
-            step: None,
-            until: 0,
-            next: 0,
+fn replace_step(text: &str, step: u8) -> Option<String> {
+    let at = text.find("\"vol\"")? + "\"vol\"".len();
+    let colon = at + text[at..].find(':')? + 1;
+    let begin = colon + text[colon..].find(|c: char| !c.is_whitespace())?;
+    let end = begin
+        + text[begin..]
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(text.len() - begin);
+    Some(format!("{}{}{}", &text[..begin], step, &text[end..]))
+}
+
+/// Slot's view of the console's volume while the firmware handler is stopped.
+pub struct Control {
+    system: PathBuf,
+    ao: PathBuf,
+    step: u8,
+}
+
+impl Control {
+    pub fn new(system: impl Into<PathBuf>, ao: impl Into<PathBuf>) -> Self {
+        let system = system.into();
+        let step = std::fs::read_to_string(&system)
+            .ok()
+            .and_then(|text| parse(&text))
+            .unwrap_or(STEPS);
+        Control {
+            system,
+            ao: ao.into(),
+            step,
         }
     }
 
-    fn read(&mut self) -> Option<u8> {
-        let text = std::fs::read_to_string(&self.path).ok()?;
-        parse(&text)
-    }
-
-    /// A volume key went down: look for the console's answer for a while.
-    pub fn pressed(&mut self, now: u64) {
-        if self.step.is_none() {
-            self.step = self.read();
+    /// Moves one stock step and writes both views of the setting. The in-memory
+    /// value still moves if a write fails, so the HUD answers the key immediately;
+    /// the errors are in the hardware log rather than hidden.
+    pub fn adjust(&mut self, up: bool) {
+        self.step = if up {
+            self.step.saturating_add(1).min(STEPS)
+        } else {
+            self.step.saturating_sub(1)
+        };
+        if let Err(e) = self.write_system() {
+            eprintln!("slot: volume: system step not saved: {e}");
         }
-        self.until = now + WATCH_MS;
-        self.next = now + POLL_MS;
-    }
-
-    /// Looks again if a press is still being waited on. True if the console's
-    /// step moved.
-    pub fn poll(&mut self, now: u64) -> bool {
-        if now >= self.until || now < self.next {
-            return false;
-        }
-        self.next = now + POLL_MS;
-        match self.read() {
-            Some(step) if Some(step) != self.step => {
-                self.step = Some(step);
-                true
-            }
-            _ => false,
+        if let Err(e) = self.write_gain() {
+            eprintln!("slot: volume: hardware gain not set: {e}");
         }
     }
 
-    /// Where the bar sits. Full if the file cannot be read, which is how the
-    /// sound has always been before this was followed.
     pub fn percent(&self) -> u8 {
-        self.step.map_or(100, percent)
+        percent(self.step)
+    }
+
+    fn write_system(&self) -> Result<(), String> {
+        let text = std::fs::read_to_string(&self.system).map_err(|e| e.to_string())?;
+        let text = replace_step(&text, self.step).ok_or("vol is missing")?;
+        std::fs::write(&self.system, text).map_err(|e| e.to_string())
+    }
+
+    fn write_gain(&self) -> Result<(), String> {
+        let db = gain(self.step);
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&self.ao)
+            .map_err(|e| e.to_string())?;
+        writeln!(file, "set_ao_volume 0 {db}dB").map_err(|e| e.to_string())?;
+        writeln!(file, "set_ao_mute {}", u8::from(self.step == 0)).map_err(|e| e.to_string())
     }
 }
 
@@ -105,45 +131,47 @@ mod tests {
     }
 
     #[test]
-    fn a_step_past_the_top_or_an_unreadable_one_is_not_trusted_blindly() {
-        assert_eq!(parse("{\"vol\": 99}"), Some(STEPS));
-        assert_eq!(parse("{\"vol\": }"), None);
-        assert_eq!(parse(""), None);
-    }
-
-    #[test]
     fn the_bar_runs_from_empty_to_full() {
         assert_eq!(percent(0), 0);
         assert_eq!(percent(10), 50);
         assert_eq!(percent(STEPS), 100);
-        assert_eq!(percent(STEPS + 5), 100);
     }
 
     #[test]
-    fn follows_the_file_for_a_while_after_a_press_and_then_stops() {
-        let dir = std::env::temp_dir().join(format!("slot-stock-volume-{}", std::process::id()));
+    fn measured_stock_gain_points_are_kept() {
+        assert_eq!(gain(0), -60);
+        assert_eq!(gain(1), -58);
+        assert_eq!(gain(8), -38);
+        assert_eq!(gain(9), -35);
+        assert_eq!(gain(10), -32);
+        assert_eq!(gain(20), -3);
+    }
+
+    #[test]
+    fn replacing_the_step_keeps_the_rest_of_the_firmware_file() {
+        let replaced = replace_step(FILE, 12).unwrap();
+        assert_eq!(parse(&replaced), Some(12));
+        assert!(replaced.contains("\"bgmvol\":\t8"));
+        assert!(replaced.contains("\"keymap\""));
+    }
+
+    #[test]
+    fn control_starts_at_the_saved_step_and_moves_both_outputs() {
+        let dir =
+            std::env::temp_dir().join(format!("slot-stock-volume-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("system.json");
-        std::fs::write(&file, "{\"vol\": 4}").unwrap();
-        let mut f = Follow::new(&file);
-        assert!(!f.poll(0), "nothing is watched before a press");
-        f.pressed(1_000);
-        assert_eq!(f.percent(), 20);
-        std::fs::write(&file, "{\"vol\": 5}").unwrap();
-        assert!(!f.poll(1_000), "too soon after the press to look again");
-        assert!(f.poll(1_000 + POLL_MS));
-        assert_eq!(f.percent(), 25);
-        assert!(!f.poll(1_000 + POLL_MS * 2), "unchanged is not news");
-        std::fs::write(&file, "{\"vol\": 6}").unwrap();
-        assert!(!f.poll(1_000 + WATCH_MS + 1), "the watch has ended");
+        let system = dir.join("system.json");
+        let ao = dir.join("ao");
+        std::fs::write(&system, FILE).unwrap();
+        std::fs::write(&ao, "").unwrap();
+        let mut control = Control::new(&system, &ao);
+        assert_eq!(control.percent(), 45, "the bar started full");
+        control.adjust(true);
+        assert_eq!(control.percent(), 50);
+        assert_eq!(parse(&std::fs::read_to_string(&system).unwrap()), Some(10));
+        let commands = std::fs::read_to_string(&ao).unwrap();
+        assert!(commands.contains("set_ao_volume 0 -32dB"));
+        assert!(commands.contains("set_ao_mute 0"));
         std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn a_missing_file_leaves_the_bar_full() {
-        let mut f = Follow::new("/nonexistent/slot-system.json");
-        f.pressed(0);
-        assert_eq!(f.percent(), 100);
-        assert!(!f.poll(POLL_MS));
     }
 }
