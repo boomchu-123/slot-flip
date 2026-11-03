@@ -125,17 +125,6 @@ else
 fi
 printf 'slot: launcher: cpu now %s kHz\n' "$(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq 2>/dev/null || echo unreadable)" >> "$LOG"
 
-# The stock key monitor also reads the gpio buttons and mistakes L2 (slot's
-# rewind shoulder) for volume-down. Slot handles power and volume itself while
-# it runs; stop the competing reader, then put it back before returning to the
-# stock menu. The audio server stays up, so sound is uninterrupted.
-KEYMON="$SD/miyoo354/app/keymon"
-HAD_KEYMON=0
-if pidof keymon >/dev/null 2>&1; then
-	HAD_KEYMON=1
-	killall keymon 2>/dev/null
-fi
-
 # glibc keeps freed memory in per-thread arenas and sizes text/icons by the
 # heap, which on this console is the difference between a PlayStation game
 # running and the kernel killing the frontend. Measured on the Mini Plus: the
@@ -150,7 +139,4 @@ export MALLOC_TRIM_THRESHOLD_=65536
 ./slot --init-root "$SLOT_ROOT" >> "$LOG" 2>&1
 ./slot >> "$LOG" 2>&1
 sync
-if [ "$HAD_KEYMON" -ne 0 ] && ! pidof keymon >/dev/null 2>&1; then
-	"$KEYMON" &
-fi
 [ -z "$OLD_GOV" ] || [ ! -w "$GOV" ] || echo "$OLD_GOV" > "$GOV"

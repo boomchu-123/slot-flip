@@ -402,7 +402,7 @@ pub struct App {
     vol_before: Vec<(u8, bool, Millis)>,
     /// Set where the console owns the volume (the Mini Plus): slot plays at full
     /// scale and the bar shows the console's own step.
-    stock_volume: Option<crate::audio::stock_volume::Control>,
+    stock_volume: Option<crate::audio::stock_volume::Follow>,
     snapshot: Option<Box<dyn Snapshot>>,
     core: Core,
     colour_pending: Option<bool>,
@@ -632,10 +632,7 @@ impl App {
             shortcuts: ShortcutKeys::default(),
             vol_before: Vec::new(),
             stock_volume: cfg!(feature = "miyoomini").then(|| {
-                crate::audio::stock_volume::Control::new(
-                    crate::audio::stock_volume::SYSTEM_FILE,
-                    crate::audio::stock_volume::AO_FILE,
-                )
+                crate::audio::stock_volume::Follow::new(crate::audio::stock_volume::SYSTEM_FILE)
             }),
             snapshot: None,
             core: Core::default(),
@@ -3555,10 +3552,11 @@ impl App {
             return true;
         }
         if matches!(action, Action::VolumeUp | Action::VolumeDown) && self.stock_volume.is_some() {
-            // The firmware handler is stopped here; slot moves the real gain.
+            // The console's own volume keys move the real gain; slot shows it.
+            let now = self.now();
             let unmuted = std::mem::take(self.muted_mut());
-            if let Some(volume) = self.stock_volume.as_mut() {
-                volume.adjust(action == Action::VolumeUp);
+            if let Some(follow) = self.stock_volume.as_mut() {
+                follow.pressed(now);
             }
             self.show_volume();
             if unmuted {
@@ -3638,21 +3636,17 @@ impl App {
     /// its volume, the level the console is at.
     fn show_volume(&mut self) {
         let value = match &self.stock_volume {
-            Some(volume) => volume.percent(),
+            Some(follow) => follow.percent(),
             None => self.output_volume(),
         };
         let now = self.now();
         self.hud.show(HudKind::Volume, value, self.muted(), now);
     }
 
-    /// Hands volume to the console hardware, as on the Mini Plus. The paths are
-    /// arguments so host tests can use ordinary files.
-    pub fn follow_console_volume(
-        &mut self,
-        file: impl Into<std::path::PathBuf>,
-        ao: impl Into<std::path::PathBuf>,
-    ) {
-        self.stock_volume = Some(crate::audio::stock_volume::Control::new(file, ao));
+    /// Hands slot's volume to the console, as on the Mini Plus. For tests, which
+    /// run on a host with no console to follow.
+    pub fn follow_console_volume(&mut self, file: impl Into<std::path::PathBuf>) {
+        self.stock_volume = Some(crate::audio::stock_volume::Follow::new(file));
     }
 
     fn hud_value(&self, kind: HudKind, value: u8) -> u8 {
@@ -4141,6 +4135,14 @@ impl App {
                 self.hud.set_headphones(on);
                 self.show_volume();
             }
+        }
+        let now = self.now();
+        if self
+            .stock_volume
+            .as_mut()
+            .is_some_and(|follow| follow.poll(now))
+        {
+            self.show_volume();
         }
         if self.now() >= self.charge_at {
             self.charge_at = self.now() + CHARGE_POLL_MS;
