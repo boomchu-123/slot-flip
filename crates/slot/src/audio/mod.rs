@@ -5,6 +5,8 @@ mod host;
 mod miao;
 #[cfg(not(feature = "host"))]
 mod miyoo;
+#[cfg(not(feature = "host"))]
+mod oss;
 mod pacer;
 mod ring;
 pub mod route;
@@ -12,6 +14,7 @@ mod sfx;
 mod silence;
 mod sink;
 mod stub;
+pub mod stock_volume;
 pub mod volume;
 
 pub use alsa::AlsaSink;
@@ -21,6 +24,8 @@ pub use host::HostAudio;
 pub use miao::MiAoSink;
 #[cfg(feature = "miyoomini")]
 pub use miyoo::MiyooAudio;
+#[cfg(not(feature = "host"))]
+pub use oss::OssSink;
 pub use pacer::Pacer;
 pub use ring::{ring_capacity, Ring};
 pub use sfx::Sfx;

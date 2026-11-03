@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install slot on a Miyoo Flip's SD card.
+# Install slot on a Miyoo handheld's SD card.
 #
 # Lives in the release zip next to the folders it copies, so run it from there:
 #
@@ -11,9 +11,19 @@
 #   ./install.sh --stock-menu   boot to the stock menu instead of into slot
 #   ./install.sh --no-backup    do not copy replaced files to this computer
 #
-# It copies App/Slot (the launcher's App entry), Tools/my355/Slot.pak (the
-# program and its cores) and miyoo355/app/MainUI (so the device boots straight
-# into slot). Nothing on the device is changed.
+# The zip carries one device's payload, and this script finds it:
+#
+#   Miyoo Flip      App/Slot, Tools/my355/Slot.pak, miyoo355/app/MainUI
+#   Miyoo Mini Plus App/Slot, Tools/miyoomini/Slot.pak, miyoo354/app/MainUI
+#
+# It copies those three, so the device boots straight into slot on its own
+# firmware. Nothing on the device is changed except files under those folders;
+# user data under Slot/ is never touched.
+#
+# On the Flip the firmware's own launcher is left alone and the card entry only
+# runs when that folder is present. On the Mini Plus the stock launcher binary is
+# kept beside the hand-over script as MainUI.stock, and Slot/Config/boot-menu
+# brings it back.
 #
 # It never formats, partitions, deletes or writes to a raw device. Files it would
 # replace are copied to this computer first, under ~/slot-flip-backups.
@@ -34,10 +44,13 @@ CHECK=0
 STOCK_MENU=0
 BACKUP=1
 
-PAYLOAD="App Tools miyoo355"
-KEY_FILES="App/Slot/config.json App/Slot/launch.sh
-Tools/my355/Slot.pak/launch.sh Tools/my355/Slot.pak/slot
-miyoo355/app/MainUI"
+DEVICE=""
+APP="App"
+PAK=""
+BOOT_DIR=""
+BOOT_ENTRY=""
+PAYLOAD=""
+KEY_FILES=""
 
 say() { printf '%s\n' "$*"; }
 err() { printf 'install: %s\n' "$*" >&2; }
@@ -45,7 +58,7 @@ die() { err "$*"; exit 1; }
 
 usage() {
 	cat <<'EOF'
-Install slot on a Miyoo Flip SD card.
+Install slot on a Miyoo handheld SD card.
 
   ./install.sh                find the card, say what it will do, ask, do it
   ./install.sh --check        look at the card and report; change nothing
@@ -77,6 +90,25 @@ while [ $# -gt 0 ]; do
 done
 
 # ------------------------------------------------------------- what we carry
+
+# One installer for both 1.0 devices: which payload the zip holds says which
+# device it is for, so there is nothing to choose between downloads.
+if [ -d "$HERE/Tools/miyoomini/Slot.pak" ]; then
+	DEVICE="Miyoo Mini Plus"
+	PAK="Tools/miyoomini/Slot.pak"
+	BOOT_DIR="miyoo354"
+	BOOT_ENTRY="miyoo354/app/MainUI"
+elif [ -d "$HERE/Tools/my355/Slot.pak" ]; then
+	DEVICE="Miyoo Flip"
+	PAK="Tools/my355/Slot.pak"
+	BOOT_DIR="miyoo355"
+	BOOT_ENTRY="miyoo355/app/MainUI"
+else
+	die "$HERE/Tools is missing its device pak (miyoomini or my355): unpack the whole zip, then run install.sh from inside it"
+fi
+
+PAYLOAD="App $PAK $BOOT_DIR"
+KEY_FILES="App/Slot/config.json App/Slot/launch.sh $PAK/launch.sh $PAK/slot $BOOT_ENTRY"
 
 for d in $PAYLOAD; do
 	[ -d "$HERE/$d" ] || die "$HERE/$d is missing: unpack the whole zip, then run install.sh from inside it"
@@ -136,7 +168,7 @@ pick_card() {
 	0) die "no FAT32 card found. Plug the card into this computer and try again, or use --card PATH." ;;
 	1) CARD=$(head -1 "$TMP/cards"); say "Card: $CARD" ;;
 	*)
-		say "More than one card looks possible. Which one is the Flip's?"
+		say "More than one card looks possible. Which one is the $DEVICE's?"
 		i=1
 		while IFS= read -r c; do say "  $i) $c"; i=$((i + 1)); done < "$TMP/cards"
 		printf 'Number: '
@@ -169,18 +201,23 @@ problems() {
 report() {
 	avail=$(free_kb "$CARD" || echo 0)
 	say ""
+	say "Device:     $DEVICE"
 	say "Card:       $CARD"
 	say "Filesystem: $(fs_type "$CARD")"
 	say "Free space: $((avail / 1024)) MB free, about $(( $(need_kb) / 1024 )) MB needed"
-	if [ -f "$CARD/Tools/my355/Slot.pak/slot" ]; then
+	if [ -f "$CARD/$PAK/slot" ]; then
 		say "Slot:       already on this card (this will update it)"
 	else
 		say "Slot:       new install"
 	fi
-	if [ -f "$CARD/miyoo355/app/MainUI" ]; then
+	if [ -f "$CARD/$BOOT_ENTRY" ]; then
 		say "Boot:       a card launcher entry is already there (will be replaced)"
 	else
 		say "Boot:       will be added, so the device starts in Slot"
+	fi
+	if [ "$DEVICE" = "Miyoo Mini Plus" ] && [ -f "$CARD/miyoo354/app/MainUI" ] \
+		&& [ ! -f "$CARD/miyoo354/app/MainUI.stock" ]; then
+		say "Stock menu: kept as miyoo354/app/MainUI.stock"
 	fi
 	if [ -d "$CARD/Slot" ]; then
 		say "Your data:  Slot/ stays as it is (games, saves, states untouched)"
@@ -193,7 +230,7 @@ report() {
 	fi
 	case "$(problems)" in
 	"") say ""; say "Checks:     ok"; return 0 ;;
-	*not-fat*) err "the card is not FAT32/exFAT. The Flip reads FAT32: reformat it on your own computer (this script will not)." ;;
+	*not-fat*) err "the card is not FAT32/exFAT. The $DEVICE reads FAT32: reformat it on your own computer (this script will not)." ;;
 	*too-full*) err "not enough free space on the card." ;;
 	*not-writable*) err "the card is read-only (check the little lock switch on the adapter)." ;;
 	esac
@@ -229,19 +266,33 @@ back_up_replaced() {
 	say "            $dir"
 }
 
+# The Mini Plus boots whatever <card>/miyoo354/app/MainUI is. Replacing the
+# firmware's launcher with the hand-over script means keeping the original on the
+# card too, or the escape hatch has nothing to run.
+keep_stock_launcher() {
+	[ "$DEVICE" = "Miyoo Mini Plus" ] || return 0
+	live="$CARD/miyoo354/app/MainUI"
+	[ -f "$live" ] || return 0
+	[ -f "$CARD/miyoo354/app/MainUI.stock" ] && return 0
+	[ "$(hash "$live")" = "$(hash "$HERE/$BOOT_ENTRY")" ] && return 0
+	cp -p "$live" "$CARD/miyoo354/app/MainUI.stock" || return 1
+	say "Stock menu: kept as miyoo354/app/MainUI.stock"
+}
+
 copy_payload() {
+	keep_stock_launcher || return 1
 	for d in $PAYLOAD; do
 		mkdir -p "$CARD/$d"
 		cp -R "$HERE/$d/." "$CARD/$d/" || return 1
 	done
-	chmod 755 "$CARD/Tools/my355/Slot.pak/launch.sh" \
-		"$CARD/Tools/my355/Slot.pak/slot" \
+	chmod 755 "$CARD/$PAK/launch.sh" \
+		"$CARD/$PAK/slot" \
 		"$CARD/App/Slot/launch.sh" \
-		"$CARD/miyoo355/app/MainUI" 2>/dev/null || true
+		"$CARD/$BOOT_ENTRY" 2>/dev/null || true
 	drop_appledouble
 }
 
-# Only inside the three folders this script wrote, and only the metadata files it
+# Only inside the folders this script wrote, and only the metadata files it
 # just caused: nothing else on the card is touched.
 drop_appledouble() {
 	for d in $PAYLOAD; do
@@ -272,7 +323,10 @@ verify() {
 			bad=1
 		fi
 	done
-	[ -x "$CARD/Tools/my355/Slot.pak/slot" ] || { err "Slot.pak/slot is not executable"; bad=1; }
+	[ -x "$CARD/$PAK/slot" ] || { err "$PAK/slot is not executable"; bad=1; }
+	if [ "$DEVICE" = "Miyoo Mini Plus" ] && [ -f "$CARD/miyoo354/app/MainUI.stock" ]; then
+		[ -x "$CARD/miyoo354/app/MainUI.stock" ] || { err "miyoo354/app/MainUI.stock is not executable"; bad=1; }
+	fi
 	[ "$bad" -eq 0 ]
 }
 
@@ -330,8 +384,8 @@ fi
 say ""
 say "Done. Slot is installed."
 say ""
-say "1. Eject the card properly, put it back in the Flip, switch it on."
-say "2. It should start in Slot. MENU ejects a game back to the shelf; games go"
+say "1. Eject the card properly, put it back in the $DEVICE, switch it on."
+say "2. It should start in Slot. MENU opens the in-game menu; games go"
 say "   in Slot/Games/<GBA|GB|GBC|PS1|NES|SNES|MD|SMS|GG>."
 say "3. For the stock menu instead, create an empty file"
 say "   Slot/Config/boot-menu on the card and reboot."

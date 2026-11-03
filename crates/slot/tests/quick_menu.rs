@@ -77,6 +77,26 @@ fn menu_opens_the_quick_menu_with_its_top_row_selected_every_time() {
 }
 
 #[test]
+fn exit_slot_asks_the_device_loop_to_leave() {
+    let (_d, mut a, _) = on_carousel();
+    open_at(&mut a, QuickRow::ExitSlot);
+    assert!(!a.leaving());
+    press(&mut a, Btn::A);
+    assert!(a.leaving());
+}
+
+#[cfg(feature = "miyoomini")]
+#[test]
+fn the_mini_plus_shows_only_settings_its_hardware_has() {
+    let (_d, a, _) = on_carousel();
+    let hidden = a.hidden_rows();
+    assert!(hidden.contains(&QuickRow::LidOff));
+    assert!(hidden.contains(&QuickRow::Rumble));
+    assert!(!hidden.contains(&QuickRow::AutoSleep));
+    assert!(!hidden.contains(&QuickRow::ExitSlot));
+}
+
+#[test]
 fn menu_or_b_closes_it_back_onto_the_carousel_where_you_were() {
     for close in [Action::QuickMenu, Action::GbaDown(Btn::B)] {
         let (_d, mut a, _) = on_carousel();
@@ -1359,7 +1379,12 @@ fn lid_power_off_steps_through_its_minutes_wraps_and_saves() {
         lid_off_min: Some(3),
         ..Default::default()
     });
-    open_at(&mut a, QuickRow::LidOff);
+    let row = if cfg!(feature = "miyoomini") {
+        QuickRow::AutoSleep
+    } else {
+        QuickRow::LidOff
+    };
+    open_at(&mut a, row);
     assert_eq!(a.lid_off_min(), 3);
     // 0 is Never, the last choice before it wraps back to 1 minute.
     for want in [5, 10, 15, 30, 0, 1, 3] {
@@ -1383,7 +1408,12 @@ fn lid_power_off_has_a_never_that_reads_as_never() {
         lid_off_min: Some(0),
         ..Default::default()
     });
-    open_at(&mut a, QuickRow::LidOff);
+    let row = if cfg!(feature = "miyoomini") {
+        QuickRow::AutoSleep
+    } else {
+        QuickRow::LidOff
+    };
+    open_at(&mut a, row);
     assert_eq!(a.lid_off_min(), 0);
-    assert_eq!(a.quick_value(QuickRow::LidOff), Some(QuickValue::Never));
+    assert_eq!(a.quick_value(row), Some(QuickValue::Never));
 }

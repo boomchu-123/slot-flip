@@ -1,7 +1,7 @@
 commit=e31759b24e7a4e3899285ff720d7b573ac328ae7
 source=https://github.com/libretro/mgba/tree/e31759b24e7a4e3899285ff720d7b573ac328ae7
 device_cflags=
-recipe=cross armv7
+recipe=cross armv7, zig cc, glibc 2.17
 patch=543a19758-mbc2-sram-bank.patch sha256:7297cf4b45d521a1ef85c0cdf0ab766661ebb830615ae44d7518a32e18ea5c0d
 patch=685023e05-fifo-dma-source-offset.patch sha256:4cc6eddc34a1b35ad835802b7b9c820b2b0045502f5678918bd798d5f0113859
 patch=flash-bank-survives-mask.patch sha256:6c1ac84e0779daf6aebd4269e16d3a23495bf0269d46f7fa68b4ed87a651d263

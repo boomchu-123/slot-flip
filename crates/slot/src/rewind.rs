@@ -1,5 +1,11 @@
 use std::collections::VecDeque;
 
+/// The history rewind may keep. The Mini Plus has about 100 MB in all and the
+/// kernel killed the frontend at 74 MB with the larger budget, a few minutes
+/// into a Super Nintendo game; the smaller one keeps a few seconds of history.
+#[cfg(feature = "miyoomini")]
+pub const REWIND_BYTES: usize = 4 * 1024 * 1024;
+#[cfg(not(feature = "miyoomini"))]
 pub const REWIND_BYTES: usize = 20 * 1024 * 1024;
 
 pub struct Rewind {

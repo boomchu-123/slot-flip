@@ -18,7 +18,7 @@ Legend: ✅ bundled and released · 🧪 runs, needs a real-core test and a pak 
 | PlayStation | PCSX-ReARMed | GPL-2.0 | v0.7.0 |
 | Nintendo Entertainment System, Famicom Disk System | fceumm | GPL-2.0 | v0.8.0 |
 | Super Nintendo | snes9x2005 Plus | **non-commercial** (free-only) | v0.9.0 |
-| Mega Drive / Genesis, Master System, Game Gear | Genesis Plus GX | **non-commercial** (free-only) | v0.10.0 |
+| Mega Drive / Genesis, Master System, Game Gear | Genesis Plus GX (Flip), PicoDrive (Mini Plus) | **non-commercial** (free-only) | v0.10.0 |
 
 The two free-only cores mean the download as a whole must stay free; see
 `NOTICE-NONCOMMERCIAL.txt` and `tools/check-pak-licences.sh`. Nothing is sold.

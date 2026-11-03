@@ -29,7 +29,13 @@ stamp() {
 	echo "commit=$1"
 	echo "source=https://github.com/libretro/mgba/tree/$1"
 	echo "device_cflags=$device_cflags"
-	[ "$cross_armv7" = 1 ] && echo "recipe=cross armv7"
+	if [ "$cross_armv7" = 1 ]; then
+		if [ -n "${SLOT_ARMV7_CC:-}" ]; then
+			echo "recipe=cross armv7, zig cc, glibc 2.17"
+		else
+			echo "recipe=cross armv7"
+		fi
+	fi
 	for p in "$here"/*.patch; do
 		echo "patch=$(basename "$p") sha256:$(sha256 "$p")"
 	done
@@ -67,10 +73,19 @@ build() {
 	fi
 	set -- -DLIBMGBA_ONLY=ON -DBUILD_LIBRETRO=ON -DCMAKE_BUILD_TYPE=Release
 	if [ "$cross_armv7" = 1 ]; then
-		armflags="-march=armv7ve -mfpu=neon-vfpv4 -mfloat-abi=hard"
+		if [ -n "${SLOT_ARMV7_CC:-}" ]; then
+			# Zig for glibc 2.17 (cores/armv7-zigcc), which fixes the CPU itself.
+			cross_dir="$(cd "$(dirname "$SLOT_ARMV7_CC")" && pwd)"
+			armflags=""
+			cc="$cross_dir/armv7-zigcc"
+			cxx="$cross_dir/armv7-zigc++"
+		else
+			armflags="-march=armv7ve -mfpu=neon-vfpv4 -mfloat-abi=hard"
+			cc=arm-linux-gnueabihf-gcc
+			cxx=arm-linux-gnueabihf-g++
+		fi
 		set -- "$@" -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=arm \
-			-DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc \
-			-DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++ \
+			-DCMAKE_C_COMPILER="$cc" -DCMAKE_CXX_COMPILER="$cxx" \
 			-DCMAKE_C_FLAGS="$armflags" -DCMAKE_CXX_FLAGS="$armflags"
 	else
 		set -- "$@" -DCMAKE_C_FLAGS="$cflags"

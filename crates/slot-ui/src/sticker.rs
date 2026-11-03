@@ -9,7 +9,6 @@ use crate::text;
 /// This fork runs on the Miyoo Flip, so the sticker says that instead: another
 /// maker's name on the device would be wrong, and the model number is the
 /// handset's own (the platform slug MinUI uses for it).
-const WORDMARK: &str = "MIYOO FLIP";
 const WORDMARK_PX: f32 = 25.0;
 const WORDMARK_MAX_W: f32 = 250.0;
 
@@ -39,6 +38,7 @@ pub struct StickerFields<'a> {
     /// The upstream slot release this build is based on, for owners comparing
     /// against upstream's release notes.
     pub upstream: &'a str,
+    pub wordmark: &'a str,
     /// The model the OS reports. The sticker's own model is fixed to the Flip, so
     /// this is kept for the shared About code and for ports that want it.
     pub model: &'a str,
@@ -68,7 +68,7 @@ pub const HOME: &str = "GITHUB.COM/BOOMCHU-123/SLOT-FLIP";
 
 pub fn head_rows(f: &StickerFields) -> [String; 3] {
     [
-        "MODEL NO. MY355".into(),
+        format!("MODEL NO. {}", f.model),
         format!("INPUT : 5V{DC}1.5A"),
         match f.battery {
             Some(p) => format!("BATTERY : LI-ION ({p}%)"),
@@ -285,10 +285,10 @@ pub fn sticker_face(f: &StickerFields) -> UndoFace {
 
     let mut ry = panel_y as f32 + panel_h as f32 + 10.0;
     let right_edge = (panel_x + panel_w) as f32;
-    let wide = c.print_measure(WORDMARK, WORDMARK_PX).max(1.0);
+    let wide = c.print_measure(f.wordmark, WORDMARK_PX).max(1.0);
     let px = (WORDMARK_PX * WORDMARK_MAX_W / wide).min(WORDMARK_PX);
-    let mark_w = c.print_measure(WORDMARK, px);
-    ry = c.print(right_edge - mark_w - 10.0, ry, WORDMARK, px, WHITE);
+    let mark_w = c.print_measure(f.wordmark, px);
+    ry = c.print(right_edge - mark_w - 10.0, ry, f.wordmark, px, WHITE);
     ry += 1.0;
     let version = version_line(f);
     for line in [COPYRIGHT, version.as_str(), HOME] {

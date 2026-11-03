@@ -180,6 +180,67 @@ else
 	ok "no slot binary in the tree (ignored; the release build supplies it)"
 fi
 
+# ---------------------------------------------------------- Miyoo Mini Plus
+
+# The same release shape for the other 1.0 device: the installer picks the
+# payload out of the zip, so one script serves both.
+relmm="$WORK/release-mm"
+mkdir -p "$relmm/App/Slot" "$relmm/Tools/miyoomini/Slot.pak" "$relmm/miyoo354/app"
+printf '{"label": "slot."}\n' > "$relmm/App/Slot/config.json"
+printf '#!/bin/sh\nexec "$SD/Tools/miyoomini/Slot.pak/launch.sh"\n' > "$relmm/App/Slot/launch.sh"
+printf '#!/bin/sh\n./slot\n' > "$relmm/Tools/miyoomini/Slot.pak/launch.sh"
+printf 'not really a binary\n' > "$relmm/Tools/miyoomini/Slot.pak/slot"
+printf '#!/bin/sh\necho hand over to slot\n' > "$relmm/miyoo354/app/MainUI"
+chmod 755 "$relmm/App/Slot/launch.sh" "$relmm/Tools/miyoomini/Slot.pak/launch.sh" \
+	"$relmm/Tools/miyoomini/Slot.pak/slot" "$relmm/miyoo354/app/MainUI"
+cp "$INSTALL" "$relmm/install.sh"
+chmod 755 "$relmm/install.sh"
+
+install_mm() { # card [extra args...]
+	c="$1"; shift
+	(cd "$relmm" && PATH="$stub:$PATH" CARD_FOR_TESTS="$c" HOME="$WORK/home" \
+		sh ./install.sh --card "$c" "$@" 2>&1)
+}
+
+# 12. A fresh Mini Plus card gets the payload, and the stock launcher is kept
+#     beside the hand-over script: without that copy there is no escape hatch.
+c=$(new_card mmfresh)
+mkdir -p "$c/miyoo354/app"
+printf 'stock launcher binary\n' > "$c/miyoo354/app/MainUI"
+chmod 755 "$c/miyoo354/app/MainUI"
+out=$(install_mm "$c" --yes)
+[ -f "$c/Tools/miyoomini/Slot.pak/slot" ] && [ -f "$c/App/Slot/config.json" ] \
+	&& ok "the Mini Plus payload is copied" || no "the Mini Plus payload is copied" "$out"
+[ "$(cat "$c/miyoo354/app/MainUI.stock" 2>/dev/null)" = "stock launcher binary" ] \
+	&& ok "the stock launcher is kept as MainUI.stock" || no "the stock launcher is kept as MainUI.stock" "$out"
+cmp -s "$c/miyoo354/app/MainUI" "$relmm/miyoo354/app/MainUI" \
+	&& ok "the hand-over script replaces MainUI" || no "the hand-over script replaces MainUI" "$out"
+[ -x "$c/miyoo354/app/MainUI.stock" ] && ok "MainUI.stock stays executable" \
+	|| no "MainUI.stock stays executable" "$out"
+
+# 13. A second run must not overwrite the kept launcher with the hand-over script.
+before=$(cat "$c/miyoo354/app/MainUI.stock")
+install_mm "$c" --yes >/dev/null 2>&1
+[ "$(cat "$c/miyoo354/app/MainUI.stock")" = "$before" ] \
+	&& ok "reinstalling keeps the original MainUI.stock" || no "reinstalling keeps the original MainUI.stock"
+
+# 14. --check and --dry-run change nothing on a Mini Plus card either.
+c=$(new_card mmquiet)
+mkdir -p "$c/miyoo354/app" "$c/Slot/Saves/GBA"
+printf 'stock\n' > "$c/miyoo354/app/MainUI"
+echo "a save" > "$c/Slot/Saves/GBA/Game.sav"
+before=$(snapshot "$c")
+install_mm "$c" --check >/dev/null 2>&1
+install_mm "$c" --dry-run >/dev/null 2>&1
+[ "$before" = "$(snapshot "$c")" ] && ok "Mini Plus --check and --dry-run change nothing" \
+	|| no "Mini Plus --check and --dry-run change nothing"
+
+# 15. The repo carries the Mini Plus files the zip is made from.
+for f in flip/App-miyoomini/Slot/config.json flip/App-miyoomini/Slot/launch.sh \
+	flip/autoboot/miyoo354/app/MainUI flip/Tools/miyoomini/Slot.pak/launch.sh; do
+	[ -f "$REPO/$f" ] && ok "repo has $f" || no "repo has $f"
+done
+
 echo ""
 printf '%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

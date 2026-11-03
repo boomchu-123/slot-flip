@@ -41,6 +41,12 @@ const FAST_TARGET: Duration = Duration::from_micros(14_000);
 
 const COST_BLEND: u32 = 4;
 
+// Serializing and queueing a rewind state every other frame costs enough to slow
+// heavy games on the CPU-only Mini Plus. Ten snapshots a second still gives
+// smooth rewind there while leaving time for the game and audio.
+#[cfg(feature = "miyoomini")]
+const SNAPSHOT_EVERY: u32 = 6;
+#[cfg(not(feature = "miyoomini"))]
 const SNAPSHOT_EVERY: u32 = 2;
 
 const STALL: Duration = Duration::from_millis(25);
@@ -229,6 +235,7 @@ impl EmuHandle {
         let join = std::thread::Builder::new()
             .name("slot-emu".into())
             .spawn(move || worker.run(core, rom, ring, sav, resume, worker_link))
+            .map_err(|e| eprintln!("slot: emu: the emulator thread could not start: {e}"))
             .ok();
         if join.is_none() {
             shared
@@ -615,6 +622,7 @@ impl Worker {
         resume: Option<Vec<u8>>,
         link: Link,
     ) {
+        crate::cpu::pin_current(1, "emulator");
         eprintln!(
             "slot: emu: loading {} at {:.1} ms",
             rom.display(),
@@ -695,6 +703,7 @@ impl Worker {
         let mut cable_core = Duration::ZERO;
         let mut cable_wait = Duration::ZERO;
         let mut ff = (0u32, 0u32, Duration::ZERO, Instant::now());
+        let mut play_trace = FrameTrace::default();
         while !self.shared.stop.load(Ordering::Relaxed) {
             for cmd in self.cmds.try_iter() {
                 self.apply(cmd, core.as_mut(), &mut transport, &mut cable, &link);
@@ -957,6 +966,13 @@ impl Worker {
                     );
                     ring.push_blocking(&out);
                     paced += 1;
+                    if crate::session::trace() && speed == Speed::Normal {
+                        play_trace.record(core_time, began.elapsed(), period);
+                        if play_trace.frames == TRACE_EVERY as u32 {
+                            play_trace.print();
+                            play_trace = FrameTrace::default();
+                        }
+                    }
                     if crate::session::trace() && paced.is_multiple_of(TRACE_EVERY) {
                         let (dropped, starved) = (ring.overruns(), ring.underruns());
                         eprintln!(
@@ -1003,7 +1019,18 @@ impl Worker {
             let now = Instant::now();
             match deadline.checked_duration_since(now) {
                 Some(wait) => std::thread::sleep(wait),
-                None => deadline = now,
+                None => {
+                    // A software-rendered Mini Plus frame can miss its deadline by a
+                    // few milliseconds. Resetting the clock after every small miss
+                    // makes that time permanent: the core falls below 60 fps and the
+                    // audio producer can never refill the ring. Keep the old deadline
+                    // so the next cheap frame catches up. A real stall still resets it
+                    // instead of running a long burst of stale frames.
+                    let late = now.saturating_duration_since(deadline);
+                    if !cfg!(feature = "miyoomini") || late > period * 2 {
+                        deadline = now;
+                    }
+                }
             }
         }
         for cmd in self.cmds.try_iter() {
@@ -1204,6 +1231,43 @@ struct FrameCost {
     skip: Duration,
     draw: Duration,
     seeded: bool,
+}
+
+#[derive(Default)]
+struct FrameTrace {
+    frames: u32,
+    core: Duration,
+    core_max: Duration,
+    core_over: u32,
+    whole: Duration,
+    whole_max: Duration,
+    whole_over: u32,
+}
+
+impl FrameTrace {
+    fn record(&mut self, core: Duration, whole: Duration, budget: Duration) {
+        self.frames += 1;
+        self.core += core;
+        self.core_max = self.core_max.max(core);
+        self.core_over += u32::from(core > budget);
+        self.whole += whole;
+        self.whole_max = self.whole_max.max(whole);
+        self.whole_over += u32::from(whole > budget);
+    }
+
+    fn print(&self) {
+        let n = self.frames.max(1);
+        eprintln!(
+            "slot: frame time: {} frames; core avg {:.2} max {:.2} ms, {} over budget; whole avg {:.2} max {:.2} ms, {} over budget",
+            self.frames,
+            (self.core / n).as_secs_f64() * 1000.0,
+            self.core_max.as_secs_f64() * 1000.0,
+            self.core_over,
+            (self.whole / n).as_secs_f64() * 1000.0,
+            self.whole_max.as_secs_f64() * 1000.0,
+            self.whole_over,
+        );
+    }
 }
 
 impl FrameCost {

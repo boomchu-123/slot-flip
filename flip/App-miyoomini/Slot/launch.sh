@@ -16,4 +16,9 @@ if [ ! -x "$PAK/launch.sh" ]; then
 	exit 1
 fi
 
-exec "$PAK/launch.sh"
+"$PAK/launch.sh"
+status=$?
+# The stock launcher is already underneath this App entry. Do not let an Exit
+# request survive until the next reboot and keep that boot in the stock menu.
+rm -f /tmp/slot-stock-menu
+exit "$status"
