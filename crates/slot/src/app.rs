@@ -2808,22 +2808,6 @@ impl App {
             return;
         }
         self.idle_at = self.now();
-        if cfg!(feature = "miyoomini") {
-            let now = self.now();
-            match action {
-                Action::RewindStart => {
-                    if let Some(volume) = &mut self.stock_volume {
-                        volume.rewind_started(now);
-                    }
-                }
-                Action::RewindStop => {
-                    if let Some(volume) = &mut self.stock_volume {
-                        volume.rewind_stopped(now);
-                    }
-                }
-                _ => {}
-            }
-        }
         self.track_held_dir(action);
         match action {
             Action::LidClose => return self.doze(),
@@ -3661,12 +3645,8 @@ impl App {
 
     /// Hands slot's volume to the console, as on the Mini Plus. For tests, which
     /// run on a host with no console to follow.
-    pub fn follow_console_volume(
-        &mut self,
-        file: impl Into<std::path::PathBuf>,
-        ao: impl Into<std::path::PathBuf>,
-    ) {
-        self.stock_volume = Some(crate::audio::stock_volume::Follow::with_ao(file, ao));
+    pub fn follow_console_volume(&mut self, file: impl Into<std::path::PathBuf>) {
+        self.stock_volume = Some(crate::audio::stock_volume::Follow::new(file));
     }
 
     fn hud_value(&self, kind: HudKind, value: u8) -> u8 {

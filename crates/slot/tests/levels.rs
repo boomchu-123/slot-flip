@@ -131,10 +131,8 @@ fn a_console_that_owns_its_volume_is_followed_not_doubled() {
     let d = tmp_root_with_carts(&["Emerald"]);
     let file = d.path().join("system.json");
     std::fs::write(&file, "{\n\t\"vol\":\t4,\n\t\"bgmvol\":\t8\n}").unwrap();
-    let ao = d.path().join("ao");
-    std::fs::write(&ao, "").unwrap();
     let mut a = app_playing_with_volume(d.path(), 40);
-    a.follow_console_volume(&file, &ao);
+    a.follow_console_volume(&file);
 
     a.apply_at(Action::VolumeUp, 1_000);
     assert_eq!(a.volume(), 40, "slot moved a volume of its own");
@@ -157,43 +155,12 @@ fn a_followed_console_is_muted_and_unmuted_by_slot() {
     let d = tmp_root_with_carts(&["Emerald"]);
     let file = d.path().join("system.json");
     std::fs::write(&file, "{\"vol\": 10}").unwrap();
-    let ao = d.path().join("ao");
-    std::fs::write(&ao, "").unwrap();
     let mut a = app_playing_with_volume(d.path(), 40);
-    a.follow_console_volume(&file, &ao);
+    a.follow_console_volume(&file);
     a.apply_at(Action::MuteToggle, 0);
     assert_eq!(a.output_volume(), 0);
     a.apply_at(Action::VolumeUp, 1_000);
     assert!(!a.muted(), "still muted after turning it up");
     assert_eq!(a.output_volume(), 100);
-    assert_eq!(a.volume_bar(), 50);
-}
-
-#[test]
-fn rewind_restores_only_the_console_volume_changed_beneath_slot() {
-    let d = tmp_root_with_carts(&["Emerald"]);
-    let file = d.path().join("system.json");
-    let ao = d.path().join("ao");
-    std::fs::write(&file, "{\"vol\": 10, \"brightness\": 7}").unwrap();
-    std::fs::write(
-        &ao,
-        "header\nLineOut 48000 16bit stereo 768 0 (-32 ,-32 ) 1\n",
-    )
-    .unwrap();
-    let mut a = app_playing_with_volume(d.path(), 40);
-    a.follow_console_volume(&file, &ao);
-
-    a.apply_at(Action::RewindStart, 1_000);
-    std::fs::write(&file, "{\"vol\": 8, \"brightness\": 7}").unwrap();
-    std::fs::write(
-        &ao,
-        "header\nLineOut 48000 16bit stereo 768 0 (-38 ,-38 ) 1\n",
-    )
-    .unwrap();
-    a.tick_ms(1_050);
-
-    let restored = std::fs::read_to_string(&file).unwrap();
-    assert_eq!(slot::audio::stock_volume::parse(&restored), Some(10));
-    assert!(restored.contains("\"brightness\": 7"));
     assert_eq!(a.volume_bar(), 50);
 }
