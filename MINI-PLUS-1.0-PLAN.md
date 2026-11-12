@@ -15,11 +15,11 @@ driven over adb, not inferred from a build.
 
 **Last updated:** 2026-11-11.
 
-**Status: GBA, GBC and the new release-critical controls pass; the device as a whole is
-not yet releasable as 1.0.** GBA holds full speed through battles and GBC through
-sustained action, both with rewind recording enabled. Exit Slot and the device-specific
-General page work on the console. SNES still needs a clean trace, PlayStation is short,
-and the end-to-end checks below remain open.
+**Status: GBA, GBC, SNES and the new release-critical controls pass; the device as a
+whole is not yet releasable as 1.0.** These three systems hold full speed in sustained
+play with rewind recording enabled. Exit Slot and the device-specific General page work
+on the console. PlayStation is short, the other systems need sustained checks, and the
+end-to-end checks below remain open.
 
 ---
 
@@ -35,7 +35,7 @@ a second from Slot's own trace:
 | System | Core | Speed (core's rate) | Notes |
 | --- | --- | --- | --- |
 | NES | fceumm | 50.1 of 50 | a PAL game, so correct |
-| SNES | snes9x2005 Plus | **51.7** of ~60 (56.6 with rewind off) | short |
+| SNES | snes9x2005 Plus | **full speed in sustained play** | 120-122 frames per two seconds, rewind recording on |
 | Mega Drive | **PicoDrive** | 58.2 of 60 | was 51.0 on Genesis Plus GX |
 | Master System | PicoDrive | 60.1 of 60 | was 58.6 |
 | Game Gear | PicoDrive | 60.1 of 60 | was 59.7 |
@@ -48,7 +48,7 @@ The Mega Drive, Master System and Game Gear rows are from the zip with PicoDrive
 installed the way a user would; the rest are from the exp-v0.5.0 build, and the
 SNES and GBC rows were re-measured on 2026-10-31 for the rewind comparison.
 
-**How far to trust this table.** GBA and GBC were measured during real sustained play
+**How far to trust this table.** GBA, GBC and SNES were measured during real sustained play
 with live frame-time and audio counters and rewind recording on. Every other row is an
 average over 40 to 50 seconds, usually at a title screen or intro, with no measure of how
 evenly frames arrive. Treat those rows as upper bounds until section 3 item 2 is done for
@@ -114,6 +114,9 @@ Not gates: playing every title through, judging sound by ear, L3/R3 in a game.
 - **GBC sustained play** now passes. Link's Awakening DX held 120-122 frames in all 89
   steady two-second windows (60.06 fps overall), with no dropped audio during normal
   play. The maintainer judged play and rewind good.
+- **SNES sustained play** now passes. Yoshi's Island held 120-122 frames in all 51
+  steady two-second windows (60.07 fps overall), with zero dropped audio and a flat
+  starvation counter. The maintainer judged it smooth.
 
 ---
 
@@ -130,7 +133,7 @@ nothing below them can be judged, or even debugged away from the bench, without 
    in code. One console power-off during testing, after a hand-made trigger rather than
    the menu row, is unexplained. Done when it is run on the Flip too: Exit, set Wi-Fi in
    the stock menu, come back to Slot from the App list, reboot into Slot.
-2. **Measure sustained play, then fix what it shows.** *GBA and GBC are done; every
+2. **Measure sustained play, then fix what it shows.** *GBA, GBC and SNES are done; every
    other system is open.* The trace now prints, while a game runs, emulator frames per two seconds,
    per-frame time (core and whole, with the worst frame) and the audio dropped and
    starved counts. On Pokemon Unbound from a mid-game resume, with the maintainer
@@ -155,19 +158,11 @@ nothing below them can be judged, or even debugged away from the bench, without 
    step instead of a second volume of slot's (checked on the console). Every other row
    (brightness steps, battery, clock, shaders) is still to be reviewed once against the
    device.
-4. **Make rewind cheaper on this console.** *Done for GBA and GBC:* `SNAPSHOT_EVERY` is
-   6 on this device (10 snapshots a second, was 30). Not cleanly measured: SNES, and how
-   many seconds of history 10 a second keep in the 4 MiB budget. If SNES still falls
-   short, the next options are recording only while a rewind button is held, or keeping
-   the snapshot off the emulator thread.
-5. **Super Nintendo.** Yoshi's Island felt smooth to the maintainer with rewind on, and
-   most traced windows were full speed, but fast-forward, rewind and volume testing
-   contaminated that trace; several windows and audio counters were short. It needs one
-   clean sustained run before it passes. Earlier, it was about 3 frames short with rewind off. Measured once: the
-   non-Plus snes9x2005 build reached 53.0 against 51.4 with rewind on (small, one
-   run). An ARM-mode build of the current core was built and not yet measured.
-   snes9x2002 builds and loads for this console (glibc 2.7) and has not been run on
-   a game; its licence and accuracy need reading before it could ship.
+4. **Make rewind cheaper on this console.** *Done for GBA, GBC and SNES:*
+   `SNAPSHOT_EVERY` is 6 on this device (10 snapshots a second, was 30). How many seconds
+   of history 10 a second keep in the 4 MiB budget has not been measured.
+5. **Super Nintendo.** Done on snes9x2005 Plus. Yoshi's Island held 120-122 frames in
+   every steady window with rewind recording on, flat audio counters, and smooth play.
 6. **PlayStation speed.** 48 to 52 of 59.9. The next real step is rendering on a
    second thread so the emulator and the picture pass stop sharing a core. The
    largest piece of work left, and not promised.

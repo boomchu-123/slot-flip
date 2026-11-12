@@ -227,7 +227,7 @@ first applies to both devices. State on 2026-11-02:
   exit three times inside its first fifteen seconds, which is a crash safeguard and not
   a feature. Done when it is run on the Flip too: Exit, set Wi-Fi in the stock menu,
   come back to Slot from the App list, reboot into Slot.
-- 🚧 **Make games actually run at full speed on the Mini Plus.** **GBA and GBC pass; the
+- 🚧 **Make games actually run at full speed on the Mini Plus.** **GBA, GBC and SNES pass; the
   other systems are not cleared.** Measured by the
   trace that now prints frames per two seconds, per-frame time and audio counters while
   a game runs (120 is full speed):
@@ -251,13 +251,13 @@ first applies to both devices. State on 2026-11-02:
   - **GBC with rewind on** held 120-122 frames in all 89 steady windows (60.06 fps
     overall) during Link's Awakening DX, with no dropped audio in normal play; the
     maintainer called play and rewind good.
-  - **SNES is not closed:** Yoshi's Island felt smooth and most windows were full speed,
-    but a trace mixed normal play with fast-forward, rewind and volume tests and included
-    short windows and growing starvation. It needs one clean sustained run.
+  - **SNES with rewind recording on** held 120-122 frames in all 51 steady windows
+    (60.07 fps overall) during Yoshi's Island. Across 6,300 timed frames, audio had no
+    drops and its starvation counter stayed flat; the maintainer called play smooth.
   - Not done: one game at one save point; the 8 MB-versus-32 MB test of whether the
     card is re-read during play; how much rewind history 10 snapshots a second keep in
-  4 MiB; and every other system. Super Nintendo and PlayStation
-  still need the same sustained, rewind-on measurement, then their own work (plan
+  4 MiB; and every other system. PlayStation
+  still needs the same sustained, rewind-on measurement, then its own work (plan
     items 5 to 7). The 1.0 bar for this device is **sustained play with default
     settings (rewind on), per system**, and a game the maintainer calls choppy is a
     failure whatever the average says.

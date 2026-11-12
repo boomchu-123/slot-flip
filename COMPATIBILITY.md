@@ -253,8 +253,8 @@ not tried), L3/R3 reaching a game, and the analog sticks in Final Fantasy VII.
 
 No GPU: the picture is drawn by the CPU rasteriser, not the Flip's GLES path, and
 the console has about 100 MB of memory in all. **Not 1.0-ready:** all nine systems
-run and GBA and GBC now hold full speed in sustained play, but Super Nintendo still
-needs a clean trace and PlayStation is short of full speed.
+run and GBA, GBC and Super Nintendo now hold full speed in sustained play, but
+PlayStation is short of full speed and the other systems need sustained checks.
 
 **Checked on:** the exp-v0.5.0 release-candidate build and the later PicoDrive
 development zip, on a Mini Plus running its own firmware with no MinUI, 2026-10-30.
@@ -317,6 +317,12 @@ startup window, all 89 two-second windows held 120-122 emulator frames, averagin
 5.53 ms. No audio was dropped; starvation stayed flat during normal play and rose only
 while actual rewind interrupted playback. The maintainer judged both play and rewind
 good.
+
+**SNES in sustained play (2026-11-11): Yoshi's Island, rewind recording on.** After
+startup, all 51 two-second windows held 120-122 emulator frames, averaging 60.07 fps.
+Across 6,300 timed frames, audio dropped nothing and its starvation counter stayed flat.
+The log contained no fast-forward, actual rewind, volume or menu actions, and the
+maintainer judged play smooth.
 
 What changed, in rough order of effect: the stock firmware let the CPU governor sit at
 1.0 GHz, so Slot's launcher now holds the stock 1.2 GHz ceiling with the `performance`
