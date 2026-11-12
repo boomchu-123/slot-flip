@@ -253,8 +253,8 @@ not tried), L3/R3 reaching a game, and the analog sticks in Final Fantasy VII.
 
 No GPU: the picture is drawn by the CPU rasteriser, not the Flip's GLES path, and
 the console has about 100 MB of memory in all. **Not 1.0-ready:** all nine systems
-run and GBA now holds full speed in sustained play, but Super Nintendo, Game Boy
-Color and PlayStation are short of full speed or not yet re-measured.
+run and GBA and GBC now hold full speed in sustained play, but Super Nintendo still
+needs a clean trace and PlayStation is short of full speed.
 
 **Checked on:** the exp-v0.5.0 release-candidate build and the later PicoDrive
 development zip, on a Mini Plus running its own firmware with no MinUI, 2026-10-30.
@@ -283,7 +283,8 @@ off, measured on 2026-10-31) and **Game Boy Color's** about four (55.9 and 59.9)
 rewind is on by default. The Sega figures are from the later PicoDrive build installed
 from its complete zip; the other rows are from the exp-v0.5.0 release-candidate build.
 
-**These are upper bounds, not a verdict on play, except for GBA below.** Each is an
+**These are historical upper bounds, not a verdict on play, except for GBA and GBC
+below.** Each is an
 average over one short run, with nothing measuring how evenly frames arrive or whether
 the sound underran. On 2026-11-01 a 32 MB GBA ROM hack (Pokemon Unbound, gpSP) was
 reported **choppy and laggy throughout**, although its title screen had measured 54.2
@@ -309,6 +310,13 @@ battle, the build without picture skipping "basically full speed, maybe even ful
 speed", and the final build's battle "good", with rewind "working great". The windows
 that read low in the final battle log were the console sleeping and the menu open
 (the game is paused there), not play.
+
+**GBC in sustained play (2026-11-03): Link's Awakening DX, rewind on.** After the
+startup window, all 89 two-second windows held 120-122 emulator frames, averaging
+60.06 fps. Across 10,800 timed frames the core averaged 3.59 ms and the whole frame
+5.53 ms. No audio was dropped; starvation stayed flat during normal play and rose only
+while actual rewind interrupted playback. The maintainer judged both play and rewind
+good.
 
 What changed, in rough order of effect: the stock firmware let the CPU governor sit at
 1.0 GHz, so Slot's launcher now holds the stock 1.2 GHz ceiling with the `performance`
@@ -337,9 +345,11 @@ console's step. Checked on the console by the maintainer: the bar moves with eac
 the sound follows it, and holding Volume Up reached step 20 with the bar full. Not
 checked: headphones (this console's jack is not read), mute (slot's own mute chord is
 unchanged and was not tried on the console), and the shelf and menu sounds at the new
-fixed scale. The earlier unexplained volume change during a rewind pass is probably the
-same cause, since a stray key moved the console's gain separately from slot's bar; that
-was not reproduced.
+fixed scale. The saved step is now read when Slot starts, so the first bar no longer
+appears full. **Known UI issue accepted for 1.0:** the rewind-history bar falls while L2
+is held and looks enough like the volume HUD to be mistaken for volume going down. A
+traced test showed only L2 events and unchanged loudness; the saved volume and hardware
+gain moved only on real Volume Down events.
 
 - **PlayStation runs and stays up.** It is the system the console could not hold
   before: the core reserved a 16 MB translation cache and the frontend held 30 MB

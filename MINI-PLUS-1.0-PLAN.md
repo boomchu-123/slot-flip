@@ -13,13 +13,13 @@ with no MinUI.
 on `feat/miyoomini-software`. Everything below is, or is to be, measured on hardware
 driven over adb, not inferred from a build.
 
-**Last updated:** 2026-11-02.
+**Last updated:** 2026-11-11.
 
-**Status: GBA and the new release-critical controls pass; the device as a whole is not
-yet releasable as 1.0.** Pokémon Unbound now holds full speed through battles, including
-with rewind recording enabled. Exit Slot and the device-specific General page work on
-the console. SNES, GBC and PlayStation performance and the end-to-end checks below
-remain open.
+**Status: GBA, GBC and the new release-critical controls pass; the device as a whole is
+not yet releasable as 1.0.** GBA holds full speed through battles and GBC through
+sustained action, both with rewind recording enabled. Exit Slot and the device-specific
+General page work on the console. SNES still needs a clean trace, PlayStation is short,
+and the end-to-end checks below remain open.
 
 ---
 
@@ -40,7 +40,7 @@ a second from Slot's own trace:
 | Master System | PicoDrive | 60.1 of 60 | was 58.6 |
 | Game Gear | PicoDrive | 60.1 of 60 | was 59.7 |
 | Game Boy | mGBA | 58.3 of 59.7 | |
-| Game Boy Color | mGBA | **55.9** of 59.7 (59.9 with rewind off) | short |
+| Game Boy Color | mGBA | **full speed in sustained play** | 120-122 frames per two seconds, rewind on |
 | Game Boy Advance | gpSP | **full speed in sustained play** | Unbound battles held 120-122 frames per two seconds; rewind-on held 120-123 |
 | PlayStation | PCSX-ReARMed | **48 to 52** of 59.9 | short; 21 MB spare after four minutes |
 
@@ -48,11 +48,11 @@ The Mega Drive, Master System and Game Gear rows are from the zip with PicoDrive
 installed the way a user would; the rest are from the exp-v0.5.0 build, and the
 SNES and GBC rows were re-measured on 2026-10-31 for the rewind comparison.
 
-**How far to trust this table.** GBA is the exception: it was measured during real
-overworld and battle play with live frame-time and audio counters, then repeated with
-rewind recording on. Every other row is an average over 40 to 50 seconds, usually at a
-title screen or intro, with no measure of how evenly frames arrive. Treat those rows as
-upper bounds until section 3 item 2 is done for each system.
+**How far to trust this table.** GBA and GBC were measured during real sustained play
+with live frame-time and audio counters and rewind recording on. Every other row is an
+average over 40 to 50 seconds, usually at a title screen or intro, with no measure of how
+evenly frames arrive. Treat those rows as upper bounds until section 3 item 2 is done for
+each system.
 
 **What each frame costs.** The picture path is about 2.5 ms a frame (it was about
 15). What is left is the emulator thread itself. Genesis Plus GX took about 16 ms of
@@ -111,6 +111,9 @@ Not gates: playing every title through, judging sound by ear, L3/R3 in a game.
   separates frontend and emulator work across its two cores, uses gpSP's 32768 Hz audio
   rate, recovers short pacing misses, and records rewind at 10 snapshots a second.
   Unbound battles held full speed with flat audio counters, and actual rewind felt good.
+- **GBC sustained play** now passes. Link's Awakening DX held 120-122 frames in all 89
+  steady two-second windows (60.06 fps overall), with no dropped audio during normal
+  play. The maintainer judged play and rewind good.
 
 ---
 
@@ -127,8 +130,8 @@ nothing below them can be judged, or even debugged away from the bench, without 
    in code. One console power-off during testing, after a hand-made trigger rather than
    the menu row, is unexplained. Done when it is run on the Flip too: Exit, set Wi-Fi in
    the stock menu, come back to Slot from the App list, reboot into Slot.
-2. **Measure sustained play, then fix what it shows.** *GBA is done; every other system
-   is open.* The trace now prints, while a game runs, emulator frames per two seconds,
+2. **Measure sustained play, then fix what it shows.** *GBA and GBC are done; every
+   other system is open.* The trace now prints, while a game runs, emulator frames per two seconds,
    per-frame time (core and whole, with the worst frame) and the audio dropped and
    starved counts. On Pokemon Unbound from a mid-game resume, with the maintainer
    playing:
@@ -152,13 +155,15 @@ nothing below them can be judged, or even debugged away from the bench, without 
    step instead of a second volume of slot's (checked on the console). Every other row
    (brightness steps, battery, clock, shaders) is still to be reviewed once against the
    device.
-4. **Make rewind cheaper on this console.** *Done for GBA:* `SNAPSHOT_EVERY` is 6 on
-   this device (10 snapshots a second, was 30). Not measured: SNES and GBC (the two
-   systems rewind cost most, 5 and 4 frames a second at the old rate), and how many
-   seconds of history 10 a second keep in the 4 MiB budget. If SNES or GBC still fall
+4. **Make rewind cheaper on this console.** *Done for GBA and GBC:* `SNAPSHOT_EVERY` is
+   6 on this device (10 snapshots a second, was 30). Not cleanly measured: SNES, and how
+   many seconds of history 10 a second keep in the 4 MiB budget. If SNES still falls
    short, the next options are recording only while a rewind button is held, or keeping
    the snapshot off the emulator thread.
-5. **Super Nintendo.** Still about 3 frames short with rewind off. Measured once: the
+5. **Super Nintendo.** Yoshi's Island felt smooth to the maintainer with rewind on, and
+   most traced windows were full speed, but fast-forward, rewind and volume testing
+   contaminated that trace; several windows and audio counters were short. It needs one
+   clean sustained run before it passes. Earlier, it was about 3 frames short with rewind off. Measured once: the
    non-Plus snes9x2005 build reached 53.0 against 51.4 with rewind on (small, one
    run). An ARM-mode build of the current core was built and not yet measured.
    snes9x2002 builds and loads for this console (glibc 2.7) and has not been run on
@@ -166,8 +171,7 @@ nothing below them can be judged, or even debugged away from the bench, without 
 6. **PlayStation speed.** 48 to 52 of 59.9. The next real step is rendering on a
    second thread so the emulator and the picture pass stop sharing a core. The
    largest piece of work left, and not promised.
-7. **Game Boy Color.** Probably closed by item 4. A Gambatte build for this console
-   exists and has not been measured, as a fallback.
+7. **Game Boy Color.** Done on mGBA by item 4; the Gambatte fallback is not needed.
 8. **Check on the console what has not been checked:**
    - in-game battery saves across a restart, and PicoDrive save RAM
    - a PlayStation memory-card write read back after a power cycle

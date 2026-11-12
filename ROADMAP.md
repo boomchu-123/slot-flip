@@ -227,8 +227,8 @@ first applies to both devices. State on 2026-11-02:
   exit three times inside its first fifteen seconds, which is a crash safeguard and not
   a feature. Done when it is run on the Flip too: Exit, set Wi-Fi in the stock menu,
   come back to Slot from the App list, reboot into Slot.
-- 🚧 **Make games actually run at full speed on the Mini Plus.** **GBA passes; the other
-  systems are not re-measured.** Measured on a 32 MB hack from a mid-game resume, by the
+- 🚧 **Make games actually run at full speed on the Mini Plus.** **GBA and GBC pass; the
+  other systems are not cleared.** Measured by the
   trace that now prints frames per two seconds, per-frame time and audio counters while
   a game runs (120 is full speed):
   - The stock firmware let the CPU drop to 1.0 GHz. The launcher now holds the stock
@@ -248,10 +248,16 @@ first applies to both devices. State on 2026-11-02:
     underrun at a 40.8 ms spike); **10 snapshots a second held 73 of 73 windows at
     120-123 with flat audio**, and the maintainer played a battle and used rewind and
     called both good.
+  - **GBC with rewind on** held 120-122 frames in all 89 steady windows (60.06 fps
+    overall) during Link's Awakening DX, with no dropped audio in normal play; the
+    maintainer called play and rewind good.
+  - **SNES is not closed:** Yoshi's Island felt smooth and most windows were full speed,
+    but a trace mixed normal play with fast-forward, rewind and volume tests and included
+    short windows and growing starvation. It needs one clean sustained run.
   - Not done: one game at one save point; the 8 MB-versus-32 MB test of whether the
     card is re-read during play; how much rewind history 10 snapshots a second keep in
-    4 MiB; and every other system. Super Nintendo, Game Boy Color and PlayStation
-    still need the same sustained, rewind-on measurement, then their own work (plan
+  4 MiB; and every other system. Super Nintendo and PlayStation
+  still need the same sustained, rewind-on measurement, then their own work (plan
     items 5 to 7). The 1.0 bar for this device is **sustained play with default
     settings (rewind on), per system**, and a game the maintainer calls choppy is a
     failure whatever the average says.
@@ -263,7 +269,10 @@ first applies to both devices. State on 2026-11-02:
   covered by tests and **not yet looked at on the console**. The volume bar was wrong
   (the console's own handler moves the real gain while slot kept a second volume on
   top); slot now follows the console's step and the maintainer checked it on the
-  console. Every other row (brightness steps, battery, clock, shaders) still needs one
+  console. The rewind-history HUD also falls while L2 is held; it resembles the volume
+  bar closely enough to be mistaken for a volume change, although the saved step and
+  hardware gain stay fixed. This is a known UI issue accepted for 1.0. Every other row
+  (brightness steps, battery, clock, shaders) still needs one
   review against the device. Hiding is driven by what the device has, not by a scatter of feature checks,
   so the next device is cheaper.
 
