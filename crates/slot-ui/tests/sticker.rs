@@ -6,7 +6,8 @@ fn fields() -> StickerFields<'static> {
         serial: "04738857",
         version: "0.1.0",
         upstream: "1.9.0",
-        model: "RG SP",
+        wordmark: "MIYOO FLIP",
+        model: "MY355",
     }
 }
 
@@ -113,12 +114,20 @@ fn the_version_rides_above_the_where_to_look_line() {
 }
 
 #[test]
-fn the_wordmark_is_the_handhelds_own_whatever_the_os_calls_it() {
+fn the_model_and_wordmark_change_with_the_device() {
     let flip = slot_ui::sticker_face(&fields()).rgba;
-    for model in ["", "RG SP", "RG35XX SP"] {
-        let face = slot_ui::sticker_face(&StickerFields { model, ..fields() });
-        assert!(face.rgba == flip, "{model:?} changed the sticker");
-    }
+    let mini = slot_ui::sticker_face(&StickerFields {
+        model: "MY354",
+        wordmark: "MIYOO MINI PLUS",
+        ..fields()
+    });
+    assert_ne!(mini.rgba, flip);
+    let lines = sticker_lines(&StickerFields {
+        model: "MY354",
+        wordmark: "MIYOO MINI PLUS",
+        ..fields()
+    });
+    assert!(lines.iter().any(|line| line == "MODEL NO. MY354"));
 }
 
 #[test]
@@ -132,17 +141,4 @@ fn the_model_is_set_in_capitals_whatever_baseos_wrote() {
         ..fields()
     });
     assert!(upper.rgba == lower.rgba);
-}
-
-#[test]
-fn a_model_baseos_gives_two_names_shows_the_first() {
-    let both = slot_ui::sticker_face(&StickerFields {
-        model: "RG35XX Plus / RG35XX 2024",
-        ..fields()
-    });
-    let plus = slot_ui::sticker_face(&StickerFields {
-        model: "RG35XX Plus",
-        ..fields()
-    });
-    assert!(both.rgba == plus.rgba);
 }

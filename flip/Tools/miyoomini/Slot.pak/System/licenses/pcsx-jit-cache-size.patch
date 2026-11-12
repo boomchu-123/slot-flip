@@ -1,0 +1,31 @@
+Allow the recompiler's translation cache to be sized at build time
+
+The arm and arm64 assemblers hard-code a 16 MiB translation cache. The Miyoo
+Mini Plus has about 100 MB of RAM in total, and on that console the cache is
+the largest single mapping the PlayStation core holds after its emulated RAM.
+A build can now pass -DTARGET_SIZE_2=22 for 4 MiB; the default is unchanged.
+
+--- a/libpcsxcore/new_dynarec/assem_arm.h	2026-10-30 09:35:53
++++ b/libpcsxcore/new_dynarec/assem_arm.h	2026-10-30 09:35:53
+@@ -37,7 +37,9 @@
+ extern char *invc_ptr;
+ 
+ // note: max due to branch encoding: arm 32M, arm64 128M
++#ifndef TARGET_SIZE_2
+ #define TARGET_SIZE_2 24 // 2^24 = 16 megabytes
++#endif
+ 
+ struct tramp_insns
+ {
+--- a/libpcsxcore/new_dynarec/assem_arm64.h	2026-10-30 09:35:53
++++ b/libpcsxcore/new_dynarec/assem_arm64.h	2026-10-30 09:35:53
+@@ -35,7 +35,9 @@
+ #define SSP_CALLER_REGS (8*20)
+ #define SSP_ALL (SSP_CALLEE_REGS+SSP_CALLER_REGS)
+ 
++#ifndef TARGET_SIZE_2
+ #define TARGET_SIZE_2 24 // 2^24 = 16 megabytes
++#endif
+ 
+ #ifndef __ASSEMBLER__
+ 

@@ -14,6 +14,22 @@ pub const DEVICE: &str = if cfg!(feature = "host") {
     "device"
 };
 
+pub const MODEL: &str = if cfg!(feature = "miyoomini") {
+    "MY354"
+} else if cfg!(feature = "flip") {
+    "MY355"
+} else {
+    "DEVICE"
+};
+
+pub const WORDMARK: &str = if cfg!(feature = "miyoomini") {
+    "MIYOO MINI PLUS"
+} else if cfg!(feature = "flip") {
+    "MIYOO FLIP"
+} else {
+    "SLOT"
+};
+
 #[derive(Copy, Clone, Debug)]
 pub struct Build {
     pub version: &'static str,

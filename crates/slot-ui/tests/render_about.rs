@@ -15,6 +15,7 @@ fn render_about() {
         serial: "04738857",
         version: "0.1.0",
         upstream: "1.9.0",
+        wordmark: "MIYOO FLIP",
         model: &model,
     });
 

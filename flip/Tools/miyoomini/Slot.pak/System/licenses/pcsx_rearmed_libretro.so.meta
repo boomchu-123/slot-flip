@@ -1,0 +1,5 @@
+commit=c8816799b50388e61cfe237fe2cdbb7d8175f20a
+source=https://github.com/libretro/pcsx_rearmed/archive/c8816799b50388e61cfe237fe2cdbb7d8175f20a.tar.gz
+recipe=cross armv7, zig cc, glibc 2.17: make -f Makefile.libretro platform=unix, JIT cache 4194304 bytes
+device_cflags=
+patch=jit-cache-size.patch sha256:0a171fd745b035f2e357418dc0bf9df8c26478234904eed3ce180cce140b48b3

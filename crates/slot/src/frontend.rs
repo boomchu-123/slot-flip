@@ -901,6 +901,10 @@ impl Frontend {
         self.session.app().ready_to_restart()
     }
 
+    pub fn leaving(&self) -> bool {
+        self.session.app().leaving()
+    }
+
     pub fn restart(&mut self) {
         self.session.app_mut().restart();
     }
@@ -1512,7 +1516,8 @@ fn sync_about(app: &mut App, compositor: &mut Compositor, state: &mut AboutFace)
         serial: &build.serial(),
         version: build.version,
         upstream: crate::build_info::UPSTREAM,
-        model: &crate::baseos::var("BASEOS_MODEL").unwrap_or_default(),
+        wordmark: crate::build_info::WORDMARK,
+        model: crate::build_info::MODEL,
     });
     let id = upload(compositor, &mut state.tex, face);
     app.set_sticker_face(id);

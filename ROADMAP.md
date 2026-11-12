@@ -42,17 +42,16 @@ OS, Slot started from the stock launcher's **App** list, with input, sound, lid
 sleep, brightness and re-entering games all working. So the install is **one zip
 unzipped onto a FAT32 card**, which also makes the device start straight in Slot,
 and MinUI is a second entry that keeps working rather than a requirement.
-The Mini Plus is **not there yet**: it installs today as a MinUI Tool
-(`Tools/miyoomini/Slot.pak`), and moving it to its own launcher is part of the
-1.0 work, not an assumption.
+The Mini Plus now installs the same way: `Slot-miyoomini.zip` at the card root, an
+`App/Slot` entry, and `miyoo354/app/MainUI` booting into Slot with the stock
+launcher kept as `MainUI.stock`. It is **not at the 1.0 bar yet** on speed (below).
 
 That has three consequences worth stating:
 
 - **No MinUI needed.** MinUI was archived in November 2025 and has no licence
   file, so it was a poor thing to depend on. The `Tools/my355/Slot.pak` entry stays
   for the people who use it, but it is no longer tested for each release and no
-  longer part of the gate. The Mini Plus is still on that entry for now; its
-  stock-launcher entry is 1.0 work.
+  longer part of the gate. The Mini Plus has the stock-launcher entry too.
 - **Nothing on the device changes.** On the Flip, installing MinUI rewrites its
   internal system image; this writes only to the SD card, so uninstalling is
   deleting a folder.
@@ -118,10 +117,18 @@ that has to be merged twice.
   installed**, **and** `install.sh` does the same from a blank card, checked on
   hardware on both; the download passes `tools/check-pak-licences.sh`; the README
   table matches reality; and the release has been installed and run on both devices.
+  Three more were added on 2026-11-01 (see the Mini Plus section): Slot can be quit to
+  the device's own menu from inside, on both devices; games hold full speed in
+  **sustained play** with default settings, on the Mini Plus; and the settings and About
+  screen describe the device they are on. On 2026-11-02: Exit Slot has been run on the
+  Mini Plus and not yet on the Flip; GBA holds full speed in sustained play with rewind
+  on, and Super Nintendo, Game Boy Color and PlayStation are not yet there; the Mini
+  Plus General page is done and the About sticker is unchecked on the console.
 
 - **Stay free and open source.** No plans to sell. Donations never unlock
   anything. Non-commercial cores are bundled knowingly in the one free download
-  (snes9x2005, Genesis Plus GX, and PicoDrive if it is added), with their notices.
+  (snes9x2005 and Genesis Plus GX on the Flip; snes9x2005 and PicoDrive on the
+  Mini Plus), with their notices.
 - **Not a goal:** a desktop app. The `host` build is development and render-test
   tooling.
 
@@ -152,21 +159,122 @@ buttons, power, backlight and cores.
 - ✅ **Speed.** Games run at close to full speed (exp-v0.4.3), measured: gpSP on
   GBA holds 57 to 58 of 59.7 frames a second, mGBA on GB and GBC about 60, mGBA on
   GBA about 49. MinUI leaves the CPU at its 504 MHz menu speed when a Tool starts;
-  asking for 1296 MHz fixed it
-- 🚧 **Sound.** Games are silent. ALSA is out (exp-v0.4.2's log: no process holds
-  `/dev/snd`, the card is `MI Alsa`). exp-v0.4.4 reached the console's own audio
-  interface (`MI_AO`, the way MinUI plays sound): the library loads and answers,
-  and `Enable` was refused as "not configured" because slot had not set the device
-  up itself. exp-v0.4.5 sets it up the way MinUI's driver does. It has run against
-  a stand-in that reproduces that refusal, **not on a device**. This is the one
-  hard unknown left
-- 📋 **Install on the Mini Plus's own launcher.** Today it is a MinUI Tool
-  (`Tools/miyoomini/Slot.pak`). 1.0 needs the same shape as the Flip: one zip at
-  the card root, an entry in the launcher the device ships with, and no MinUI.
-  The exact mechanism is to be found on the device, not assumed from the Flip's:
-  the two launchers are not the same.
+  asking for 1296 MHz fixed it. **Superseded for 1.0:** these were short runs at a
+  title screen or intro, and the first real play (below) found a GBA game that is
+  choppy throughout
+- ✅ **Sound** (exp-v0.4.10, confirmed by a tester by ear on every core). It plays
+  through `/dev/dsp`, which the console's `libpadsp` hands to the audio server;
+  the vendor interface (`MI_AO`) stays refused while that server runs. Possible
+  slight slowdown in gpSP, not measured. Delay, headphones and long play not
+  checked
+- 🟡 **Large GBA games with a clock chip on mGBA** (Pokemon Emerald): the crash at
+  load is fixed by loading ROMs of 8 MiB and up by path, but it still crashes a
+  moment later when mGBA asks for a 32 MB map with about 30 MB available. gpSP, the
+  default, plays it.
+- ✅ **All nine systems run on the stock firmware** (2026-10-30): a real game on each,
+  pictures read back from the panel. Cores are built for the console with Zig
+  (`cores/armv7-zigcc`) and ship in the pak.
+- ✅ **PlayStation stays up.** The kernel used to kill it before its first frame:
+  the core reserved a 16 MB translation cache (now 4 MiB, a build-time patch in
+  `cores/pcsx`), the frontend held 30 MB of pictures it was not drawing (now kept
+  compressed), and freed memory piled up in glibc's per-thread arenas (now
+  limited in `launch.sh`). Four minutes on Crash Bandicoot: 21 MB spare, no kill.
+- ✅ **The picture path went from about 14 ms to about 2.5 ms a frame**: the plain
+  scale (no scanline mask, no dimming) copies bytes instead of multiplying 16-bit
+  lanes twice.
+- 🟡 **Speed.** **GBA now holds full speed in sustained play** (below). Game Boy,
+  Master System, Game Gear and Mega Drive were within a frame or two of the core's
+  rate in short runs (Mega Drive moved from Genesis Plus GX to PicoDrive and rose from
+  51.0 to 58.2). **Super Nintendo ran at about 52 frames a second, Game Boy Color at 56
+  and PlayStation at 48 to 52** with rewind on. Those short-run figures predate the
+  governor, pacing and rewind changes below, which apply to every system on this
+  console, and **have not been re-measured**. The picture path is no longer the cost.
+  Super Nintendo's core and PlayStation's render thread are the open work. The working
+  plan, in order, is [MINI-PLUS-1.0-PLAN.md](MINI-PLUS-1.0-PLAN.md).
+- ✅ **Published as a release candidate** (`exp-v0.5.0`, pre-release): the zip that
+  was built locally and tested on a console. It predates PicoDrive. CI builds the
+  same zip (the `release` job passes since the packaging fix), but the published
+  asset was not built by CI.
+- ✅ **Button node found on purpose, not by luck** (exp-v0.4.14). Tested in code.
+- ✅ **Install on the console's own launcher.** `Slot-miyoomini.zip`, `install.sh`
+  (one script for both devices) and the CI job exist, and the installer is covered
+  by tests on stand-in folders. Both update and fresh-install paths were run on the
+  console itself; cold boot reached Slot, the stock menu escape worked, and
+  `MainUI.stock` survived. **Not done: in-game saves, a PlayStation memory card, a
+  disc change, quick-menu save states and listening to the sound on this console.
+  (Resume states do round-trip across a restart.)** Three `miyoomini` app tests also
+  fail and are on the plan.
 - 📋 **Which lines the stock launcher leaves unset**, the way `joy_type` is on the
-  Flip, so `launch.sh` sets them for itself and restores them on exit.
+  Flip, so `launch.sh` sets them for itself and restores them on exit. Not done.
+
+#### Found in the first real play (2026-11-01): three new 1.0 items
+
+The maintainer took the console away from the bench and played a 32 MB Pokemon
+FireRed hack (Pokemon Unbound) on it. It was **choppy and laggy everywhere**, and there
+was **no way to get to the console's own menu** to set up Wi-Fi. Taken together, the
+Mini Plus build was **not releasable as 1.0**. These three became 1.0 gates, and the
+first applies to both devices. State on 2026-11-02:
+
+- 🚧 **Quit Slot from inside Slot, on every device and every release.** Built and **run
+  on the Mini Plus**: **General > Exit Slot** saves, and the card's launcher starts the
+  stock menu once and leaves nothing on the card, so the next boot is Slot again; Slot
+  stays in the stock App list as the way back. **Not yet run on the Flip**; its launcher
+  (`miyoo355/app/MainUI`) has the same change, and the Flip's own release needs it too
+  (`v0.15.1` has no such row). One console power-off during testing, after a hand-made
+  trigger rather than the menu row, was not explained. The problem as found: when Slot
+  exited, the card's launcher started it again, and the only ways to the stock menu
+  were to edit the card on a computer (create `Slot/Config/boot-menu`) or to make Slot
+  exit three times inside its first fifteen seconds, which is a crash safeguard and not
+  a feature. Done when it is run on the Flip too: Exit, set Wi-Fi in the stock menu,
+  come back to Slot from the App list, reboot into Slot.
+- 🚧 **Make games actually run at full speed on the Mini Plus.** **GBA, GBC and SNES pass; the
+  other systems are not cleared.** Measured by the
+  trace that now prints frames per two seconds, per-frame time and audio counters while
+  a game runs (120 is full speed):
+  - The stock firmware let the CPU drop to 1.0 GHz. The launcher now holds the stock
+    1.2 GHz ceiling with the `performance` governor and restores the old one on exit,
+    the frontend and emulator run on separate cores, and gpSP mixes at 32768 Hz instead
+    of 65536. That took overworld play from about 104 to 118-121 and the maintainer
+    found it much better, but battles still felt slow: a trace over two battles
+    averaged 115.0, worst 105, with audio starvation still growing.
+  - The emulator core itself averaged only 8-12 ms a frame. The loss was the pacer
+    throwing away the time of a frame that missed its deadline by a few milliseconds.
+    Keeping that time (a stall of more than two frames still resets it) held 42 of 42
+    battle windows at 120-122 with no new starvation. The temporary alternate-frame
+    picture skip that had been added was then removed: the pacing fix made it unnecessary,
+    and the maintainer found play smoother without it.
+  - **Rewind on** was the last cost: recording every second frame averaged 118.4, fell
+    to 108 and starved audio; every fourth frame was close (average 120.9, one
+    underrun at a 40.8 ms spike); **10 snapshots a second held 73 of 73 windows at
+    120-123 with flat audio**, and the maintainer played a battle and used rewind and
+    called both good.
+  - **GBC with rewind on** held 120-122 frames in all 89 steady windows (60.06 fps
+    overall) during Link's Awakening DX, with no dropped audio in normal play; the
+    maintainer called play and rewind good.
+  - **SNES with rewind recording on** held 120-122 frames in all 51 steady windows
+    (60.07 fps overall) during Yoshi's Island. Across 6,300 timed frames, audio had no
+    drops and its starvation counter stayed flat; the maintainer called play smooth.
+  - Not done: one game at one save point; the 8 MB-versus-32 MB test of whether the
+    card is re-read during play; how much rewind history 10 snapshots a second keep in
+  4 MiB; and every other system. PlayStation
+  still needs the same sustained, rewind-on measurement, then its own work (plan
+    items 5 to 7). The 1.0 bar for this device is **sustained play with default
+    settings (rewind on), per system**, and a game the maintainer calls choppy is a
+    failure whatever the average says.
+- 🚧 **Settings and screens that fit the device.** Done and **looked at on the console**
+  for the General page: it shows **Auto Sleep** (idle time, then sleep, any button
+  wakes) and hides **Lid Power Off** and **Rumble**, which the console has no lid or
+  motor for. The About sticker takes its model and wordmark from `build_info`
+  (`MY354` / `MIYOO MINI PLUS` here; `MY355` / `MIYOO FLIP` on the Flip); that is
+  covered by tests and **not yet looked at on the console**. The volume bar was wrong
+  (the console's own handler moves the real gain while slot kept a second volume on
+  top); slot now follows the console's step and the maintainer checked it on the
+  console. The rewind-history HUD also falls while L2 is held; it resembles the volume
+  bar closely enough to be mistaken for a volume change, although the saved step and
+  hardware gain stay fixed. This is a known UI issue accepted for 1.0. Every other row
+  (brightness steps, battery, clock, shaders) still needs one
+  review against the device. Hiding is driven by what the device has, not by a scatter of feature checks,
+  so the next device is cheaper.
 
 The port is **not** on the `experimental` branch: it lives on
 `feat/miyoomini-software`, cut from `flip`, and ships as `exp-v*` pre-releases

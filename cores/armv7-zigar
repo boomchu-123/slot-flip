@@ -1,0 +1,3 @@
+#!/bin/sh
+# See armv7-zigcc: the archiver the 32-bit ARM core builds use.
+exec "${ZIG:-zig}" ar "$@"

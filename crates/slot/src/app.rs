@@ -130,6 +130,12 @@ const ALERT_GONE: f32 = 0.9;
 
 const CLOCK_FLOOR: i64 = 1_577_836_800;
 
+/// Where the clock picker starts when the clock has lost its year: 2026-01-01.
+/// A console whose clock resets reads 2016 on first boot, and a picker that
+/// starts there makes the person scroll the year up ten times before the date
+/// can even be right. The build predates nothing earlier than this.
+const CLOCK_DEFAULT: i64 = 1_767_225_600;
+
 pub enum PendingUndo {
     Save {
         stamp: String,
@@ -374,6 +380,7 @@ pub struct App {
     starting: Option<LinkStarting>,
     link_transport: Option<(u16, Box<dyn LinkChannel>)>,
     restarting: bool,
+    leaving: bool,
     repairing: bool,
     repair_prompt: bool,
     reset_prompt: Option<QuickRow>,
@@ -393,6 +400,9 @@ pub struct App {
     carousel: CarouselKeys,
     shortcuts: ShortcutKeys,
     vol_before: Vec<(u8, bool, Millis)>,
+    /// Set where the console owns the volume (the Mini Plus): slot plays at full
+    /// scale and the bar shows the console's own step.
+    stock_volume: Option<crate::audio::stock_volume::Follow>,
     snapshot: Option<Box<dyn Snapshot>>,
     core: Core,
     colour_pending: Option<bool>,
@@ -463,6 +473,7 @@ pub struct App {
     clock: f64,
     power: Option<Power>,
     dozed_at: Millis,
+    idle_at: Millis,
     woke_on_press: bool,
     autosave_at: Millis,
     resume_at: Millis,
@@ -601,6 +612,7 @@ impl App {
             starting: None,
             link_transport: None,
             restarting: false,
+            leaving: false,
             repairing: false,
             repair_prompt: false,
             reset_prompt: None,
@@ -619,6 +631,9 @@ impl App {
             carousel: CarouselKeys::default(),
             shortcuts: ShortcutKeys::default(),
             vol_before: Vec::new(),
+            stock_volume: cfg!(feature = "miyoomini").then(|| {
+                crate::audio::stock_volume::Follow::new(crate::audio::stock_volume::SYSTEM_FILE)
+            }),
             snapshot: None,
             core: Core::default(),
             colour_pending: None,
@@ -682,6 +697,7 @@ impl App {
             clock: 0.0,
             power: None,
             dozed_at: 0,
+            idle_at: 0,
             woke_on_press: false,
             autosave_at: AUTOSAVE_MS,
             resume_at: RESUME_MS,
@@ -1062,6 +1078,11 @@ impl App {
     pub fn in_game_hidden(&self) -> Vec<QuickRow> {
         let no_bezel = self.playing_platform() == Platform::Gba && !self.framed_panel();
         let mut hidden = Vec::new();
+        if cfg!(feature = "miyoomini") {
+            hidden.extend([QuickRow::LidOff, QuickRow::Rumble]);
+        } else {
+            hidden.push(QuickRow::AutoSleep);
+        }
         // A disc has no bezel, shader or colour correction of its own to change.
         if !self.playing_platform().has_screen_options() {
             hidden.extend([
@@ -1256,7 +1277,7 @@ impl App {
                 WallpaperTint::Medium => QuickValue::Medium,
                 WallpaperTint::High => QuickValue::High,
             }),
-            QuickRow::LidOff => QuickValue::LID_OFF
+            QuickRow::LidOff | QuickRow::AutoSleep => QuickValue::LID_OFF
                 .into_iter()
                 .find(|v| v.minutes() == Some(self.lid_off_min())),
             QuickRow::Theme => Some(if self.light() {
@@ -1266,6 +1287,7 @@ impl App {
             }),
             QuickRow::Buttons
             | QuickRow::DateTime
+            | QuickRow::ExitSlot
             | QuickRow::About
             | QuickRow::Screen
             | QuickRow::Game
@@ -1568,6 +1590,9 @@ impl App {
             WallpaperPick::File(_) | WallpaperPick::Random
         );
         let mut hidden = Vec::new();
+        if cfg!(feature = "miyoomini") {
+            hidden.extend([QuickRow::LidOff, QuickRow::Rumble]);
+        }
         if !own {
             hidden.push(QuickRow::WallpaperTint);
         }
@@ -1826,7 +1851,19 @@ impl App {
         }
     }
 
+    /// Whether the shelf's pictures can be put down. On the Mini Plus they are
+    /// pixels in the frontend's own memory, about 13 MB of the roughly 75 MB the
+    /// kernel lets it have, and a game that fills the screen is where it needs
+    /// them least: the PlayStation core and large GBA ROMs ran the console out
+    /// of memory with them still held.
+    pub fn playing_lean(&self) -> bool {
+        cfg!(feature = "miyoomini") && matches!(self.phase, Phase::Playing { .. })
+    }
+
     pub fn face_wants(&self) -> Vec<FaceWant> {
+        if self.playing_lean() {
+            return Vec::new();
+        }
         let here = self.shelf();
         let screen = here.on_screen();
         let mut wants: Vec<(usize, usize)> = screen.iter().map(|i| (self.shelf_at, *i)).collect();
@@ -1864,9 +1901,17 @@ impl App {
 
     pub fn shed_faces(&mut self) -> Vec<TexId> {
         let neighbours = self.neighbour_shelves();
+        let lean = self.playing_lean();
         let mut shed = std::mem::take(&mut self.orphaned);
         for (at, (_, shelf)) in self.shelves.iter_mut().enumerate() {
-            let keep = if at == self.shelf_at {
+            let keep = if lean {
+                // The cart in the slot keeps its face: it is drawn again when it
+                // comes out.
+                match at == self.shelf_at {
+                    true => vec![shelf.index],
+                    false => Vec::new(),
+                }
+            } else if at == self.shelf_at {
                 shelf.around(FACE_KEEP)
             } else if neighbours.contains(&at) {
                 shelf.on_screen()
@@ -2419,6 +2464,7 @@ impl App {
         // on a launcher daemon to have done it (see audio::route).
         crate::audio::route::apply(self.headphones);
         self.power = Some(power);
+        self.idle_at = self.now();
         self.battery_at = self.now();
         self.charge_at = self.now();
         self.last_led = None;
@@ -2740,7 +2786,28 @@ impl App {
         }
     }
 
+    pub fn leaving(&self) -> bool {
+        self.leaving
+    }
+
     pub fn apply(&mut self, action: Action) {
+        if cfg!(feature = "miyoomini")
+            && matches!(self.phase, Phase::Doze { .. })
+            && !matches!(
+                action,
+                Action::PowerPress
+                    | Action::PowerTap
+                    | Action::PowerHold
+                    | Action::PowerOff
+                    | Action::LidClose
+                    | Action::LidOpen
+            )
+        {
+            self.wake();
+            self.idle_at = self.now();
+            return;
+        }
+        self.idle_at = self.now();
         self.track_held_dir(action);
         match action {
             Action::LidClose => return self.doze(),
@@ -3035,6 +3102,7 @@ impl App {
             QuickRow::DateTime => {
                 self.phase = clock_screen(self.utc_secs(), self.state.utc_offset_min, true);
             }
+            QuickRow::ExitSlot => self.leaving = true,
             QuickRow::About => self.phase = Phase::About,
             QuickRow::BindReset => {
                 match crate::input::keymap::reset() {
@@ -3139,7 +3207,8 @@ impl App {
             | QuickRow::ScShaderBack
             | QuickRow::ScFastForward
             | QuickRow::ScRewind
-            | QuickRow::LidOff => {}
+            | QuickRow::LidOff
+            | QuickRow::AutoSleep => {}
             QuickRow::BindUp
             | QuickRow::BindDown
             | QuickRow::BindLeft
@@ -3241,7 +3310,7 @@ impl App {
             self.persist();
             return;
         }
-        if row == QuickRow::LidOff {
+        if matches!(row, QuickRow::LidOff | QuickRow::AutoSleep) {
             let n = LID_OFF_MIN.len();
             let at = LID_OFF_MIN
                 .iter()
@@ -3398,7 +3467,9 @@ impl App {
             | QuickRow::Controls
             | QuickRow::ControlsShelf
             | QuickRow::ControlsInGame
-            | QuickRow::LidOff => return,
+            | QuickRow::LidOff
+            | QuickRow::AutoSleep
+            | QuickRow::ExitSlot => return,
         }
         self.persist();
     }
@@ -3480,6 +3551,19 @@ impl App {
             self.hud.toast(said, self.now());
             return true;
         }
+        if matches!(action, Action::VolumeUp | Action::VolumeDown) && self.stock_volume.is_some() {
+            // The console's own volume keys move the real gain; slot shows it.
+            let now = self.now();
+            let unmuted = std::mem::take(self.muted_mut());
+            if let Some(follow) = self.stock_volume.as_mut() {
+                follow.pressed(now);
+            }
+            self.show_volume();
+            if unmuted {
+                self.persist_soon();
+            }
+            return true;
+        }
         let s = &self.state;
         let (kind, value) = match action {
             Action::BrightnessUp => (HudKind::Brightness, up(s.brightness, 1, BRIGHTNESS_MAX)),
@@ -3544,9 +3628,25 @@ impl App {
         self.vol_before.clear();
         let muted = !self.muted();
         *self.muted_mut() = muted;
-        self.hud
-            .show(HudKind::Volume, self.output_volume(), muted, now);
+        self.show_volume();
         self.persist_soon();
+    }
+
+    /// Puts the volume bar up: the level slot plays at, or on a console that owns
+    /// its volume, the level the console is at.
+    fn show_volume(&mut self) {
+        let value = match &self.stock_volume {
+            Some(follow) => follow.percent(),
+            None => self.output_volume(),
+        };
+        let now = self.now();
+        self.hud.show(HudKind::Volume, value, self.muted(), now);
+    }
+
+    /// Hands slot's volume to the console, as on the Mini Plus. For tests, which
+    /// run on a host with no console to follow.
+    pub fn follow_console_volume(&mut self, file: impl Into<std::path::PathBuf>) {
+        self.stock_volume = Some(crate::audio::stock_volume::Follow::new(file));
     }
 
     fn hud_value(&self, kind: HudKind, value: u8) -> u8 {
@@ -3620,6 +3720,8 @@ impl App {
     pub fn output_volume(&self) -> u8 {
         if self.muted() {
             0
+        } else if self.stock_volume.is_some() {
+            VOLUME_MAX
         } else {
             self.level()
         }
@@ -3627,6 +3729,11 @@ impl App {
 
     pub fn hud_icon(&self) -> Icon {
         self.hud.glyph()
+    }
+
+    /// Where the volume bar was last drawn to, out of 100.
+    pub fn volume_bar(&self) -> u8 {
+        self.hud.value
     }
 
     pub fn now(&self) -> Millis {
@@ -3972,6 +4079,9 @@ impl App {
         if self.doze_expired() {
             self.on_doze_timeout();
         }
+        if self.auto_sleep_expired() {
+            self.doze();
+        }
         self.settle_loading_mark();
         if self.now() >= self.autosave_at.min(self.resume_at) {
             self.autosave();
@@ -4023,10 +4133,16 @@ impl App {
                 self.headphones = on;
                 crate::audio::route::apply(on);
                 self.hud.set_headphones(on);
-                let now = self.now();
-                self.hud
-                    .show(HudKind::Volume, self.output_volume(), self.muted(), now);
+                self.show_volume();
             }
+        }
+        let now = self.now();
+        if self
+            .stock_volume
+            .as_mut()
+            .is_some_and(|follow| follow.poll(now))
+        {
+            self.show_volume();
         }
         if self.now() >= self.charge_at {
             self.charge_at = self.now() + CHARGE_POLL_MS;
@@ -5765,6 +5881,17 @@ impl App {
         self.now().saturating_sub(self.dozed_at) >= timeout
     }
 
+    fn auto_sleep_expired(&self) -> bool {
+        if !cfg!(feature = "miyoomini")
+            || matches!(self.phase, Phase::Doze { .. })
+            || self.link_active()
+        {
+            return false;
+        }
+        let min = self.lid_off_min();
+        min != LID_OFF_NEVER && self.now().saturating_sub(self.idle_at) >= min as Millis * 60_000
+    }
+
     pub fn settle_saves(&mut self) {
         self.state_writer.flush();
         self.shot_writer.flush();
@@ -6447,8 +6574,11 @@ fn ff_next(from: u8, right: bool) -> u8 {
 }
 
 fn clock_screen(utc: i64, offset_min: i16, from_menu: bool) -> Phase {
+    // The picker starts somewhere sensible, but the seed stays the real time:
+    // confirming adds the distance the picker moved to the clock as it is.
+    let shown = if utc < CLOCK_FLOOR { CLOCK_DEFAULT } else { utc };
     Phase::SetClock {
-        picker: ClockPicker::local(utc, offset_min),
+        picker: ClockPicker::local(shown, offset_min),
         seed: utc - utc.rem_euclid(60),
         from_menu,
     }

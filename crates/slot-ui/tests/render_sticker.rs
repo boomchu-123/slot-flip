@@ -19,6 +19,7 @@ fn render_sticker() {
         serial: "04738857",
         version: "0.1.0",
         upstream: "1.9.0",
+        wordmark: "MIYOO FLIP",
         model: &model,
     });
     let (w, h) = (STICKER_W as usize, STICKER_H as usize);

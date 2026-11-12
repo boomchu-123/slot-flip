@@ -30,7 +30,7 @@ for this fork are in the [changelog](CHANGELOG.md).
 | --- | --- | --- | --- | --- |
 | **Miyoo Flip** | `my355` | `Tools/my355/Slot.pak` (MinUI) or `App/Slot` (stock firmware) | ✅ **Supported** (stable) | [Latest release](https://github.com/boomchu-123/slot-flip/releases/latest) |
 | **Miyoo A30** | `my282` | `Tools/my282/Slot.pak` | 🧪 **Experimental** — has a GPU, may work; unverified | [Pre-releases](https://github.com/boomchu-123/slot-flip/releases) |
-| **Miyoo Mini Plus** | `miyoomini` | `Tools/miyoomini/Slot.pak` | 🧪 **Experimental** — GBA/GB/GBC play at close to full speed; **sound is untested** | [Pre-releases](https://github.com/boomchu-123/slot-flip/releases) |
+| **Miyoo Mini Plus** | `miyoomini` | `App/Slot` (stock firmware) or `Tools/miyoomini/Slot.pak` (MinUI) | 🟡 **Release candidate** — GBA now passes sustained battle play with rewind; Super Nintendo, Game Boy Color and PlayStation still need work | [Pre-releases](https://github.com/boomchu-123/slot-flip/releases) |
 | Any other MinUI device | — | — | ❌ Not supported | — |
 
 The Flip's stock firmware is supported: unzip `Slot-my355.zip` at the card root and
@@ -43,18 +43,23 @@ there. MinUI is a second entry that keeps working.
 display, inputs). The Flip pak will simply **not appear** on a device whose
 platform folder doesn't match, and even if copied across it won't run.
 
-**Experimental builds.** The Mini Plus is on the 1.0 path; the A30 still needs a
-tester.
+**Mini Plus.** Unzip `Slot-miyoomini.zip` at the card root (or run its `install.sh`)
+and the console starts in Slot on its own firmware, with its own menu kept as
+`miyoo354/app/MainUI.stock`. It has **no GPU**, so it draws with a CPU rasteriser,
+and about 100 MB of memory in all. On the tested console every one of the nine
+systems runs. GBA now holds full speed through sustained play of a 32 MB hack,
+battles included, with rewind recording enabled. Mega Drive moved from Genesis Plus GX to
+PicoDrive on this device and runs at about 58 frames a second; Master System and
+Game Gear hold 60. **Super Nintendo, Game Boy Color and PlayStation still need
+sustained-play work; PlayStation is currently about 48–52 of 59.9 fps.** The
+numbers, and what has not been checked, are in
+[COMPATIBILITY.md](COMPATIBILITY.md); the install is in [INSTALL.md](INSTALL.md).
+
+**Experimental builds.** The A30 still needs a tester.
 
 - **Miyoo A30 (`my282`)** has a Mali-400 GPU, so it uses slot's real graphics
   renderer and has a genuine chance of working — but it's **unverified** and the
   button map is a best guess.
-- **Miyoo Mini Plus (`miyoomini`)** has **no GPU**, so it draws with a CPU
-  rasteriser. GBA, Game Boy and Game Boy Color play on a tester's device at close
-  to full speed; buttons, display and POWER all work. **Sound has never worked
-  yet**: the device's sound card cannot be opened the normal way, and the latest
-  test build sets up the vendor's own audio interface the way MinUI does, which
-  has not yet been heard on a real console. It still installs as a MinUI Tool. See the [roadmap](ROADMAP.md).
 
 If you have a **Mini Plus**, the port's test builds and reports are collected in
 [issue #3](https://github.com/boomchu-123/slot-flip/issues/3). If you have an
@@ -104,7 +109,8 @@ devices):
   page under them for the physical keys themselves, so a device whose keys
   report differently can be fixed without a rebuild.
 - **About shows both versions** — this build's version and the upstream slot
-  release it follows, on a plate marked **MY355** with this fork's repo on it,
+  release it follows, on a plate marked for the device (**MY355** on the Flip,
+  **MY354** on the Mini Plus) with this fork's repo on it,
   plus a one-time "Updated to ..." word the first time a newer build runs on a
   card that has run an older one.
 - **PlayStation discs** — a PS1 shelf where each game is a disc that spins into
@@ -188,8 +194,10 @@ the same thing by hand.
 
 ### Getting back to the stock menu
 
+For one session, use **General > Exit Slot** (see [Leaving Slot](#leaving-slot)).
+
 Slot starts by default, because that is what most people want from a device that
-plays one thing well. To reach the stock menu, create an empty file
+plays one thing well. To make the device start in the stock menu every time, create an empty file
 `Slot/Config/boot-menu` on the card and reboot. Delete it to start in Slot again.
 Removing the `miyoo355` folder does the same thing.
 
@@ -363,8 +371,9 @@ save made in MinUI does not carry over.
 Put games in `Slot/Games/MD` (`.md`, `.gen`, `.smd`, `.bin`), `Slot/Games/SMS` (`.sms`)
 and `Slot/Games/GG` (`.gg`). A shelf appears for each system that has games, and each
 game is a black cartridge with a label; put art in `Slot/Labels/MD/` (or `SMS`, `GG`)
-as for the other systems. All three run on one core, Genesis Plus GX, which is
-licensed for non-commercial use only: see [Credits & licence](#credits--licence). The
+as for the other systems. All three run on Genesis Plus GX on the Flip and PicoDrive
+on the Mini Plus. Both cores are licensed for non-commercial use only: see
+[Credits & licence](#credits--licence). The
 `.bin` extension is only taken from the `MD` folder, so it never mixes with a
 PlayStation disc's tracks.
 
@@ -410,12 +419,21 @@ special hardware have not been checked.
 
 ### Sleep & auto power-off
 
-- **Close the lid → sleeps immediately.**
-- While asleep, the device powers itself off after the time you pick in the
+- **Flip:** close the lid to sleep immediately. While asleep, the device powers
+  itself off after the time you pick in the
   menu under **General > Lid Power Off**: `1 / 3 / 5 / 10 / 15 / 30` minutes, or
   **Never**, which stays asleep until you open the lid (or the battery runs out).
   The choice is saved across reboots. Never is this fork's addition; upstream has
   no such choice.
+- **Mini Plus:** there is no lid, so Lid Power Off and Rumble are hidden. Use
+  **General > Auto Sleep** to choose the idle time before sleep; any button wakes it.
+
+### Leaving Slot
+
+Choose **General > Exit Slot** to save and hand control to the device's stock menu for
+the current session. The request is one-shot: the next reboot starts Slot normally.
+This has been run on the Mini Plus; the Flip's launcher has the same change but it has
+not been run there yet.
 
 ### Button remapping
 
@@ -477,11 +495,22 @@ launch once, and read `Slot/slot.log` — each press is logged with its code.
 - **GBA core:** gpSP by default (it has an ARM64 dynarec; mGBA does not). Per-game
   overrides live in `Slot/Config/selected_core.txt`.
 
+## Notes for the Mini Plus
+
+- **Display:** a CPU rasteriser writes the 640×480 framebuffer; there is no GPU.
+- **GBA core:** gpSP by default. The frontend and emulator are pinned to separate
+  cores, the CPU stays at its stock 1.2 GHz ceiling while Slot runs, and pacing
+  recovers short frame spikes instead of permanently slowing the game.
+- **Rewind:** records 10 snapshots a second on this device. A 32 MB GBA hack's battles
+  and actual rewind were checked at full speed with no continuing audio starvation.
+- **Still open for 1.0:** sustained SNES and GBC retests, PlayStation speed and its
+  memory-card/disc-change checks, per-core sound/headphones, and the final release-zip
+  sweep. See [the Mini Plus 1.0 plan](MINI-PLUS-1.0-PLAN.md).
+
 ## Installing on other MinUI devices
 
-The only **supported** device is the Miyoo Flip. The Mini Plus is on the 1.0 path
-but still **experimental**: GBA, Game Boy and Game Boy Color play, and sound does
-not work yet. The A30 is experimental and unverified. See
+The **supported** device is the Miyoo Flip, and the Mini Plus is a release candidate
+(see above). The A30 is experimental and unverified. See
 [Device support](#device-support) above, the [roadmap](ROADMAP.md), and
 [TESTERS.md](https://github.com/boomchu-123/slot-flip/blob/experimental/TESTERS.md)
 for how to test.
@@ -581,13 +610,13 @@ is **not** affiliated with or endorsed by the original author.
   GPL fork, source stays open.
 
 Emulation is by libretro cores: **mGBA** (MPL-2.0), **gpSP**, **PCSX-ReARMed** and
-**fceumm** (GPL-2.0), **snes9x2005** and **Genesis Plus GX**. Their licences, and the
+**fceumm** (GPL-2.0), **snes9x2005**, **Genesis Plus GX** and **PicoDrive**. Their licences, and the
 source of the ones that ask for it, are in `Slot.pak/System/licenses/`.
 
 **This download is free and has to stay free.** snes9x2005, the Super Nintendo
 core inside it, may be used, copied and shared for non-commercial purposes only, and
-Genesis Plus GX, which plays the Sega systems, may not be sold or used in a
-commercial product or activity. So you may use and share this download, but do not
+Genesis Plus GX and PicoDrive, which play the Sega systems on the two devices, may
+not be sold or used in a commercial product or activity. So you may use and share this download, but do not
 sell it, charge for it, or bundle it with anything that is sold. Donations to the project are fine, and
 never unlock anything. See `System/licenses/NOTICE-NONCOMMERCIAL.txt`. (A plain
 reading of the licences, not legal advice.)
