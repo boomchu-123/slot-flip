@@ -237,6 +237,13 @@ pub fn pcsx_options() -> &'static [(&'static str, &'static str)] {
     ]
 }
 
+/// PCSX work that the dual-core Mini Plus can move off the emulator thread.
+/// The core documents `auto` as its default, but an unset option does not receive
+/// that default through Slot's environment callback; it keeps its zero (off).
+pub fn miyoomini_pcsx_options() -> &'static [(&'static str, &'static str)] {
+    &[("pcsx_rearmed_gpu_thread_rendering", "enabled")]
+}
+
 pub fn apply_core_options(
     core: &mut LibretroCore,
     which: Core,
@@ -276,6 +283,11 @@ pub fn apply_core_options(
     if which == Core::Pcsx {
         for (key, value) in pcsx_options() {
             core.set_option(key, value);
+        }
+        if cfg!(feature = "miyoomini") {
+            for (key, value) in miyoomini_pcsx_options() {
+                core.set_option(key, value);
+            }
         }
     }
     if which == Core::Gpsp {
@@ -317,6 +329,11 @@ mod tests {
         assert!(
             has("pcsx_rearmed_analog_axis_modifier", "circle"),
             "unset, the core clips the sticks at 79% of their travel"
+        );
+        assert!(
+            miyoomini_pcsx_options()
+                .contains(&("pcsx_rearmed_gpu_thread_rendering", "enabled")),
+            "the Mini Plus needs GPU work off the emulator thread"
         );
     }
 
